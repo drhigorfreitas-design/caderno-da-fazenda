@@ -1,0 +1,1207 @@
+<title>Caderno da Fazenda</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: celular = uma coluna, barra de abas escura flutuante embaixo. Desktop = menu escuro à esquerda, painel claro arredondado, atividade à direita. Faixa dourada de boas-vindas */
+:root{
+  --bg:#f4f0e8; --surface:#ffffff; --sunk:#f4efe4; --ink:#1f1b13; --muted:#7a7363; --line:#ebe4d5;
+  --gold:#c4a15a; --gold-ink:#241a05; --gold-soft:#f5ebd3; --cream:#f9f4ea; --capim:#80601c; --capim-ink:#ffffff; --ipe:#c4a15a; --ipe-soft:#f5ebd3;
+  --good:#2b7a44; --bad:#b23a2a; --warn:#8f600c; --f-cria:#5b9a47; --f-recria:#4a80c4; --f-engorda:#d1693a;
+  --shell:#121110; --nav:#171513; --nav-ink:#bdb5a4; --shadow:0 2px 14px rgb(70 50 10 / .08);
+  --display:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f0e0c; --surface:#1a1815; --sunk:#26231f; --ink:#f0ebe1; --muted:#a69f8f; --line:#2f2b26;
+  --gold:#c9a860; --gold-ink:#1d1606; --gold-soft:#3a3118; --cream:#211e1a; --capim:#dcbd78; --capim-ink:#1d1606; --ipe:#c9a860; --ipe-soft:#3a3118;
+  --good:#6fcf8a; --bad:#f08a7a; --warn:#e5b65a; --f-cria:#7cc068; --f-recria:#7aa7e6; --f-engorda:#e8895c;
+  --shell:#070706; --nav:#0d0c0b; --nav-ink:#b8b09f; --shadow:0 2px 14px rgb(0 0 0 / .4); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f0e0c; --surface:#1a1815; --sunk:#26231f; --ink:#f0ebe1; --muted:#a69f8f; --line:#2f2b26;
+  --gold:#c9a860; --gold-ink:#1d1606; --gold-soft:#3a3118; --cream:#211e1a; --capim:#dcbd78; --capim-ink:#1d1606; --ipe:#c9a860; --ipe-soft:#3a3118;
+  --good:#6fcf8a; --bad:#f08a7a; --warn:#e5b65a; --f-cria:#7cc068; --f-recria:#7aa7e6; --f-engorda:#e8895c;
+  --shell:#070706; --nav:#0d0c0b; --nav-ink:#b8b09f; --shadow:0 2px 14px rgb(0 0 0 / .4); color-scheme:dark}
+*{box-sizing:border-box}
+html,body{background:var(--bg)}
+body{color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 calc(100px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:720px;margin:0 auto}
+/* faixa de boas-vindas */
+.band{background:var(--gold);color:var(--gold-ink);border-radius:20px;padding:22px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:relative;overflow:hidden;margin-top:12px}
+.band::after{content:"";position:absolute;right:-70px;top:-90px;width:250px;height:250px;border-radius:50%;border:1px solid rgb(255 255 255 / .35);box-shadow:0 0 0 30px rgb(255 255 255 / .07),0 0 0 60px rgb(255 255 255 / .05);pointer-events:none}
+.band-txt{min-width:0;position:relative;z-index:1}
+.band h1{font-size:24px;line-height:1.2;font-weight:800;letter-spacing:-.015em;margin:0;color:var(--gold-ink)}
+.band-sub{margin:4px 0 0;font-size:13px;color:rgb(36 26 5 / .78)}
+.band-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.bbtn{border:0;background:#fff;color:#241a05;font:700 13px var(--body);padding:10px 16px;border-radius:12px;cursor:pointer;box-shadow:0 2px 8px rgb(60 40 0 / .16)}
+.band-right{display:flex;flex-direction:column;align-items:flex-end;gap:10px;position:relative;z-index:1;flex:none}
+.ring{width:84px;height:84px;border-radius:50%;border:3px solid rgb(255 255 255 / .65);display:grid;place-items:center;background:rgb(255 255 255 / .2)}
+.ring svg{width:42px;height:42px;stroke:#fff;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.band .chip{background:rgb(255 255 255 / .35);color:var(--gold-ink)}
+.band .chip.good,.band .chip.bad,.band .chip.warn{color:var(--gold-ink)}
+.band .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:#6b5a2c}
+.band .chip.good::before{background:#1f7a3f} .band .chip.bad::before{background:#b23a2a} .band .chip.warn::before{background:#8f600c}
+.band.slim{padding:12px 18px;border-radius:16px}
+.band.slim .band-sub,.band.slim .band-btns,.band.slim .ring{display:none}
+.band.slim h1{font-size:16px}
+.band.slim .band-right{flex-direction:row}
+.statrow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.stat-c{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px;display:flex;align-items:center;gap:12px;min-width:0}
+.stat-c .ico{width:44px;height:44px;flex:none;border-radius:12px;background:var(--gold-soft);display:grid;place-items:center;color:var(--capim)}
+.stat-c .ico svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stat-c b{display:block;font-size:20px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.stat-c small{font-size:11px;color:var(--muted);font-weight:500}
+[hidden]{display:none!important}
+.janela{margin:0}
+@media (max-width:639px){.band{padding:18px 16px;gap:10px}.band h1{font-size:19px}.ring{width:54px;height:54px;border-width:2px}.ring svg{width:28px;height:28px}.band-btns{margin-top:12px}.bbtn{padding:9px 13px}.page-title h2{font-size:22px}}
+@media (min-width:640px){.statrow{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.cols{display:grid;gap:18px;align-items:start}
+.seg[aria-label="Período"]{max-width:520px}
+.page-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between}
+.page-title h2{font-size:30px}
+.page-title .dot{width:14px;height:14px}
+nav .brand,nav.tabs button.tab-extra,nav.tabs .nav-sep{display:none}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-family:var(--display);font-weight:700;font-size:34px;line-height:1;margin:2px 0 0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:700;font-size:22px;margin:0;letter-spacing:.01em;text-wrap:balance}
+h3{font-family:var(--display);font-weight:600;font-size:19px;margin:0}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .small{font-size:13px}
+section.view{display:flex;flex-direction:column;gap:18px;padding-block:8px 24px}
+.seg{display:flex;gap:4px;background:var(--sunk);padding:3px;border-radius:10px;flex-wrap:wrap}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);font:600 13px var(--body);padding:7px 10px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / .12)}
+.janela{font-size:13px;color:var(--muted)}
+.hero{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi .v{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kpi .l{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.kpi .s{font-size:12px;color:var(--muted)}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.row-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ind{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);align-items:center}
+.ind:last-child{border-bottom:0}
+.ind .t{font-weight:600;display:block}
+.ind .f{font-size:12px;color:var(--muted);display:block}
+.ind-v{text-align:right;display:flex;flex-direction:column;align-items:flex-end}
+.ind-v .v{font-weight:600;font-size:17px;white-space:nowrap}
+.ind-v .ref{font-size:12px;color:var(--muted);white-space:nowrap}
+.list{display:flex;flex-direction:column}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item .t{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.item .meta{font-size:13px;color:var(--muted);grid-column:1;min-width:0}
+.item .amt{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.item .act{grid-column:2;text-align:right}
+.cards{display:grid;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stat .v{font-family:var(--display);font-weight:700;font-size:21px;font-variant-numeric:tabular-nums}
+.stat .l{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.chip.warn{background:var(--ipe-soft);color:var(--warn)} .chip.bad{color:var(--bad)} .chip.good{color:var(--good)}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 14px var(--body);padding:8px 12px;border-radius:9px;cursor:pointer}
+.btn.primary{background:var(--capim);color:var(--capim-ink);border-color:var(--capim)}
+.btn.link{border:0;background:transparent;color:var(--capim);padding:4px 0}
+.btn.del{border:0;background:transparent;color:var(--muted);font-size:13px;padding:2px 0}
+.btn.del[data-armed]{color:var(--bad)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--ipe);outline-offset:2px}
+.banner{background:var(--ipe-soft);border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:14px}
+.empty{color:var(--muted);font-size:14px;padding:8px 0}
+.note{font-size:13px;color:var(--muted);margin:0}
+.chart{width:100%;height:auto;display:block}
+.legend{display:flex;gap:14px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.tbl-wrap{overflow-x:auto}
+table.tbl{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.tbl th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;text-align:right;padding:6px 6px;border-bottom:1px solid var(--line)}
+.tbl td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.tbl th:first-child,.tbl td:first-child{text-align:left;padding-left:0;white-space:normal}
+.tbl tfoot td{font-weight:700;border-bottom:0}
+.quad{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.quad div{border-radius:9px;padding:9px 10px;background:var(--sunk);font-size:12px;color:var(--muted);border:2px solid transparent}
+.quad div b{display:block;font-size:13px;color:var(--ink)}
+.quad div[data-on]{border-color:var(--ipe);background:var(--ipe-soft)}
+.quad div[data-on] b{color:var(--ink)}
+.bar{height:6px;background:var(--sunk);border-radius:3px;margin-top:4px;position:relative}
+.bar i{display:block;height:6px;background:var(--ipe);border-radius:3px}
+.bar s{position:absolute;top:-3px;width:2px;height:12px;background:var(--capim)}
+nav.tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:20;background:var(--nav);border-radius:20px;padding:6px;box-shadow:0 8px 28px rgb(0 0 0 / .32)}
+nav.tabs .in{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:2px}
+nav.tabs .in button{border:0;background:transparent;color:var(--nav-ink);font:600 10.5px var(--body);padding:7px 0;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+nav.tabs .in button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+nav.tabs .in button[aria-current="page"]{background:var(--gold);color:var(--gold-ink)}
+.nav-bottom{display:contents}
+.who,.theme-nav{display:none}
+.fab{position:fixed;z-index:21;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(86px + env(safe-area-inset-bottom,0px));
+  background:var(--gold);color:var(--gold-ink);border:0;border-radius:999px;font:700 15px var(--body);padding:13px 20px;box-shadow:0 6px 18px rgb(0 0 0 / .25);cursor:pointer}
+.theme{display:flex;gap:4px;background:var(--sunk);padding:3px;border-radius:12px}
+.theme button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:var(--muted);font:600 12px var(--body);padding:8px 10px;border-radius:9px;cursor:pointer}
+.theme button[aria-pressed="true"]{background:var(--gold);color:var(--gold-ink)}
+.theme svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sheet-bg{position:fixed;inset:0;z-index:30;background:rgb(0 0 0 / .42);display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);color:var(--ink);width:100%;max-width:560px;max-height:90vh;overflow:auto;border-radius:16px 16px 0 0;
+  padding:18px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+.types{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.types button{text-align:left;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:12px;cursor:pointer;font:600 15px var(--body)}
+.types button span{display:block;font-weight:400;font-size:12px;color:var(--muted)}
+form.f{display:flex;flex-direction:column;gap:12px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid3{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:end}
+label.fl{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--muted);min-width:0}
+label.fl input,label.fl select{font:16px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 10px;width:100%;min-width:0}
+.grid3 .cat{font-size:14px;font-weight:600;padding-bottom:10px;min-width:0}
+label.ck{display:flex;gap:8px;align-items:center;font-size:14px}
+fieldset{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0;display:flex;flex-direction:column;gap:10px;min-width:0}
+legend{font-size:13px;font-weight:700;padding:0 4px}
+.calc{background:var(--sunk);border-radius:9px;padding:10px 12px;font-size:14px}
+details summary{cursor:pointer;color:var(--capim);font-weight:600;font-size:14px}
+.fases{display:grid;gap:12px}
+.fase-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.fase-card[data-sel]{border-color:var(--ink)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.mini{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+.mini div{display:flex;flex-direction:column;min-width:0}
+.mini .l{font-size:11px;letter-spacing:.04em;overflow-wrap:anywhere;text-transform:uppercase;color:var(--muted);font-weight:600}
+.mini .v{font-family:var(--display);font-weight:700;font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.res-line{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-top:1px solid var(--line);padding-top:8px;flex-wrap:wrap}
+.res-line .v{font-family:var(--display);font-weight:700;font-size:22px;font-variant-numeric:tabular-nums}
+.share{height:6px;border-radius:3px;background:var(--sunk);display:flex;overflow:hidden}
+.share i{display:block;height:6px}
+.tbl.cmp th,.tbl.cmp td{min-width:92px}
+.tbl.cmp td:first-child,.tbl.cmp th:first-child{min-width:150px;position:sticky;left:0;background:var(--surface)}
+.tbl tr.sub td{font-weight:700;background:var(--sunk)}
+.sec-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px}
+.sec-title h2{font-size:26px}
+ol.steps{margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:12px}
+ol.steps li{padding-left:4px}
+ol.steps b{display:block}
+ol.steps .btn{margin-top:6px}
+.ing{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,.7fr) minmax(0,.9fr);gap:8px;align-items:end;margin-bottom:6px}
+.meta-chip.ok{color:var(--good)} .meta-chip.low,.meta-chip.high{background:var(--ipe-soft);color:var(--warn)}
+.mixcalc{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:6px}
+.mixcalc label{max-width:180px}
+ol.adapt{margin:6px 0 0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:4px}
+.toast{position:fixed;z-index:40;left:50%;transform:translateX(-50%);bottom:calc(144px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;max-width:calc(100% - 32px)}
+@media (min-width:640px){.fases{grid-template-columns:repeat(3,minmax(0,1fr))}.hero{grid-template-columns:repeat(4,minmax(0,1fr))}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:960px){
+  html,body{background:var(--shell)}
+  body{padding:18px 18px 18px 268px}
+  .wrap{max-width:1680px}
+  .frame{background:var(--surface);border-radius:28px;min-height:calc(100vh - 36px);overflow:hidden}
+  .main{padding:24px 32px 40px}
+  .side{margin:0;border-radius:0;padding:26px 28px 32px}
+  nav.tabs{top:0;left:0;bottom:0;right:auto;width:250px;background:transparent;border-radius:0;box-shadow:none;padding:26px 16px 20px;display:flex;flex-direction:column;gap:18px;overflow-y:auto}
+  nav.tabs .in{display:flex;flex-direction:column;gap:6px;max-width:none;margin:0}
+  nav.tabs .in button{flex-direction:row;justify-content:flex-start;gap:12px;font-size:14px;padding:12px 14px;border-radius:12px}
+  nav.tabs .in button:hover{background:rgb(255 255 255 / .07)}
+  nav.tabs .in button[aria-current="page"]:hover{background:var(--gold)}
+  nav .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;line-height:1.1;color:#fff;padding:0 8px 6px}
+  nav .brand .mk{width:38px;height:38px;border-radius:11px;background:var(--gold);color:var(--gold-ink);display:grid;place-items:center;font-size:15px;font-weight:800}
+  nav.tabs button.tab-extra{display:flex} nav.tabs button.tab-more{display:none}
+  nav.tabs .nav-sep{display:block;height:1px;background:var(--nav-line,rgb(255 255 255 / .1));margin:8px 12px}
+  .nav-bottom{display:flex;flex-direction:column;gap:12px;margin-top:auto}
+  .fab{position:static;width:100%;border-radius:12px;padding:12px;font-size:14px;box-shadow:none}
+  .who{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgb(255 255 255 / .13);border-radius:14px;color:#fff;min-width:0}
+  .who .av{width:36px;height:36px;border-radius:50%;background:var(--gold);color:var(--gold-ink);font-weight:800;display:grid;place-items:center;flex:none}
+  .who div{min-width:0}
+  .who b{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .who small{font-size:11px;color:var(--nav-ink)}
+  .who small::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#58c27d;margin-right:5px}
+  .theme-nav{display:flex;background:rgb(255 255 255 / .07)}
+  .theme-nav button{color:var(--nav-ink)}
+  .theme-nav button[aria-pressed="true"]{color:var(--gold-ink)}
+  .cols{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .band{padding:26px 30px;margin-top:0}
+  .band h1{font-size:26px}
+  .band.slim h1{font-size:17px}
+}
+@media (min-width:1280px){
+  .frame{display:grid;grid-template-columns:minmax(0,1fr) 340px}
+  .side{display:block}
+}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
+/* tipografia e cartões do novo visual */
+h2{font-size:19px;font-weight:700;letter-spacing:-.01em} h3{font-size:16px;font-weight:700}
+.page-title h2{font-size:24px} .sec-title h2{font-size:20px}
+.kpi .v{font-size:22px;font-weight:700} .stat .v{font-size:18px} .mini .v{font-size:17px;font-weight:700} .res-line .v{font-size:19px;font-weight:700}
+.kpi .l,.mini .l,.stat .l{font-weight:600}
+.panel,.card,.fase-card{border-radius:16px;box-shadow:var(--shadow)}
+.fase-card[data-sel]{border-color:var(--gold)}
+.btn{border-radius:11px;font-weight:600}
+.btn.primary{background:var(--gold);color:var(--gold-ink);border-color:var(--gold)}
+.seg{border-radius:12px}.seg button[aria-pressed="true"]{background:var(--surface);box-shadow:0 1px 4px rgb(0 0 0 / .14)}
+.frame{display:block}
+.side{display:none;background:var(--cream);border-radius:18px;padding:18px 16px;margin-top:18px}
+body[data-tab="painel"] .side{display:block}
+.side h2{margin-bottom:4px}
+.sd-sec{margin-top:18px}
+.sd-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}
+.sd-head h3{font-size:13px;font-weight:700}
+.sd-head .btn.link{font-size:12px}
+.ac{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;background:var(--surface);color:var(--ink);border-radius:14px;box-shadow:var(--shadow);padding:10px 12px;margin-bottom:8px;font:inherit;min-width:0}
+button.ac{cursor:pointer}
+.ac .tile{flex:none;width:42px;height:42px;border-radius:12px;background:var(--gold-soft);color:var(--capim);display:grid;place-items:center;text-align:center;line-height:1}
+.ac .tile b{display:block;font-size:15px;font-weight:700}
+.ac .tile small{display:block;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-top:2px}
+.ac .tile svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ac .tx{min-width:0;display:flex;flex-direction:column}
+.ac .tx b{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.ac .tx small{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.ac.warn .tile{background:var(--ipe-soft);color:var(--warn)}
+.sd-empty{font-size:12px;color:var(--muted);margin:0}
+.donut-wrap{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-top:10px}
+.donut{width:150px;height:150px;flex:none}
+.donut .c{font-size:30px;font-weight:800;fill:var(--ink);font-variant-numeric:tabular-nums}
+.donut .u{font-size:9px;fill:var(--muted);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.dl{flex:1;min-width:170px;display:flex;flex-direction:column;gap:14px}
+.dl-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:baseline;font-size:13px;font-weight:600}
+.dl-row .n{display:flex;align-items:center;gap:7px;min-width:0}
+.dl-row .n i{width:9px;height:9px;border-radius:3px;flex:none}
+.dl-row .v{font-variant-numeric:tabular-nums}
+.mbar{grid-column:1/-1;height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.mbar i{display:block;height:100%;border-radius:3px}
+
+nav.tabs .in button.tab-extra{display:none}
+nav.tabs .theme-nav,nav.tabs .who{display:none}
+@media (min-width:960px){
+  nav.tabs .in button.tab-extra{display:flex}
+  nav.tabs .in button.tab-more{display:none}
+  nav.tabs .who{display:flex}
+  nav.tabs .theme-nav{display:flex}
+  .side{margin:0;border-radius:0;padding:26px 28px 32px}
+}
+@media (min-width:1280px){
+  .frame{display:grid;grid-template-columns:minmax(0,1fr) 340px}
+  .side{display:block}
+}
+</style>
+
+<div class="wrap"><div class="frame"><div class="main">
+  <header class="band" id="band">
+    <div class="band-txt"><h1 id="welcome">Bem-vindo de volta!</h1><p class="band-sub" id="bandSub"></p>
+      <div class="band-btns"><button class="bbtn" type="button" data-open="fechamento">Fazer fechamento</button><button class="bbtn" type="button" data-open="desembolso">Lançar custo</button></div></div>
+    <div class="band-right"><span class="chip" id="status">Conectando…</span><div class="ring" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8c0-2 1-3 3-3M20 8c0-2-1-3-3-3M6 8h12l-1 7a5 5 0 0 1-10 0z"/><path d="M10 13h.01M14 13h.01M10 17h4"/></svg></div></div>
+  </header>
+  <section class="view" id="v-painel"></section>
+  <section class="view" id="v-cria" hidden></section>
+  <section class="view" id="v-recria" hidden></section>
+  <section class="view" id="v-engorda" hidden></section>
+  <section class="view" id="v-custos" hidden></section>
+  <section class="view" id="v-rebanho" hidden></section>
+  <section class="view" id="v-suplementacao" hidden></section>
+</div>
+<aside class="side" id="side" aria-label="Atividade"></aside>
+</div></div>
+
+<nav class="tabs" aria-label="Seções">
+  <div class="brand"><span class="mk">CF</span><span>Caderno<br>da Fazenda</span></div>
+  <div class="in">
+    <button type="button" data-tab="painel"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9H3z"/><path d="M9 20v-6h6v6"/></svg>Fazenda</button>
+    <button type="button" data-tab="cria"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg>Cria</button>
+    <button type="button" data-tab="recria"><svg viewBox="0 0 24 24"><path d="M4 18c3-1 4-5 8-5s5 4 8 5"/><path d="M12 13V5M9 8l3-3 3 3"/></svg>Recria</button>
+    <button type="button" data-tab="engorda"><svg viewBox="0 0 24 24"><path d="M3 20l5-7 4 4 4-8 5 11"/><path d="M3 20h18"/></svg>Engorda</button>
+    <button type="button" data-tab="custos"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Custos</button>
+    <span class="nav-sep"></span>
+    <button type="button" class="tab-extra" data-tab="rebanho"><svg viewBox="0 0 24 24"><path d="M4 8c0-2 1-3 3-3M20 8c0-2-1-3-3-3M6 8h12l-1 7a5 5 0 0 1-10 0z"/><path d="M10 13h.01M14 13h.01M10 17h4"/></svg>Rebanho</button>
+    <button type="button" class="tab-extra" data-tab="suplementacao"><svg viewBox="0 0 24 24"><path d="M3 10h18l-2.5 8h-13z"/><path d="M8 10V6h8v4M6 21v-3M18 21v-3"/></svg>Suplementação</button>
+    <button type="button" class="tab-more" data-more><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>Mais</button>
+  </div>
+  <div class="nav-bottom">
+    <button class="fab" id="fab" type="button">+ Registrar</button>
+    <div class="who" id="who"></div>
+    <div class="theme theme-nav" role="group" aria-label="Tema"><button type="button" data-theme-set="light" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>Claro</button><button type="button" data-theme-set="dark" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>Escuro</button></div>
+  </div>
+</nav>
+<div id="sheetRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+(() => {
+/* ---------- constantes do método ---------- */
+const CATS=[['matrizes','Matrizes'],['descarte','Matrizes de descarte'],['bezerros','Bezerros mamando'],['touros','Touros'],
+ ['f8_12','Fêmeas 8 a 12 meses'],['f13_24','Fêmeas 13 a 24 meses'],['f24','Fêmeas > 24 meses'],
+ ['m8_12','Machos 8 a 12 meses'],['m13_24','Machos 13 a 24 meses'],['m25_36','Machos 25 a 36 meses'],['m36','Machos > 36 meses'],['outras','Outras categorias']];
+const CK=CATS.map(c=>c[0]); const CN=Object.fromEntries(CATS);
+const PRECO_PADRAO={matrizes:300,descarte:295,bezerros:340,touros:290,f8_12:330,f13_24:315,f24:305,m8_12:345,m13_24:325,m25_36:315,m36:305,outras:290};
+const GRUPOS=[['nutricao','Nutrição','var'],['sanidade','Sanidade','var'],['reproducao','Reprodução','var'],['pastagem','Pastagem: formação e manutenção','fix'],
+ ['mao','Mão de obra permanente','fix'],['manutencao','Manutenção da fazenda','fix'],['maquinas','Parque de máquinas','fix'],['administracao','Administração','fix'],['impostos','Taxas e impostos','fix'],['arrendamento','Arrendamento / custo da terra','fix'],['outros','Outros','fix']];
+const GN=Object.fromEntries(GRUPOS.map(g=>[g[0],g[1]])); const GVAR=new Set(GRUPOS.filter(g=>g[2]==='var').map(g=>g[0]));
+const INS_PAS=new Set(['nutricao','sanidade','reproducao','pastagem']);
+/* % sobre o desembolso das fazendas mais rentáveis (Benchmarking Inttegra 2020/21) */
+const REF_TOP=[['Insumos do rebanho (nutrição, sanidade, reprodução)',['nutricao','sanidade','reproducao'],42.2],['Mão de obra permanente',['mao'],15.2],['Manutenção da fazenda',['manutencao'],12.7],['Pastagem',['pastagem'],10.3],['Parque de máquinas',['maquinas'],10.1],['Administração',['administracao'],5.3],['Taxas e impostos',['impostos'],3.4],['Arrendamento / custo da terra',['arrendamento'],null],['Outros',['outros'],0.8]];
+const TIPOS_MOV={nascimento:'Nascimento',compra:'Compra',venda:'Venda',morte:'Morte',transferencia:'Mudança de categoria'};
+const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const COL={fech:'fechamentos',movs:'movimentos',desemb:'desembolsos',estacoes:'estacoes',engorda:'engorda',insumos:'insumos',emovs:'estoque_movs',form:'formulacoes',adapt:'adaptacoes'};
+const FASES=[['cria','Cria'],['recria','Recria'],['engorda','Engorda']]; const FN=Object.fromEntries(FASES); const CENTROS=FASES.map(f=>f[0]);
+const FASE_PADRAO={matrizes:'cria',bezerros:'cria',touros:'cria',f8_12:'recria',f13_24:'recria',f24:'recria',m8_12:'recria',m13_24:'recria',m25_36:'engorda',m36:'engorda',descarte:'engorda',outras:'engorda'};
+const CENTRO_N={geral:'Fazenda toda (rateado)',cria:'Cria',recria:'Recria',engorda:'Engorda'};
+/* tipos de custo que o usuário lança; cada um cai num grupo do benchmark */
+const ITENS=[['peao','Peão / funcionário fixo','mao'],['empreiteiro','Empreiteiro','mao'],['diarista','Diarista','mao'],['combustivel','Combustível','maquinas'],
+ ['medicacao','Medicamentos e vacinas','sanidade'],['suplementacao','Suplementação e ração','nutricao'],['sal','Sal mineral','nutricao'],['reproducao','Sêmen e protocolos de IATF','reproducao'],
+ ['pasto','Adubo, semente e reforma de pasto','pastagem'],['arrendamento','Arrendamento','arrendamento'],['cercas','Cercas, curral e benfeitorias','manutencao'],
+ ['maquinas','Manutenção de máquinas e veículos','maquinas'],['energia','Energia elétrica','administracao'],['admin','Contador, escritório e internet','administracao'],
+ ['impostos','Impostos e taxas','impostos'],['frete','Frete e comissões','outros'],['outros','Outros gastos','outros']];
+const ITN=Object.fromEntries(ITENS.map(i=>[i[0],i[1]])), ITG=Object.fromEntries(ITENS.map(i=>[i[0],i[2]]));
+const GRUPO_ITEM={nutricao:'suplementacao',sanidade:'medicacao',reproducao:'reproducao',pastagem:'pasto',mao:'peao',manutencao:'cercas',maquinas:'maquinas',administracao:'admin',impostos:'impostos',arrendamento:'arrendamento',outros:'outros'};
+const itemOf=x=>x.item&&ITN[x.item]?x.item:(GRUPO_ITEM[x.grupo]||'outros');
+const ondeOpts=()=>[['geral','Fazenda toda (dividido entre as fases)'],['cria','Só a cria'],['recria','Só a recria'],['engorda','Só a engorda'],...S.engorda.filter(l=>!l.dataSaida||days(l.dataSaida,today())<120).map(l=>['lote:'+l.id,'Só o lote: '+l.nome])];
+const ondeVal=x=>x.loteId?'lote:'+x.loteId:(CENTROS.includes(x.centro)?x.centro:'geral');
+const ondeTxt=x=>x.loteId?'Lote: '+((S.engorda.find(l=>l.id===x.loteId)||{}).nome||'removido'):(CENTRO_N[x.centro]||CENTRO_N.geral);
+const parseOnde=v=>v&&v.startsWith('lote:')?{centro:'engorda',loteId:v.slice(5)}:{centro:CENTROS.includes(v)?v:'geral',loteId:''};
+const lembraOnde=(item,v)=>{try{localStorage.setItem('onde_'+item,v);}catch(e){}};
+const ondePadrao=item=>{try{return localStorage.getItem('onde_'+item)||'geral';}catch(e){return 'geral';}};
+const CFG0={nome:'Minha Fazenda',usuario:'Dr. Higor',kgArroba:30,area:0,safraMes:7,selic:15,precos:PRECO_PADRAO,fases:FASE_PADRAO,areaFase:{cria:0,recria:0,engorda:0}};
+const S={fech:[],movs:[],desemb:[],estacoes:[],engorda:[],insumos:[],emovs:[],form:[],adapt:[],config:{...CFG0}};
+const UI={tab:'painel',per:'safra',fase:'total'};
+let db=null, writable=true;
+
+/* ---------- utilidades ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ok=v=>typeof v==='number'&&isFinite(v);
+const nf=(v,d=0)=>ok(v)?v.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const brl=(v,d=0)=>ok(v)?v.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const pct=(v,d=1)=>ok(v)?nf(v,d)+'%':'—';
+const today=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);};
+const ym=d=>(d||'').slice(0,7);
+const addM=(m,n)=>{let y=+m.slice(0,4),mm=+m.slice(5,7)-1+n;y+=Math.floor(mm/12);mm=((mm%12)+12)%12;return y+'-'+String(mm+1).padStart(2,'0');};
+const diffM=(a,b)=>(+b.slice(0,4)-+a.slice(0,4))*12+(+b.slice(5,7)-+a.slice(5,7));
+const mEnd=m=>{const d=new Date(Date.UTC(+m.slice(0,4),+m.slice(5,7),0));return d.toISOString().slice(0,10);};
+const mLabel=m=>m?MES[+m.slice(5,7)-1]+'/'+m.slice(2,4):'';
+const dBR=s=>s?s.slice(8,10)+'/'+s.slice(5,7)+'/'+s.slice(2,4):'';
+const days=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
+const kgA=()=>Number(S.config.kgArroba)||30;
+const area=()=>Number(S.config.area)||0;
+const preco=c=>Number((S.config.precos||{})[c])||PRECO_PADRAO[c]||0;
+const sum=(a,f)=>a.reduce((s,x)=>s+(Number(f(x))||0),0);
+const cabOf=(f,c)=>Number(f?.cats?.[c]?.cab)||0, pesoOf=(f,c)=>Number(f?.cats?.[c]?.peso)||0;
+const fCab=(f,cs=CK)=>sum(cs,c=>cabOf(f,c)), fKg=(f,cs=CK)=>sum(cs,c=>cabOf(f,c)*pesoOf(f,c));
+const fVal=(f,cs=CK)=>sum(cs,c=>cabOf(f,c)*pesoOf(f,c)/kgA()*preco(c));
+const faseOf=c=>(S.config.fases||{})[c]||FASE_PADRAO[c];
+const st=(cond)=>cond==null?null:cond?'ok':'bad';
+
+/* ---------- janela de análise ---------- */
+function janela(per=UI.per){
+  const t=ym(today()), m0=Number(S.config.safraMes)||7, y=+t.slice(0,4), m=+t.slice(5,7);
+  const sy=m>=m0?y:y-1, ini=sy+'-'+String(m0).padStart(2,'0');
+  let s,e,nome;
+  if(per==='safra'){s=ini;e=t;nome='Safra '+sy+'/'+String(sy+1).slice(2);}
+  else if(per==='safraAnt'){s=addM(ini,-12);e=addM(ini,-1);nome='Safra '+(sy-1)+'/'+String(sy).slice(2);}
+  else {s=addM(t,-11);e=t;nome='Últimos 12 meses';}
+  const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1);
+  let ei=F.filter(f=>f.mes<s).pop(); const inW=F.filter(f=>f.mes>=s&&f.mes<=e);
+  if(!ei) ei=inW[0];
+  const ef=ei?inW.filter(f=>f.mes>ei.mes).pop():null;
+  if(!ei||!ef){ return {ok:false,s,e,nome,meses:diffM(s,e)+1,fechs:[],inR:d=>!!d&&ym(d)>=s&&ym(d)<=e}; }
+  return {ok:true,s,e,nome,ei,ef,meses:diffM(ei.mes,ef.mes),fechs:F.filter(f=>f.mes>ei.mes&&f.mes<=ef.mes),
+    dias:days(mEnd(ei.mes),mEnd(ef.mes)),inR:d=>!!d&&ym(d)>ei.mes&&ym(d)<=ef.mes};
+}
+function estoqueValor(dt){
+  return sum(S.insumos,i=>{const ms=S.emovs.filter(m=>m.insumoId===i.id&&m.data<=dt);
+    const ent=ms.filter(m=>m.tipo==='entrada'), q=sum(ent,m=>m.qtd), v=sum(ent,m=>m.valor);
+    const saldo=sum(ms,m=>(m.tipo==='entrada'?1:-1)*m.qtd); return q>0?saldo*(v/q):0;});
+}
+function pesoMov(x){ if(+x.pesoMedio) return +x.pesoMedio; const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1); const ant=F.filter(f=>f.mes<ym(x.data)).pop()||F.find(f=>f.mes===ym(x.data)); return pesoOf(ant,x.categoria); }
+const valTransf=x=>(+x.cab||0)*pesoMov(x)/kgA()*preco(x.para);
+function calc(per=UI.per,fase=null){
+  const J=janela(per), R={J,fase};
+  const cats=fase?CK.filter(c=>faseOf(c)===fase):CK, inF=c=>!fase||faseOf(c)===fase;
+  const mv=S.movs.filter(x=>J.inR(x.data)), deAll=S.desemb.filter(x=>J.inR(x.data));
+  const kg=a=>sum(a,x=>(+x.cab||0)*pesoMov(x)), cb=a=>sum(a,x=>x.cab);
+  const vend=mv.filter(x=>x.tipo==='venda'&&inF(x.categoria)), comp=mv.filter(x=>x.tipo==='compra'&&inF(x.categoria));
+  const tOut=fase?mv.filter(x=>x.tipo==='transferencia'&&inF(x.categoria)&&!inF(x.para)):[];
+  const tIn=fase?mv.filter(x=>x.tipo==='transferencia'&&!inF(x.categoria)&&inF(x.para)):[];
+  R.receitaExt=sum(vend,x=>x.valor); R.transfOut=sum(tOut,valTransf); R.transfIn=sum(tIn,valTransf);
+  R.receita=R.receitaExt+R.transfOut; R.reposicao=sum(comp,x=>x.valor)+R.transfIn;
+  R.vendasKg=kg(vend)+kg(tOut); R.vendasCab=cb(vend)+cb(tOut); R.comprasKg=kg(comp)+kg(tIn);
+  R.mortes=cb(mv.filter(x=>x.tipo==='morte'&&inF(x.categoria)));
+  R.vendasArr=R.vendasKg/kgA(); R.precoArr=R.receita/R.vendasArr; R.precoKg=R.receita/R.vendasKg;
+  R.meses=J.meses; R.anual=12/J.meses;
+  let share=fase?0:1;
+  if(J.ok){ const n=J.fechs.length;
+    R.rebMed=sum(J.fechs,f=>fCab(f,cats))/n; R.uaMed=sum(J.fechs,f=>fKg(f,cats)/450)/n; R.uaTot=sum(J.fechs,f=>fKg(f)/450)/n;
+    R.matrizesMed=sum(J.fechs,f=>cabOf(f,'matrizes'))/n; if(fase) share=R.uaTot?R.uaMed/R.uaTot:0; }
+  R.share=share*100;
+  const de=fase?deAll.filter(x=>x.centro===fase).map(x=>({...x,w:1})).concat(deAll.filter(x=>!CENTROS.includes(x.centro)).map(x=>({...x,w:share}))):deAll.map(x=>({...x,w:1}));
+  const dv=a=>sum(a,x=>(+x.valor||0)*x.w);
+  R.despesas=dv(de); R.direto=fase?dv(de.filter(x=>x.centro===fase)):R.despesas; R.rateio=R.despesas-R.direto;
+  R.porGrupo={}; de.forEach(x=>R.porGrupo[x.grupo]=(R.porGrupo[x.grupo]||0)+(+x.valor||0)*x.w);
+  R.var=dv(de.filter(x=>GVAR.has(x.grupo))); R.fix=R.despesas-R.var;
+  R.insPas=dv(de.filter(x=>INS_PAS.has(x.grupo))); R.invest=dv(de.filter(x=>x.tipo==='investimento'));
+  const A=fase?(+(S.config.areaFase||{})[fase]||0):area(); R.area=A;
+  if(J.ok){
+    R.prodKg=fKg(J.ef,cats)-fKg(J.ei,cats)-R.comprasKg+R.vendasKg; R.prodArr=R.prodKg/kgA();
+    R.gmd=R.prodKg/R.rebMed/J.dias; R.arrHa=R.prodArr/A*R.anual;
+    R.desfrute=R.prodArr/(fKg(J.ei,cats)/kgA())*100; R.taxaVendas=R.vendasCab/fCab(J.ei,cats)*100;
+    R.uaHa=R.uaMed/A; R.cabHa=R.rebMed/A; R.mortalidade=R.mortes/R.rebMed*100;
+    R.desembCab=R.despesas/R.rebMed/J.meses; R.fixCab=R.fix/R.rebMed/J.meses; R.varCab=R.var/R.rebMed/J.meses;
+    R.desembArr=R.despesas/R.prodArr; R.resArr=R.precoArr-R.desembArr; R.margem=R.resArr/R.precoArr*100; R.pctDesVenda=R.desembArr/R.precoArr*100;
+    R.valIni=fVal(J.ei,cats); R.varReb=fVal(J.ef,cats)-R.valIni;
+    R.varIns=fase?0:estoqueValor(mEnd(J.ef.mes))-estoqueValor(mEnd(J.ei.mes));
+    R.caixa=R.receita-R.despesas-R.reposicao; R.resFinal=R.caixa+R.varReb+R.varIns;
+    R.resHa=R.resFinal/A*R.anual; R.resValReb=R.resFinal/R.valIni*100*R.anual; R.prodPatr=(R.prodArr*R.precoArr)/R.valIni*100*R.anual;
+    R.desembMatriz=R.despesas/R.matrizesMed/J.meses;
+  }
+  R.pctVar=R.var/R.despesas*100; R.pctInsPas=R.insPas/R.despesas*100;
+  return R;
+}
+function quadrante(R){ if(!ok(R.pctDesVenda)||!ok(R.pctInsPas)) return 0; const x=R.pctDesVenda<70, y=R.pctInsPas>50; return x&&y?1:x?2:y?3:4; }
+
+/* ---------- render: comuns ---------- */
+function setStatus(){const s=$('#status'); if(!db){s.textContent='Sem conexão: nada é salvo';s.className='chip bad';} else if(!writable){s.textContent='Somente leitura';s.className='chip warn';} else {s.textContent='Salvo na nuvem';s.className='chip good';}}
+const PERS={safraAnt:'Safra anterior',safra:'Safra atual','12m':'12 meses'};
+const segPer=()=>`<div class="seg" role="group" aria-label="Período">${Object.entries(PERS).map(([k,v])=>`<button type="button" data-per="${k}" aria-pressed="${UI.per===k}">${v}</button>`).join('')}</div>`;
+const janelaTxt=J=>J.ok?`<p class="janela">${esc(J.nome)} · estoque inicial em ${mLabel(J.ei.mes)}, final em ${mLabel(J.ef.mes)} · ${J.meses} ${J.meses===1?'mês':'meses'}${J.meses<12?' (valores por ano são anualizados)':''}</p>${J.meses<6?'<p class="note neg">Período curto: com a seca e as águas, os índices por @ ainda oscilam muito. Compare safras fechadas.</p>':''}`:`<p class="janela">${esc(J.nome)} · faltam fechamentos mensais do rebanho neste período para calcular os índices de produção.</p>`;
+const ind=(l,v,o={})=>`<div class="ind"><div style="min-width:0"><span class="t">${l}</span>${o.f?`<span class="f">${o.f}</span>`:''}</div><div class="ind-v"><span class="v num ${o.st==='ok'?'pos':o.st==='bad'?'neg':''}">${v}</span>${o.ref?`<span class="ref">${o.ref}</span>`:''}</div></div>`;
+const temEx=()=>[...S.fech,...S.movs,...S.desemb,...S.estacoes,...S.engorda,...S.insumos,...S.emovs,...S.form,...S.adapt].some(x=>x.exemplo)||S.config.exemplo;
+
+/* ---------- Painel ---------- */
+const FCOR={cria:'var(--f-cria)',recria:'var(--f-recria)',engorda:'var(--f-engorda)'};
+const CMP=[
+ ['Rebanho médio',R=>nf(R.rebMed)+' cab.'],['UA média',R=>nf(R.uaMed)],['Participação no rebanho (UA)',R=>pct(R.fase?R.share:100,0)],
+ ['Produção',R=>nf(R.prodArr)+' @'],['GMD',R=>nf(R.gmd,3)+' kg/dia'],['Taxa de desfrute',R=>pct(R.desfrute)],['Mortalidade',R=>pct(R.mortalidade,2)],
+ ['Arrobas/ha/ano',R=>nf(R.arrHa,1)],['Lotação',R=>nf(R.uaHa,2)+' UA/ha'],
+ ['Desembolso',R=>brl(R.despesas)],['Desembolso/cab/mês',R=>brl(R.desembCab,2)],['Desembolso/@ produzida',R=>brl(R.desembArr,2)],
+ ['Receita',R=>brl(R.receita)],['Reposição',R=>brl(R.reposicao)],['Variação do rebanho',R=>brl(R.varReb)],
+ ['Resultado',R=>brl(R.resFinal)],['Resultado/ha/ano',R=>brl(R.resHa)],['Margem sobre a venda',R=>pct(R.margem)]];
+function renderPainel(){
+  const RT=calc(), J=RT.J, RF=Object.fromEntries(FASES.map(([k])=>[k,calc(UI.per,k)]));
+  const vazio=!S.fech.length&&!S.desemb.length&&!S.movs.length;
+  $('#v-painel').innerHTML=`
+  ${temEx()?`<div class="banner"><span>Há <b>dados de exemplo</b> no app.</span><button class="btn" type="button" data-clear-ex>Apagar exemplos</button></div>`:''}
+  ${vazio?`<div class="panel"><h2>Comece por aqui</h2><p class="note" style="margin-top:4px">O app está vazio, pronto para os dados da sua fazenda.</p><ol class="steps">
+    <li><b>Ajustes da fazenda</b>Área produtiva (total e por fase, se tiver), mês de início da safra e preço de referência da @ por categoria.<br><button class="btn" type="button" data-scroll="cfg">Abrir ajustes</button></li>
+    <li><b>Primeiro fechamento do rebanho</b>Conte as cabeças de cada categoria e informe o peso médio. Esse é o estoque inicial.<br><button class="btn primary" type="button" data-open="fechamento">Fazer fechamento</button></li>
+    <li><b>Lançamentos do mês</b>Desembolsos (dizendo se são da cria, recria, engorda ou da fazenda toda) e movimentos do rebanho.<br><button class="btn" type="button" data-open="desembolso">Lançar desembolso</button></li>
+    <li><b>Fechamento do mês seguinte</b>Com dois fechamentos, produção, GMD, lotação e resultado começam a aparecer.</li></ol></div>`:''}
+  ${statRow()}
+  ${segPer()}${janelaTxt(J)}
+  <div class="sec-title"><h2>Fazenda</h2><span class="small muted">todas as fases somadas</span></div>
+  <div class="hero">
+    <div class="kpi"><span class="l">Resultado/ha/ano</span><span class="v ${RT.resHa>=1200?'pos':RT.resHa<0?'neg':''}">${brl(RT.resHa)}</span><span class="s">alvo acima de R$ 1.200</span></div>
+    <div class="kpi"><span class="l">Arrobas/ha/ano</span><span class="v ${RT.arrHa>=25?'pos':''}">${nf(RT.arrHa,1)} @</span><span class="s">meta 25 @/ha/ano</span></div>
+    <div class="kpi"><span class="l">Desembolso</span><span class="v">${brl(RT.desembCab,2)}</span><span class="s">por cabeça ao mês</span></div>
+    <div class="kpi"><span class="l">GMD global</span><span class="v">${nf(RT.gmd,3)} kg</span><span class="s">por cabeça ao dia</span></div>
+    <div class="kpi"><span class="l">Rebanho médio</span><span class="v">${nf(RT.rebMed)} cab.</span><span class="s">${nf(RT.uaMed)} UA</span></div>
+    <div class="kpi"><span class="l">Lotação</span><span class="v">${nf(RT.uaHa,2)}</span><span class="s">UA/ha · bench 1,5</span></div>
+    <div class="kpi"><span class="l">Resultado</span><span class="v ${RT.resFinal<0?'neg':''}">${brl(RT.resFinal)}</span><span class="s">caixa + variação do rebanho</span></div>
+    <div class="kpi"><span class="l">Margem</span><span class="v ${RT.margem>=35?'pos':''}">${pct(RT.margem,0)}</span><span class="s">sobre a venda · meta 35%</span></div>
+  </div>
+  ${!area()?`<p class="note neg">Informe a área produtiva em Ajustes para ver lotação, @/ha e resultado por hectare.</p>`:''}
+
+  <div class="sec-title"><h2>Por fase</h2><span class="small muted">participação no rebanho em UA</span></div>
+  <div class="fases">${FASES.map(([k,n])=>{const F=RF[k];return `<article class="fase-card" >
+    <div class="row-head"><h3><span class="dot" style="background:${FCOR[k]}"></span>${n}</h3><span class="chip">${pct(F.share,0)} do rebanho</span></div>
+    <div class="mini">
+      <div><span class="l">Rebanho médio</span><span class="v">${nf(F.rebMed)} cab.</span></div>
+      <div><span class="l">Produção</span><span class="v">${nf(F.prodArr)} @</span></div>
+      <div><span class="l">GMD</span><span class="v">${nf(F.gmd,3)} kg</span></div>
+      <div><span class="l">Custo/cab/mês</span><span class="v">${brl(F.desembCab,2)}</span></div>
+    </div>
+    <div class="res-line"><span class="small muted">Resultado</span><span class="v ${F.resFinal<0?'neg':F.resFinal>0?'pos':''}">${brl(F.resFinal)}</span></div>
+    <button class="btn link" type="button" data-tab="${k}">Abrir a aba ${n}</button></article>`;}).join('')}</div>
+
+  <div class="panel"><h2>Comparativo</h2>
+    <div class="tbl-wrap" style="margin-top:8px"><table class="tbl cmp"><thead><tr><th>Indicador</th><th>Fazenda</th>${FASES.map(([k,n])=>`<th>${n}</th>`).join('')}</tr></thead>
+    <tbody>${CMP.map(([l,f])=>`<tr><td>${l}</td><td><b>${f(RT)}</b></td>${FASES.map(([k])=>`<td>${f(RF[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <p class="note" style="margin-top:8px">Quando o animal muda de fase (desmama, entrada na engorda), ele conta como venda da fase de origem e compra da fase de destino, pelo preço de referência da @. Por isso a soma das fases fecha com a fazenda. Desembolsos lançados para a fazenda toda são rateados pela participação de cada fase no rebanho em UA. @/ha e lotação por fase aparecem quando a área da fase está nos Ajustes.</p></div>
+
+  <div class="sec-title"><h2>Indicadores da fazenda</h2></div>
+  ${detalhe(RT)}
+  <div class="cols">${donutFases(RT,RF)}<div class="panel"><div class="row-head"><h2>Receita e desembolso por mês</h2><div class="legend"><span><i style="background:var(--f-cria)"></i>Receita</span><span><i style="background:var(--gold)"></i>Desembolso</span></div></div>${chartMeses(J)}</div></div>
+  ${renderAjustes()}`;
+}
+function detalhe(R,comExtra=true){
+  const f=R.fase, q=quadrante(R), nome=f?FN[f].toLowerCase():'fazenda';
+  const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop();
+  const cats=CATS.filter(([k])=>(!f||faseOf(k)===f)&&cabOf(last,k)>0);
+  let extra='';
+  if(f==='cria'){ const e=[...S.estacoes].sort((a,b)=>(a.dataDG||'')<(b.dataDG||'')?1:-1)[0];
+    if(e){ const I=indRepro(e), desBez=R.desembMatriz*12/(I.taxaDesm/100)+(+e.desembBezerro||0);
+      extra=`<div class="panel"><div class="row-head"><h2>Reprodução</h2><span class="small muted">${esc(e.nome)}</span></div>
+        ${ind('Prenhez geral',pct(I.prenhez))}${ind('Taxa de desmame',pct(I.taxaDesm),{f:'desmamados ÷ fêmeas em cobertura'})}
+        ${ind('Kg desmamados por vaca exposta',nf(I.kgVaca,1)+' kg')}${ind('Desembolso por matriz ao mês',brl(R.desembMatriz,2),{f:'desembolso da cria ÷ matrizes médias'})}
+        ${ind('Desembolso por bezerro desmamado',brl(desBez),{f:'por matriz × 12 ÷ taxa de desmame + gasto com o bezerro'})}
+        <button class="btn link" type="button" data-tab="cria">Ver a reprodução</button></div>`; }
+    else extra=`<div class="panel"><h2>Reprodução</h2><p class="empty">Cadastre a estação de monta na aba Reprodução para ver prenhez, desmame e desembolso por bezerro.</p></div>`; }
+  if(f==='engorda'){ const ls=S.engorda.filter(l=>l.dataSaida&&+l.pesoSaida&&R.J.inR(l.dataSaida));
+    if(ls.length){ const I=ls.map(l=>({l,i:indLote(l),c:+l.cab||0})), cab=sum(I,x=>x.c);
+      extra=`<div class="panel"><div class="row-head"><h2>Lotes encerrados no período</h2><span class="small muted">${ls.length} lote${ls.length>1?'s':''} · ${nf(cab)} cab.</span></div>
+        ${ind('GMD médio dos lotes',nf(sum(I,x=>x.i.gmd*x.c)/cab,3)+' kg/dia')}${ind('Permanência média',nf(sum(I,x=>x.i.dias*x.c)/cab)+' dias')}
+        ${ind('Desembolso por @ produzida',brl(sum(I,x=>x.i.oper*x.c)/sum(I,x=>x.i.arrProd*x.c),2))}
+        ${ind('Resultado dos lotes',brl(sum(I,x=>x.i.res*x.c)),{ref:'ROI '+pct(sum(I,x=>x.i.res*x.c)/sum(I,x=>x.i.desBoi*x.c)*100)})}
+        <button class="btn link" type="button" data-tab="engorda">Ver lotes</button></div>`; } }
+  if(!comExtra) extra='';
+  return `<div class="cols">${f?`<div class="panel"><div class="row-head"><h2>Rebanho da ${nome} hoje</h2><span class="small muted">${last?'fechamento de '+mLabel(last.mes):''}</span></div>
+    ${cats.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Cab.</th><th>Peso kg</th><th>@</th></tr></thead><tbody>${cats.map(([k,n])=>`<tr><td>${n}</td><td>${nf(cabOf(last,k))}</td><td>${nf(pesoOf(last,k))}</td><td>${nf(cabOf(last,k)*pesoOf(last,k)/kgA())}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhum animal desta fase no último fechamento.</p>'}</div>`:''}
+  <div class="panel"><h2>Produção</h2>
+    ${ind('Produção',nf(R.prodArr,0)+' @',{f:'estoque final − inicial − entradas + saídas',ref:nf(R.prodKg,0)+' kg PV'})}
+    ${ind('Arrobas por hectare ao ano',nf(R.arrHa,2)+' @/ha',{f:'produção em @ ÷ área produtiva',ref:'meta 25',st:ok(R.arrHa)?st(R.arrHa>=25):null})}
+    ${ind('GMD global',nf(R.gmd,3)+' kg/dia',{f:'produção kg ÷ rebanho médio ÷ dias'})}
+    ${ind('Taxa de desfrute',pct(R.desfrute),{f:'produção em @ ÷ estoque inicial em @'})}
+    ${ind(f?'Saídas (vendas e passagem de fase)':'Taxa de vendas e abates',pct(R.taxaVendas),{f:'cabeças que saíram ÷ rebanho inicial',ref:nf(R.vendasCab)+' cab.'})}
+    ${ind('Rebanho médio',nf(R.rebMed,0)+' cab.',{f:'média dos fechamentos mensais',ref:nf(R.uaMed,0)+' UA'})}
+    ${ind('Lotação',nf(R.uaHa,2)+' UA/ha',{f:'UA média ÷ área (1 UA = 450 kg)',ref:nf(R.cabHa,2)+' cab/ha · média BR 0,6 · bench 1,5',st:ok(R.uaHa)?st(R.uaHa>=1.5):null})}
+    ${ind('Mortalidade',pct(R.mortalidade,2),{f:'mortes ÷ rebanho médio',ref:nf(R.mortes)+' cab.'})}
+  </div>
+  <div class="panel"><h2>Custo</h2>
+    ${ind('Desembolso',brl(R.despesas),{ref:f?brl(R.direto)+' direto · '+brl(R.rateio)+' de rateio':(R.invest?brl(R.invest)+' em investimento':'')})}
+    ${ind('Desembolso por cabeça ao mês',brl(R.desembCab,2),{f:'desembolso ÷ rebanho médio ÷ meses',ref:'média do benchmark acima de R$ 50'})}
+    ${ind('Custo variável',brl(R.varCab,2)+'/cab/mês',{f:'nutrição, sanidade e reprodução',ref:pct(R.pctVar,0)+' do total · meta 60%',st:ok(R.pctVar)?st(R.pctVar>=60):null})}
+    ${ind('Custo fixo',brl(R.fixCab,2)+'/cab/mês',{f:'mão de obra, manutenção, máquinas, administração…',ref:pct(100-R.pctVar,0)+' do total · meta 40%'})}
+    ${ind('Insumos + pastagem',pct(R.pctInsPas,0),{f:'parte do desembolso que vai para produzir',ref:'meta acima de 50%',st:ok(R.pctInsPas)?st(R.pctInsPas>50):null})}
+    ${ind('Desembolso por @ produzida',brl(R.desembArr,2),{f:'desembolso ÷ @ produzidas'})}
+    ${ind('Desembolso sobre o valor de venda',pct(R.pctDesVenda,0),{f:'desembolso por @ ÷ preço médio de venda da @',ref:'meta abaixo de 70%',st:ok(R.pctDesVenda)?st(R.pctDesVenda<70):null})}
+    <div style="margin-top:12px"><div class="row-head"><h3>Quadrante de custos</h3><span class="small muted">${q?'Quadrante '+q:'Sem dados suficientes'}</span></div>
+      <div class="quad" style="margin-top:8px">
+        <div ${q===2?'data-on':''}><b>2 · Atenção</b>Insumos abaixo de 50%. Pode estar vivendo de investimentos antigos.</div>
+        <div ${q===4?'data-on':''}><b>4 · Revisão total</b>Gasta mal e produz pouco. Plano novo do zero.</div>
+        <div ${q===1?'data-on':''}><b>1 · Ideal</b>Equilíbrio produtivo e financeiro. Manter e evoluir.</div>
+        <div ${q===3?'data-on':''}><b>3 · Perigo</b>Desembolso alto para o que produz. Rever manejo e gasto.</div>
+      </div>
+      <p class="note" style="margin-top:6px">Na horizontal, desembolso sobre a venda (esquerda abaixo de 70%). Na vertical, insumos + pastagem (embaixo acima de 50%).</p></div>
+  </div>
+  <div class="panel"><h2>Resultado</h2>
+    ${ind(f?'Receita (vendas + passagem para a fase seguinte)':'Receita (venda de bovinos)',brl(R.receita),{ref:f&&R.transfOut?brl(R.transfOut)+' em passagem de fase':''})}
+    ${ind('Desembolso operacional',brl(R.despesas))}
+    ${ind(f?'Reposição (compras + entrada da fase anterior)':'Reposição (compra de bovinos)',brl(R.reposicao),{ref:f&&R.transfIn?brl(R.transfIn)+' em passagem de fase':''})}
+    ${ind('Resultado de caixa',brl(R.caixa),{f:'receita − desembolso − reposição',st:ok(R.caixa)?st(R.caixa>=0):null})}
+    ${ind('Variação do rebanho',brl(R.varReb),{f:'valor do estoque final − inicial, a preço de referência'})}
+    ${f?'':ind('Variação dos insumos',brl(R.varIns),{f:'estoque de insumos final − inicial'})}
+    ${ind('<b>Resultado da operação</b>',brl(R.resFinal),{f:f?'caixa + variação do rebanho':'caixa + variação do rebanho + variação dos insumos',st:ok(R.resFinal)?st(R.resFinal>=0):null})}
+    ${ind('Resultado por hectare ao ano',brl(R.resHa),{f:'resultado ÷ área produtiva',ref:'alvo acima de R$ 1.200',st:ok(R.resHa)?st(R.resHa>=1200):null})}
+    ${ind('Resultado sobre o valor do rebanho',pct(R.resValReb),{f:'resultado ÷ valor inicial do rebanho',ref:'alvo 25% · Selic '+nf(+S.config.selic,2)+'%',st:ok(R.resValReb)?st(R.resValReb>=(+S.config.selic||0)):null})}
+    ${f?'':ind('Produção sobre o patrimônio',pct(R.prodPatr),{f:'@ produzidas × preço ÷ valor inicial do rebanho',ref:'alvo 15%',st:ok(R.prodPatr)?st(R.prodPatr>=15):null})}
+    ${ind('Preço médio de venda',brl(R.precoArr,2)+'/@',{ref:brl(R.precoKg,2)+'/kg vivo'})}
+    ${ind('Resultado por @ produzida',brl(R.resArr,2),{f:'preço de venda − desembolso por @'})}
+    ${ind('Margem sobre a venda',pct(R.margem),{f:'resultado por @ produzida ÷ preço de venda',ref:'meta acima de 35%',st:ok(R.margem)?st(R.margem>=35):null})}
+  </div>
+  ${extra}</div>`;
+}
+function chartMeses(J){
+  const end=J.ok?J.ef.mes:J.e; const n=Math.min(12,Math.max(6,J.meses||6)); const ms=[]; for(let i=n-1;i>=0;i--) ms.push(addM(end,-i));
+  const v=ms.map(m=>({m,r:sum(S.movs.filter(x=>x.tipo==='venda'&&ym(x.data)===m),x=>x.valor),c:sum(S.desemb.filter(x=>ym(x.data)===m),x=>x.valor)}));
+  const mx=Math.max(1,...v.map(x=>Math.max(x.r,x.c))); const step=Math.pow(10,Math.floor(Math.log10(mx))); const top=Math.ceil(mx/step)*step;
+  const W=340,H=170,L=46,B=22,T=10,ch=H-B-T,cw=(W-L-4)/n, y=val=>T+ch-(val/top)*ch;
+  const short=x=>x>=1e6?nf(x/1e6,1)+' mi':x>=1e3?nf(x/1e3,0)+' mil':nf(x);
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Receita e desembolso por mês">`;
+  [0,.5,1].forEach(f=>{const yy=y(top*f);s+=`<line x1="${L}" x2="${W-4}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${L-6}" y="${yy+4}" text-anchor="end" font-size="10" fill="var(--muted)">${short(top*f)}</text>`;});
+  v.forEach((x,i)=>{const x0=L+i*cw+cw*.14,bw=cw*.34;
+    s+=`<rect x="${x0}" y="${y(x.r)}" width="${bw}" height="${T+ch-y(x.r)}" rx="2" fill="var(--f-cria)"><title>${mLabel(x.m)} receita ${brl(x.r)}</title></rect><rect x="${x0+bw+1.5}" y="${y(x.c)}" width="${bw}" height="${T+ch-y(x.c)}" rx="2" fill="var(--gold)"><title>${mLabel(x.m)} desembolso ${brl(x.c)}</title></rect>`;
+    s+=`<text x="${L+i*cw+cw/2}" y="${H-6}" text-anchor="middle" font-size="${n>8?9:11}" fill="var(--muted)">${MES[+x.m.slice(5)-1]}</text>`;});
+  return s+'</svg>';
+}
+function renderAjustes(){
+  const c=S.config, af=c.areaFase||{};
+  return `<div class="panel" id="ajustes"><h2>Ajustes</h2>
+  <form class="f" id="cfg" style="margin-top:10px">
+    <div class="grid2">
+      <label class="fl">Nome da fazenda<input id="cfg-nome" name="nome" value="${esc(c.nome)}"></label>
+      <label class="fl">Seu nome (saudação)<input id="cfg-usuario" name="usuario" value="${esc(c.usuario||'')}"></label>
+      <label class="fl">Área produtiva total (ha)<input id="cfg-area" name="area" type="number" step="0.1" min="0" value="${esc(c.area||'')}"></label>
+      <label class="fl">Kg vivo por @<input id="cfg-kg" name="kgArroba" type="number" step="0.5" min="1" value="${esc(kgA())}"></label>
+      <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
+      <label class="fl">Selic / custo de oportunidade (% a.a.)<input id="cfg-selic" name="selic" type="number" step="0.01" min="0" value="${esc(c.selic)}"></label>
+    </div>
+    <fieldset><legend>Área por fase (opcional)</legend><div class="grid2">${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-a-${k}" name="a_${k}" type="number" step="0.1" min="0" value="${esc(af[k]||'')}"></label>`).join('')}</div>
+      <p class="note">Com a área de cada fase, o app mostra @/ha, lotação e resultado por hectare da cria, da recria e da engorda.</p></fieldset>
+    <p class="note">30 kg vivo por @ equivale a 50% de rendimento de carcaça. A área produtiva é a área de pasto usada no ano.</p>
+    <details><summary>Fase de cada categoria</summary>
+      <p class="note" style="margin:8px 0">Define em qual fase cada categoria conta. Ex.: se as vacas de descarte são vendidas magras, coloque-as na cria.</p>
+      <div class="grid2">${CATS.map(([k,n])=>`<label class="fl">${n}<select id="cfg-f-${k}" name="f_${k}">${FASES.map(([fk,fn])=>`<option value="${fk}" ${faseOf(k)===fk?'selected':''}>${fn}</option>`).join('')}</select></label>`).join('')}</div>
+    </details>
+    <details><summary>Preço de referência da @ por categoria</summary>
+      <p class="note" style="margin:8px 0">Usado para avaliar o rebanho no início e no fim do período e para valorizar a passagem de uma fase para outra. Use a média da @ na safra para tirar o efeito do mercado.</p>
+      <div class="grid2">${CATS.map(([k,n])=>`<label class="fl">${n} (R$/@)<input id="cfg-p-${k}" name="p_${k}" type="number" step="0.01" min="0" value="${esc(preco(k))}"></label>`).join('')}</div>
+    </details>
+    <div class="btns"><button class="btn primary" type="submit">Salvar ajustes</button></div>
+  </form></div>`;
+}
+
+/* ---------- Rebanho ---------- */
+function renderRebanho(){
+  const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1], R=calc(), J=R.J;
+  const tabela=last?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Cab.</th><th>Peso kg</th><th>@ total</th><th>UA</th></tr></thead><tbody>
+    ${FASES.map(([fk,fn])=>{const cs=CK.filter(c=>faseOf(c)===fk); const rows=CATS.filter(([k])=>faseOf(k)===fk&&cabOf(last,k)>0); if(!rows.length) return '';
+      return `<tr class="sub"><td><span class="dot" style="background:${FCOR[fk]}"></span>${fn}</td><td>${nf(fCab(last,cs))}</td><td>${nf(fKg(last,cs)/(fCab(last,cs)||1))}</td><td>${nf(fKg(last,cs)/kgA())}</td><td>${nf(fKg(last,cs)/450)}</td></tr>`+rows.map(([k,n])=>`<tr><td>${n}</td><td>${nf(cabOf(last,k))}</td><td>${nf(pesoOf(last,k))}</td><td>${nf(cabOf(last,k)*pesoOf(last,k)/kgA())}</td><td>${nf(cabOf(last,k)*pesoOf(last,k)/450)}</td></tr>`).join('');}).join('')}
+    </tbody><tfoot><tr><td>Fazenda</td><td>${nf(fCab(last))}</td><td>${nf(fKg(last)/(fCab(last)||1))}</td><td>${nf(fKg(last)/kgA())}</td><td>${nf(fKg(last)/450)}</td></tr></tfoot></table></div>`:'';
+  const mortCat=J.ok?CATS.map(([k,n])=>{const med=sum(J.fechs,f=>cabOf(f,k))/J.fechs.length, m=sum(S.movs.filter(x=>x.tipo==='morte'&&x.categoria===k&&J.inR(x.data)),x=>x.cab);return {n,med,m,p:m/med*100};}).filter(x=>x.m>0):[];
+  const movs=[...S.movs].sort((a,b)=>a.data<b.data?1:-1).slice(0,25);
+  $('#v-rebanho').innerHTML=`
+  <div class="row-head"><h2>Estoque por categoria</h2><button class="btn primary" type="button" data-open="fechamento">Fechar mês</button></div>
+  <div class="panel">${last?`<p class="note" style="margin-bottom:6px">Fechamento de ${mLabel(last.mes)}</p>${tabela}`:`<p class="empty">Faça o primeiro fechamento: conte as cabeças e informe o peso médio de cada categoria. É o estoque inicial de onde saem a produção, o GMD e a lotação.</p>`}</div>
+  ${F.length>1?`<div class="panel"><h2>Rebanho mês a mês</h2>${chartRebanho(F.slice(-13))}<p class="note">O rebanho médio é a média desses fechamentos, não (inicial + final) ÷ 2.</p></div>`:''}
+  <div class="panel"><div class="row-head"><h2>Mortalidade por categoria</h2><span class="small muted">${esc(J.nome)}</span></div>
+    ${mortCat.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Mortes</th><th>Reb. médio</th><th>%</th></tr></thead><tbody>${mortCat.map(x=>`<tr><td>${x.n}</td><td>${nf(x.m)}</td><td>${nf(x.med)}</td><td>${pct(x.p,2)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma morte registrada no período.</p>'}</div>
+  <div class="row-head"><h2>Movimentações</h2><button class="btn" type="button" data-open="movimento">Registrar</button></div>
+  <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
+  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA</span><span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span></div>`).join('')}</div></details>`:''}`;
+}
+function chartRebanho(F){
+  const W=340,H=150,L=40,B=22,T=10,ch=H-B-T,n=F.length,cw=(W-L-4)/n, mx=Math.max(1,...F.map(f=>fCab(f)));
+  const step=Math.pow(10,Math.floor(Math.log10(mx))), top=Math.ceil(mx/step)*step, y=v=>T+ch-(v/top)*ch;
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cabeças por mês">`;
+  [0,.5,1].forEach(f=>{const yy=y(top*f);s+=`<line x1="${L}" x2="${W-4}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${L-6}" y="${yy+4}" text-anchor="end" font-size="10" fill="var(--muted)">${nf(top*f)}</text>`;});
+  F.forEach((f,i)=>{const c=fCab(f),x0=L+i*cw+cw*.2;s+=`<rect x="${x0}" y="${y(c)}" width="${cw*.6}" height="${T+ch-y(c)}" rx="2" fill="var(--capim)" opacity="${i===n-1?1:.55}"><title>${mLabel(f.mes)}: ${nf(c)} cab.</title></rect><text x="${L+i*cw+cw/2}" y="${H-6}" text-anchor="middle" font-size="9" fill="var(--muted)">${MES[+f.mes.slice(5)-1]}</text>`;});
+  return s+'</svg>';
+}
+function prefillFech(mes){
+  const ex=S.fech.find(f=>f.mes===mes); if(ex) return ex.cats;
+  const base=[...S.fech].filter(f=>f.mes<mes).sort((a,b)=>a.mes<b.mes?-1:1).pop();
+  const cats={}; CK.forEach(c=>cats[c]={cab:cabOf(base,c),peso:pesoOf(base,c)});
+  S.movs.filter(x=>ym(x.data)<=mes&&(!base||ym(x.data)>base.mes)).forEach(x=>{
+    const n=+x.cab||0; const add=(c,v)=>{if(cats[c]) cats[c].cab+=v;};
+    if(x.tipo==='nascimento'){ if(!cats[x.categoria].peso) cats[x.categoria].peso=+x.pesoMedio||30; add(x.categoria,n);}
+    else if(x.tipo==='compra'){ const c=cats[x.categoria]; if(c){ const kg=c.cab*c.peso+n*(+x.pesoMedio||c.peso); c.cab+=n; c.peso=c.cab?kg/c.cab:0; } }
+    else if(x.tipo==='venda'||x.tipo==='morte') add(x.categoria,-n);
+    else if(x.tipo==='transferencia'){ const o=cats[x.categoria], d=cats[x.para]; if(o&&d){ const pw=+x.pesoMedio||o.peso; const kg=d.cab*d.peso+n*pw; o.cab-=n; d.cab+=n; d.peso=d.cab?kg/d.cab:0; } }
+  });
+  CK.forEach(c=>{cats[c].cab=Math.max(0,Math.round(cats[c].cab)); cats[c].peso=Math.round(cats[c].peso);});
+  return cats;
+}
+
+/* ---------- Reprodução ---------- */
+const RCATS=[['novilhas','Novilhas'],['primiparas','Primíparas'],['secundiparas','Secundíparas'],['pluriparas','Pluríparas']];
+function indRepro(e){
+  const n=k=>Number(e[k])||0, exp=sum(RCATS,([k])=>e.cats?.[k]?.expostas), pre=sum(RCATS,([k])=>e.cats?.[k]?.prenhes);
+  const desm=n('desmMachos')+n('desmFemeas'), kgDesm=n('desmMachos')*n('pesoDesmMachos')+n('desmFemeas')*n('pesoDesmFemeas');
+  const pDesm=kgDesm/desm, taxaDesm=desm/exp*100;
+  return {exp,pre,desm,prenhez:pre/exp*100,iatf:n('iatfPrenhes')/n('iatfExpostas')*100,servico:n('doses')/n('iatfPrenhes'),
+    natalidade:n('nascidosVivos')/pre*100,perdaPre:(pre-n('nascidosVivos'))/pre*100,mortBez:(n('nascidosVivos')-desm)/n('nascidosVivos')*100,
+    perdaDesm:(pre-desm)/pre*100,taxaDesm,pDesm,pM:n('pesoDesmMachos'),pF:n('pesoDesmFemeas'),relDesm:pDesm/n('pesoVacas')*100,kgVaca:kgDesm/exp,
+    diasVazias:e.dataVendaVazias&&e.dataDG?days(e.dataDG,e.dataVendaVazias):null};
+}
+function reproHTML(){
+  const R=calc(UI.per,'cria'), es=[...S.estacoes].sort((a,b)=>(a.dataDG||'')<(b.dataDG||'')?1:-1);
+  return `
+  <div class="row-head"><h2>Estações de monta</h2><button class="btn primary" type="button" data-open="estacao">Nova estação</button></div>
+  ${es.length?`<div class="cards">${es.map(e=>{const I=indRepro(e); const desBez=R.desembMatriz*12/(I.taxaDesm/100)+(+e.desembBezerro||0);
+    return `<article class="card"><div class="row-head"><div><h3>${esc(e.nome)}</h3><div class="small muted">DG em ${dBR(e.dataDG)||'—'} · ${nf(I.exp)} fêmeas expostas</div></div><span class="chip ${I.taxaDesm>=70?'good':'warn'}">Desmame ${pct(I.taxaDesm)}</span></div>
+      <div class="stats"><div class="stat"><div class="v">${pct(I.prenhez)}</div><div class="l">prenhez geral</div></div><div class="stat"><div class="v">${nf(I.desm)}</div><div class="l">desmamados</div></div><div class="stat"><div class="v">${nf(I.kgVaca,1)} kg</div><div class="l">desm./vaca exposta</div></div></div>
+      <details><summary>Todos os índices</summary><div>
+        ${RCATS.map(([k,nm])=>{const c=e.cats?.[k]||{};return +c.expostas?ind('Prenhez · '+nm,pct(c.prenhes/c.expostas*100),{ref:nf(c.prenhes)+' de '+nf(c.expostas)}):''}).join('')}
+        ${ind('Fertilidade na IATF',pct(I.iatf),{f:'prenhes na IATF ÷ fêmeas inseminadas'})}
+        ${ind('Doses por prenhez',nf(I.servico,2),{f:'doses gastas ÷ prenhes na IATF'})}
+        ${ind('Natalidade',pct(I.natalidade),{f:'nascidos vivos ÷ fêmeas prenhes'})}
+        ${ind('Perda pré-parto',pct(I.perdaPre),{f:'(prenhes no DG − nascidos) ÷ prenhes'})}
+        ${ind('Mortalidade de bezerros',pct(I.mortBez),{f:'(nascidos vivos − desmamados) ÷ nascidos vivos'})}
+        ${ind('Perda pré-desmame',pct(I.perdaDesm),{f:'(prenhes − desmamados) ÷ prenhes'})}
+        ${ind('Taxa de desmame',pct(I.taxaDesm),{f:'desmamados ÷ fêmeas em cobertura'})}
+        ${ind('Peso médio ao desmame',nf(I.pDesm,0)+' kg',{ref:'machos '+nf(I.pM)+' · fêmeas '+nf(I.pF)})}
+        ${ind('Relação de desmame',pct(I.relDesm),{f:'peso do bezerro ÷ peso da vaca'})}
+        ${ind('Kg desmamados por vaca exposta',nf(I.kgVaca,1)+' kg')}
+        ${I.diasVazias!=null?ind('Dias para vender as vazias',nf(I.diasVazias)+' dias',{f:'data da venda − data do DG',st:st(I.diasVazias<=60)}):''}
+        ${ind('Desembolso por bezerro desmamado',brl(desBez),{f:'desembolso por matriz/mês × 12 ÷ taxa de desmame + gasto com o bezerro',ref:'matriz '+brl(R.desembMatriz,2)+'/mês'})}
+      </div></details>
+      <div class="btns"><button class="btn" type="button" data-open="estacao" data-edit="${e.id}">Editar</button><button class="btn del" type="button" data-del="${COL.estacoes}:${e.id}">Excluir</button></div></article>`;}).join('')}</div>`
+  :`<div class="panel"><p class="empty">Para fazendas com cria. Cadastre cada estação com fêmeas expostas e prenhes por categoria, a IATF, os nascimentos e o desmame.</p></div>`}
+  <p class="note">O desembolso por matriz usa o desembolso da cria no período do Painel (lançamentos da cria mais a parte dela no rateio da fazenda toda), dividido pela média de matrizes.</p>`;
+}
+
+/* ---------- Engorda ---------- */
+function indLote(l){
+  const n=k=>Number(l[k])||0, dias=l.dataSaida?days(l.dataEntrada,l.dataSaida):days(l.dataEntrada,today());
+  const pe=n('pesoEntrada'), ps=n('pesoSaida'), carc=n('carcaca')||(ps?ps*.5:0), saiu=!!(l.dataSaida&&ps);
+  const gmd=(ps-pe)/dias, ganhoCarc=(carc-pe*.5)/dias, diaria=n('nutricaoDia')+n('operacionalDia');
+  const arrProd=(carc-pe*.5)/15, arrFinal=carc/15, custoLote=sum(S.desemb.filter(x=>x.loteId===l.id),x=>x.valor), oper=custoLote>0?custoLote/(n('cab')||1):diaria*dias, desBoi=n('aquisicao')+oper, venda=arrFinal*n('precoVenda');
+  const desArrProd=oper/arrProd, desArrFinal=desBoi/arrFinal, aqArr=n('aquisicao')/(pe*.5/15);
+  return {custoLote,dias,saiu,gmd,ganhoCarc,rendGanho:ganhoCarc/gmd*100,rendCarc:carc/ps*100,diaria,arrProd,arrFinal,oper,desBoi,venda,res:venda-desBoi,
+    desArrProd,resArrProd:n('precoVenda')-desArrProd,margemProd:(n('precoVenda')-desArrProd)/n('precoVenda')*100,
+    desArrFinal,resArrFinal:n('precoVenda')-desArrFinal,margemFinal:(n('precoVenda')-desArrFinal)/n('precoVenda')*100,
+    roi:(venda-desBoi)/desBoi*100,agio:(aqArr-n('precoVenda'))/n('precoVenda')*100,aqArr,
+    perm:n('idadeAbate')&&n('idadeDesmame')?n('idadeAbate')-n('idadeDesmame'):null};
+}
+/* custo da @ produzida (planilha Custo de Produção PRO) */
+const SIM0={cab:'',arrend:'',supl:'',mao:'',extras:'',gmd:'',preco:''};
+let SIM=(()=>{try{return {...SIM0,...(JSON.parse(localStorage.getItem('simArr')||'null')||{})};}catch(e){return {...SIM0};}})();
+const saveSim=()=>{try{localStorage.setItem('simArr',JSON.stringify(SIM));}catch(e){}};
+function simCalc(v){const n=k=>Number(v[k])||0, mensal=(n('arrend')+n('supl')+n('mao')+n('extras'))/n('cab'), diaria=mensal/30, dias=kgA()/n('gmd'), custo=diaria*dias;
+  return {mensal,diaria,dias,custo,pct:custo/n('preco')*100,marg:(n('preco')-custo)/n('preco')*100};}
+function simOut(v){const r=simCalc(v);
+  return `${ind('Despesa mensal por animal',brl(r.mensal,2),{f:'soma dos custos do mês ÷ quantidade de animais'})}
+  ${ind('Diária por animal',brl(r.diaria,2),{f:'despesa mensal ÷ 30'})}
+  ${ind('Dias para produzir uma @',nf(r.dias,1)+' dias',{f:nf(kgA(),0)+' kg vivo por @ ÷ GMD'})}
+  ${ind('<b>Custo por @ produzida</b>',brl(r.custo,2),{f:'diária × dias por @'})}
+  ${Number(v.preco)?ind('Custo sobre o preço da @',pct(r.pct,0),{f:'margem de '+pct(r.marg,0),ref:'meta abaixo de 70%',st:ok(r.pct)?st(r.pct<70):null}):''}`;}
+function simArroba(){
+  const f=(l,k,a)=>`<label class="fl">${l}<input id="s-${k}" name="${k}" type="number" ${a} value="${esc(SIM[k])}"></label>`, m='step="0.01" min="0" inputmode="decimal"';
+  return `<div class="panel"><div class="row-head"><h2>Custo da arroba produzida</h2><span class="small muted">método da planilha Custo de Produção PRO</span></div>
+  <p class="note" style="margin-top:4px">Digite os valores de um mês ou puxe dos lançamentos do app (média mensal do período escolhido no Painel).</p>
+  <div class="btns" style="margin:10px 0">${[['total','fazenda'],...FASES.map(([k,n])=>[k,n.toLowerCase()])].map(([k,n])=>`<button class="btn" type="button" data-sim-fill="${k}">Puxar da ${n}</button>`).join('')}</div>
+  <form class="f" id="simArr"><div class="grid2">
+    ${f('Quantidade de animais','cab','min="0" step="1" inputmode="numeric"')}${f('GMD do lote (kg/dia)','gmd','min="0" step="0.001" inputmode="decimal"')}
+    ${f('Arrendamento / terra (R$/mês)','arrend',m)}${f('Suplementação (R$/mês)','supl',m)}
+    ${f('Mão de obra (R$/mês)','mao',m)}${f('Extras: combustível, energia, medicamentos (R$/mês)','extras',m)}
+    ${f('Preço de venda da @ (R$), opcional','preco',m)}
+  </div></form>
+  <div id="simOut" style="margin-top:6px">${simOut(SIM)}</div></div>`;
+}
+function simFill(k){
+  const R=calc(UI.per,k==='total'?null:k);
+  if(!R.J.ok) return toast('Faltam fechamentos do rebanho no período para puxar os dados.');
+  const g=x=>(R.porGrupo[x]||0)/R.meses, r2=v=>ok(v)?Math.round(v*100)/100:'';
+  const outros=GRUPOS.map(x=>x[0]).filter(x=>!['arrendamento','nutricao','mao'].includes(x));
+  SIM={cab:ok(R.rebMed)?Math.round(R.rebMed):'',arrend:r2(g('arrendamento')),supl:r2(g('nutricao')),mao:r2(g('mao')),extras:r2(sum(outros,g)),gmd:ok(R.gmd)?Math.round(R.gmd*1000)/1000:'',preco:ok(R.precoArr)?r2(R.precoArr):SIM.preco};
+  saveSim(); render(); toast('Valores puxados. Ajuste o que quiser.');
+}
+function engordaHTML(){
+  const ls=[...S.engorda].sort((a,b)=>(a.dataEntrada||'')<(b.dataEntrada||'')?1:-1);
+  return `
+  <div class="row-head"><h2>Lotes de terminação e confinamento</h2><button class="btn primary" type="button" data-open="lote">Novo lote</button></div>
+  ${ls.length?`<div class="cards">${ls.map(l=>{const I=indLote(l), cab=+l.cab||0;
+    return `<article class="card"><div class="row-head"><div><h3>${esc(l.nome)}</h3><div class="small muted">${esc({pasto:'Pasto',semi:'Terminação intensiva a pasto',confinamento:'Confinamento'}[l.sistema]||'')} · ${nf(cab)} cab. · entrou ${dBR(l.dataEntrada)}</div></div>${I.saiu?`<span class="chip ${I.res>=0?'good':'bad'}">ROI ${pct(I.roi)}</span>`:`<span class="chip">${nf(I.dias)} dias</span>`}</div>
+      <div class="stats"><div class="stat"><div class="v">${I.saiu?nf(I.gmd,3):'—'}</div><div class="l">GMD kg/dia</div></div><div class="stat"><div class="v">${brl(I.diaria,2)}</div><div class="l">diária/cab</div></div><div class="stat"><div class="v">${I.saiu?brl(I.res):'—'}</div><div class="l">resultado/boi</div></div></div>
+      ${I.saiu?`<details><summary>Todos os índices</summary><div>
+        ${I.custoLote?ind('Custos lançados no lote',brl(I.custoLote),{f:'usados no lugar da diária informada',ref:brl(I.custoLote/(+l.cab||1)/I.dias,2)+'/cab/dia'}):''}
+        ${ind('Permanência',nf(I.dias)+' dias',{ref:I.perm?'total '+nf(I.perm)+' meses · giro '+pct(12/I.perm*100):''})}
+        ${ind('Peso de entrada e saída',nf(+l.pesoEntrada)+' → '+nf(+l.pesoSaida)+' kg')}
+        ${ind('Rendimento de carcaça',pct(I.rendCarc),{ref:nf(I.arrFinal,1)+' @ por cabeça'})}
+        ${ind('Ganho de carcaça líquida',nf(I.ganhoCarc,3)+' kg/dia',{f:'(carcaça − 50% do peso de entrada) ÷ dias'})}
+        ${ind('Rendimento do ganho',pct(I.rendGanho),{f:'ganho de carcaça ÷ GMD'})}
+        ${ind('@ produzidas por cabeça',nf(I.arrProd,2)+' @')}
+        ${ind('Desembolso por @ produzida',brl(I.desArrProd,2),{f:I.custoLote?'custos lançados no lote ÷ @ produzidas':'diária × dias ÷ @ produzidas'})}
+        ${ind('Valor de venda por boi',brl(I.venda),{ref:brl(+l.precoVenda,2)+'/@'})}
+        ${ind('Desembolso por boi',brl(I.desBoi),{f:'aquisição + desembolso operacional'})}
+        ${ind('Resultado por @ produzida',brl(I.resArrProd,2),{ref:'margem '+pct(I.margemProd)+' · meta 35%',st:st(I.margemProd>=35)})}
+        ${ind('Desembolso por @ final',brl(I.desArrFinal,2),{f:'desembolso por boi ÷ @ de carcaça'})}
+        ${ind('Resultado por @ final',brl(I.resArrFinal,2),{ref:'margem '+pct(I.margemFinal)+' · ref. 23%'})}
+        ${ind('Retorno sobre o investimento',pct(I.roi),{f:'resultado por boi ÷ desembolso por boi'})}
+        ${+l.aquisicao?ind('Ágio da reposição',pct(I.agio),{f:'@ comprada vs @ vendida',ref:brl(I.aqArr,2)+'/@ na compra'}):''}
+        ${ind('Resultado do lote',brl(I.res*cab),{st:st(I.res>=0)})}
+      </div></details>`:'<p class="note">Registre a saída (data, peso, carcaça do romaneio e preço da @) para ver os índices do lote.</p>'}
+      <div class="btns"><button class="btn" type="button" data-open="lote" data-edit="${l.id}">${I.saiu?'Editar':'Registrar saída / editar'}</button><button class="btn del" type="button" data-del="${COL.engorda}:${l.id}">Excluir</button></div></article>`;}).join('')}</div>`
+  :`<div class="panel"><p class="empty">Cadastre lotes de recria, terminação a pasto ou confinamento com peso de entrada, valor de aquisição e a diária. Na saída, informe peso, carcaça e preço.</p></div>`}`;
+}
+
+/* ---------- Suplementação ---------- */
+/* Guia de Suplementação do A ao Z (apostila): consumo, cocho, uso e adaptação de cada tipo */
+const SUP_REF={
+  branco:{nome:'Sal branco',cocho:[3,3],uso:'À vontade, sempre renovado e seco.',etapas:[]},
+  mineral:{nome:'Sal mineral',cocho:[5,5],uso:'À vontade, sempre renovado e seco.',etapas:[]},
+  ureado:{nome:'Sal mineral ureado',cocho:[5,5],uso:'À vontade, renovado e principalmente seco. Ureia molhada empoça no cocho e pode intoxicar e matar.',
+    etapas:[{de:1,ate:15,sal:1,sup:1,txt:'1 parte de sal mineral comum para 1 parte de sal ureado'},{de:16,ate:null,txt:'Puro, à vontade'}]},
+  proteinado:{nome:'Sal mineral proteinado',consumo:[0.1,0.15],cocho:[12,15],mistura:0.1,uso:'À vontade, renovado e seco, de preferência em cocho coberto. Ureia não pode ser a única fonte de proteína.',
+    etapas:[{de:1,ate:7,sal:2,sup:1,txt:'2 partes de sal mineral sem ureia para 1 parte de proteinado'},{de:8,ate:14,sal:1,sup:2,txt:'1 parte de sal mineral sem ureia para 2 partes de proteinado'},{de:15,ate:null,pv:[0.1,0.15],txt:'Puro, à vontade, em cocho coberto'}]},
+  proteico:{nome:'Proteico-energético',consumo:[0.3,0.5],cocho:[25,30],uso:'0,3 a 0,5% do peso vivo, renovado e seco, em cocho coberto ou fornecido todo dia sem molhar.',
+    etapas:[{de:1,ate:7,pv:[0.1,0.1]},{de:8,ate:14,pv:[0.2,0.2]},{de:15,ate:null,pv:[0.3,0.5],txt:'Puro, todo dia'}]},
+  semi:{nome:'Ração de semiconfinamento',consumo:[1,1.5],cocho:[35,35],tratos:'1 a 2 tratos por dia',uso:'1 a 1,5% do peso vivo, todo dia no mesmo horário, com boa oferta de pasto.',
+    etapas:[{de:1,ate:3,pv:[0.3,0.3]},{de:4,ate:6,pv:[0.6,0.6]},{de:7,ate:9,pv:[0.9,0.9]},{de:10,ate:12,pv:[1,1]},{de:13,ate:null,pv:[1,1.5],txt:'Ajustes graduais conforme objetivo e oferta de pasto'}]},
+  tip:{nome:'Ração TIP (terminação intensiva a pasto)',consumo:[1.5,2],cocho:[40,40],tratos:'1 a 2 tratos por dia',uso:'1,5 a 2% do peso vivo, todo dia no mesmo horário, com boa oferta de pasto.',
+    etapas:[{de:1,ate:3,pv:[0.3,0.3]},{de:4,ate:6,pv:[0.6,0.6]},{de:7,ate:9,pv:[0.9,0.9]},{de:10,ate:12,pv:[1,1]},{de:13,ate:15,pv:[1.3,1.3]},{de:16,ate:17,pv:[1.5,1.5]},{de:18,ate:null,pv:[1.5,2],txt:'Ajustes graduais conforme objetivo e oferta de pasto'}]},
+};
+const TIPOS_SUP=[...Object.entries(SUP_REF).map(([k,r])=>[k,r.nome]),['outro','Outro']];
+const COM_ADAPT=Object.keys(SUP_REF).filter(k=>SUP_REF[k].etapas.length);
+const faixa=(a,un='%')=>a?(a[0]===a[1]?nf(a[0],a[0]%1?(String(a[0]).split('.')[1]||'').length:0):nf(a[0],(String(a[0]).split('.')[1]||'').length)+' a '+nf(a[1],(String(a[1]).split('.')[1]||'').length))+un:'—';
+const periodo=e=>e.ate==null?`Dia ${e.de} em diante`:`Dias ${e.de} a ${e.ate}`;
+const etapaTxt=e=>e.pv?`${faixa(e.pv)} do peso vivo${e.txt?' · '+e.txt:''}`:(e.txt||'');
+function etapaKg(e,ref,cab,peso){ const base=cab*peso/100;
+  if(e.pv) return {min:base*e.pv[0],max:base*e.pv[1]};
+  if(e.sal&&ref.mistura){ const t=base*ref.mistura; return {min:t,max:t,sup:t*e.sup/(e.sal+e.sup),sal:t*e.sal/(e.sal+e.sup)}; }
+  return null; }
+const kgTxt=k=>!k?'à vontade':k.sal!=null?`~${nf(k.min,1)} kg de mistura (${nf(k.sal,1)} sal + ${nf(k.sup,1)} suplemento)`:k.min===k.max?nf(k.min,1)+' kg':nf(k.min,1)+' a '+nf(k.max,1)+' kg';
+function guiaTabela(){ return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tipo</th><th>Consumo</th><th>Cocho</th><th>Adaptação</th></tr></thead><tbody>
+  ${Object.entries(SUP_REF).map(([k,r])=>`<tr><td><b>${r.nome}</b><br><span class="small muted" style="white-space:normal">${r.uso}${r.tratos?' '+r.tratos+'.':''}</span></td><td>${r.consumo?faixa(r.consumo)+' PV':'à vontade'}</td><td>${faixa(r.cocho,' cm')}/cab</td><td>${r.etapas.length?(r.etapas[r.etapas.length-1].de-1)+' dias':'não precisa'}</td></tr>`).join('')}
+  </tbody></table></div>`; }
+function adaptTabela(tipo){ const r=SUP_REF[tipo]; if(!r||!r.etapas.length) return '';
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Período</th><th>Fornecimento</th></tr></thead><tbody>${r.etapas.map(e=>`<tr><td>${periodo(e)}</td><td style="white-space:normal;text-align:left">${etapaTxt(e)}</td></tr>`).join('')}</tbody></table></div>`; }
+function renderAdapt(a){ const r=SUP_REF[a.tipo]; if(!r) return ''; const cab=+a.cab||0, peso=+a.peso||0, d=days(a.inicio,today())+1;
+  const cur=r.etapas.find(e=>d>=e.de&&(e.ate==null||d<=e.ate)), last=r.etapas[r.etapas.length-1], fim=d>=last.de, nxt=r.etapas.find(e=>e.de>d);
+  const dt=n=>{const x=new Date(a.inicio+'T12:00:00'); x.setDate(x.getDate()+n-1); return x.toISOString().slice(0,10);};
+  const fo=a.formulacaoId&&S.form.find(f=>f.id===a.formulacaoId);
+  const head=d<1?`<span class="chip">Começa em ${dBR(a.inicio)}</span>`:fim?`<span class="chip good">Adaptado</span>`:`<span class="chip warn">Dia ${d} de ${last.de-1}</span>`;
+  return `<article class="card"><div class="row-head"><div><h3>${esc(a.nome||'Lote')}</h3><div class="small muted">${r.nome}${fo?' · '+esc(fo.nome):''} · ${nf(cab)} cab. de ${nf(peso)} kg · ${esc(FN[a.fase]||'')}</div></div>${head}</div>
+    ${d>=1?`<div class="calc"><b>Hoje:</b> ${cur?etapaTxt(cur):''}<br><b>Dar ao lote:</b> ${kgTxt(etapaKg(cur||last,r,cab,peso))} por dia${nxt?`<br><span class="small">Muda em ${dBR(dt(nxt.de))}: ${etapaTxt(nxt)}</span>`:''}</div>`:''}
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Período</th><th>Datas</th><th>Fornecimento</th><th>Lote/dia</th></tr></thead><tbody>
+    ${r.etapas.map(e=>{const on=cur===e; return `<tr${on?' class="sub"':''}><td>${periodo(e)}</td><td>${dBR(dt(e.de))}${e.ate?' a '+dBR(dt(e.ate)):' em diante'}</td><td style="white-space:normal;text-align:left">${etapaTxt(e)}</td><td>${kgTxt(etapaKg(e,r,cab,peso))}</td></tr>`;}).join('')}
+    </tbody></table></div>
+    <p class="note">Cocho: ${faixa(r.cocho,' cm')} por cabeça, ou ${r.cocho[0]===r.cocho[1]?nf(cab*r.cocho[0]/100,1):nf(cab*r.cocho[0]/100,1)+' a '+nf(cab*r.cocho[1]/100,1)} metros lineares para o lote. ${r.mistura&&r.etapas.some(e=>e.sal)?'Na fase de mistura com sal o consumo é à vontade; o kg é uma estimativa para 0,1% do peso vivo. ':''}Atualize o peso médio quando pesar o lote.</p>
+    <div class="btns"><button class="btn" type="button" data-open="adaptacao" data-edit="${a.id}">Editar</button><button class="btn del" type="button" data-del="${COL.adapt}:${a.id}">Excluir</button></div></article>`; }
+const TSN=Object.fromEntries(TIPOS_SUP);
+const supl=()=>S.insumos.filter(i=>i.grupo==='nutricao');
+const kgUn=i=>+i?.kgUn||1;
+const formCost=f=>{const ig=(f?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct); return t?sum(ig,x=>x.pct*(+x.preco||0))/t:NaN;};
+function precoKgIns(i){ const f=i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId); const fc=formCost(f); if(ok(fc)&&fc>0) return fc;
+  const ent=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrada'); const kg=sum(ent,m=>m.qtd*kgUn(i)); return kg?sum(ent,m=>m.valor)/kg:NaN; }
+function fornCalc(m){ const i=S.insumos.find(x=>x.id===m.insumoId), kg=(+m.qtd||0)*kgUn(i), cd=(+m.cab||0)*(+m.dias||0), pk=i?precoKgIns(i):NaN;
+  return {i,kg,cd,g:kg*1000/cd,pv:kg/cd/(+m.peso||0)*100,custo:kg*pk,rcd:kg*pk/cd}; }
+function metaSt(i,c){ if(!i||!(+i.metaMin||+i.metaMax)) return null; const v=i.metaTipo==='g'?c.g:c.pv; if(!ok(v)) return null;
+  const lo=+i.metaMin||0, hi=+i.metaMax||Infinity; return v<lo?'low':v>hi?'high':'ok'; }
+const metaTxt=i=>!(+i.metaMin||+i.metaMax)?'sem meta':i.metaTipo==='g'?`meta ${nf(+i.metaMin)}–${nf(+i.metaMax)} g/cab/dia`:`meta ${nf(+i.metaMin,2)}–${nf(+i.metaMax,2)}% PV`;
+const ST_TXT={ok:'Na meta',low:'Abaixo da meta',high:'Acima da meta'};
+const saldoKg=i=>saldo(i)*kgUn(i);
+function renderSupl(){
+  const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
+  const tKg=sum(fs,x=>x.kg), tCusto=sum(fs,x=>x.custo), tCd=sum(fs,x=>x.cd), pvW=sum(fs.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(fs.filter(x=>ok(x.pv)),x=>x.cd);
+  const desde=new Date(Date.now()-30*864e5).toISOString().slice(0,10), rec=S.emovs.filter(m=>m.fornecimento&&m.data>=desde).map(m=>({m,...fornCalc(m)}));
+  const ps=supl();
+  $('#v-suplementacao').innerHTML=`
+  <div class="row-head"><h2>Suplementação</h2><button class="btn primary" type="button" data-open="fornecimento">Registrar fornecimento</button></div>
+  ${segPer()}${janelaTxt(J)}
+  <div class="hero">
+    <div class="kpi"><span class="l">Custo no cocho</span><span class="v">${brl(tCusto)}</span><span class="s">${nf(tKg)} kg fornecidos</span></div>
+    <div class="kpi"><span class="l">Custo por cabeça</span><span class="v">${brl(tCusto/tCd,2)}</span><span class="s">por dia</span></div>
+    <div class="kpi"><span class="l">Consumo médio</span><span class="v">${nf(tKg*1000/tCd)} g</span><span class="s">por cabeça ao dia</span></div>
+    <div class="kpi"><span class="l">% do peso vivo</span><span class="v">${pct(pvW,2)}</span><span class="s">média ponderada</span></div>
+  </div>
+  <div class="row-head"><h2>Lotes em adaptação</h2><button class="btn" type="button" data-open="adaptacao">Iniciar adaptação</button></div>
+  ${S.adapt.length?`<div class="cards">${[...S.adapt].sort((a,b)=>(a.inicio||'')<(b.inicio||'')?1:-1).map(renderAdapt).join('')}</div>`:'<div class="panel"><p class="empty">Ao trocar ou começar um suplemento, inicie a adaptação do lote. O app mostra em que dia ele está, o que dar e quantos kg por dia.</p></div>'}
+  <div class="panel"><details><summary>Guia de suplementação por tipo</summary><p class="note" style="margin:8px 0">Da apostila "Guia de Suplementação do A ao Z". Ajustes na formulação devem ser feitos com um zootecnista.</p>${guiaTabela()}</details></div>
+  <div class="panel"><h2>Por fase</h2>
+    ${fs.length?`<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Fase</th><th>kg</th><th>Custo</th><th>g/cab/dia</th><th>% PV</th><th>R$/cab/dia</th><th>R$/@ prod.</th></tr></thead><tbody>
+    ${FASES.map(([k,n])=>{const a=fs.filter(x=>x.m.fase===k); if(!a.length) return ''; const kg=sum(a,x=>x.kg),c=sum(a,x=>x.custo),cd=sum(a,x=>x.cd),v=a.filter(x=>ok(x.pv)),pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd),pr=calc(UI.per,k).prodArr;
+      return `<tr><td><span class="dot" style="background:${FCOR[k]}"></span>${n}</td><td>${nf(kg)}</td><td>${brl(c)}</td><td>${nf(kg*1000/cd)}</td><td>${pct(pv,2)}</td><td>${brl(c/cd,2)}</td><td>${brl(c/pr,2)}</td></tr>`;}).join('')}
+    </tbody></table></div><p class="note" style="margin-top:8px">R$/@ prod. é o custo da suplementação dividido pelas arrobas que a fase produziu no período (precisa dos fechamentos do rebanho).</p>`:'<p class="empty">Nenhum fornecimento no período. Registre o que vai para o cocho: produto, fase ou lote, cabeças e quantos dias a quantidade cobre.</p>'}
+  </div>
+
+  <div class="row-head"><h2>Formulações próprias</h2><button class="btn" type="button" data-open="formulacao">Nova formulação</button></div>
+  ${S.form.length?`<div class="cards">${S.form.map(f=>{const ig=(f.ingredientes||[]).filter(x=>x.nome||+x.pct), tp=sum(ig,x=>x.pct), c=formCost(f), semPreco=ig.some(x=>!(+x.preco));
+    return `<article class="card"><div class="row-head"><h3>${esc(f.nome)}</h3><span class="chip ${Math.abs(tp-100)<0.01?'':'warn'}">${nf(tp,1)}%</span></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ingrediente</th><th>%</th><th>R$/kg</th><th>R$ na mistura</th></tr></thead><tbody>
+      ${ig.map(x=>`<tr><td>${esc(x.nome)}</td><td>${nf(+x.pct,1)}</td><td>${+x.preco?brl(+x.preco,2):'—'}</td><td>${+x.preco&&tp?brl(x.pct/tp*x.preco,3):'—'}</td></tr>`).join('')}
+      </tbody><tfoot><tr><td>Custo da mistura</td><td>${nf(tp,1)}</td><td></td><td>${ok(c)?brl(c,3)+'/kg':'—'}</td></tr></tfoot></table></div>
+      ${semPreco?'<p class="note neg">Falta o preço por kg de algum ingrediente. Toque em Editar para preencher.</p>':`<p class="note">Saco de 30 kg: <b>${brl(c*30,2)}</b> · saco de 25 kg: <b>${brl(c*25,2)}</b></p>`}
+      <div class="mixcalc"><label class="fl">Quantos kg vai misturar?<input type="number" min="0" step="1" inputmode="numeric" id="mix-${f.id}" data-mix="${f.id}" placeholder="1000"></label></div>
+      <div id="mixout-${f.id}" class="small"></div>
+      ${SUP_REF[f.tipo]?`<details><summary>Adaptação e uso · ${SUP_REF[f.tipo].nome}</summary>${adaptTabela(f.tipo)}<p class="note" style="margin-top:6px">Consumo esperado: ${SUP_REF[f.tipo].consumo?faixa(SUP_REF[f.tipo].consumo)+' do peso vivo':'à vontade'} · cocho ${faixa(SUP_REF[f.tipo].cocho,' cm')} por cabeça${SUP_REF[f.tipo].tratos?' · '+SUP_REF[f.tipo].tratos:''}.</p></details>`:''}
+      ${ig.some(x=>/ur[eé]ia/i.test(x.nome))?'<p class="note">Tem ureia: siga a adaptação, mantenha o cocho com acesso para todo o lote e não deixe faltar nem molhar o produto. Ajustes na fórmula com um zootecnista.</p>':''}
+      <div class="btns"><button class="btn" type="button" data-open="formulacao" data-edit="${f.id}">Editar</button><button class="btn del" type="button" data-del="${COL.form}:${f.id}">Excluir</button></div></article>`;}).join('')}</div>`
+  :`<div class="panel"><p class="empty">Cadastre a receita do suplemento feito na fazenda com o percentual e o preço de cada ingrediente para ver o custo por kg.</p></div>`}
+
+  <div class="row-head"><h2>Produtos e estoque</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto</button><button class="btn" type="button" data-open="entrada">Entrada</button></div></div>
+  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), kgDia=sum(r,x=>x.kg)/30, dias=saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
+      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${nf(saldo(i),1)} ${esc(i.unidade)}</span>
+      <span class="meta">${ok(pk)?brl(pk,2)+'/kg':'sem preço'}${i.formulacaoId?' (formulação)':''} · ${metaTxt(i)}${r.length?` · últimos 30 dias: ${i.metaTipo==='g'?nf(real.g)+' g/cab/dia':pct(real.pv,2)+' PV'}`:''}${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
+      <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${nf(dias)} dias</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${i.id}">Editar</button></span></div>`;}).join('')
+    :'<p class="empty">Cadastre os suplementos (sal mineral, proteinado, ração) com o peso da embalagem e a meta de consumo. Eles aparecem também no estoque de insumos do Financeiro.</p>'}</div>
+    <p class="note" style="margin-top:8px">Os dias de estoque usam o consumo dos últimos 30 dias. Para mistura feita na fazenda, registre a entrada do produto pronto sem lançar como desembolso, porque os ingredientes já foram lançados na compra.</p></div>
+
+  <h2>Fornecimentos</h2>
+  <div class="panel"><div class="list">${fs.length?[...fs].sort((a,b)=>a.m.data<b.m.data?1:-1).slice(0,40).map(x=>{const ms=metaSt(x.i,x);
+    return `<div class="item"><span class="t">${esc(x.i?.nome||'Produto removido')} · ${esc(FN[x.m.fase]||'')}${x.m.lote?' · '+esc(x.m.lote):''}</span><span class="amt">${nf(x.kg)} kg</span>
+    <span class="meta">${dBR(x.m.data)} · ${nf(+x.m.cab)} cab. × ${nf(+x.m.dias)} dias · ${nf(x.g)} g/cab/dia${ok(x.pv)?' · '+pct(x.pv,2)+' PV':''} · ${brl(x.rcd,2)}/cab/dia${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
+    <span class="act"><button class="btn del" type="button" data-del="${COL.emovs}:${x.m.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Nenhum fornecimento no período.</p>'}</div></div>`;
+}
+
+/* ---------- Financeiro ---------- */
+const saldo=i=>sum(S.emovs.filter(m=>m.insumoId===i.id),m=>(m.tipo==='entrada'?1:-1)*m.qtd);
+function renderFin(){
+  const R=calc(), J=R.J, de=S.desemb.filter(x=>J.inR(x.data)).sort((a,b)=>a.data<b.data?1:-1), tot=R.despesas||0;
+  const RF=Object.fromEntries(FASES.map(([k])=>[k,calc(UI.per,k)])), meses=Math.max(1,J.meses||1);
+  const col=x=>CENTROS.includes(x.centro)?x.centro:'geral';
+  const porItem=ITENS.map(([k,n])=>{const a=de.filter(x=>itemOf(x)===k); const r={k,n,t:sum(a,x=>x.valor)}; ['geral',...CENTROS].forEach(c=>r[c]=sum(a.filter(x=>col(x)===c),x=>x.valor)); return r;}).filter(r=>r.t);
+  const ms=[...new Set(de.map(x=>ym(x.data)))].sort().reverse();
+  const kp=(l,v,sub)=>`<div class="kpi"><span class="l">${l}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
+  $('#v-custos').innerHTML=`
+  <div class="page-title"><h2>Custos</h2><div class="btns"><button class="btn" type="button" data-open="desembolso">Novo custo</button><button class="btn primary" type="button" data-open="custosMes">Lançar custos do mês</button></div></div>
+  ${segPer()}${janelaTxt(J)}
+  <div class="hero">
+    ${kp('Gasto total',brl(tot),de.length+' lançamentos')}
+    ${kp('Por mês',brl(tot/meses),'média do período')}
+    ${kp('Por cabeça',brl(R.desembCab,2),'ao mês · bench. acima de R$ 50')}
+    ${kp('Por @ produzida',brl(R.desembArr,2),nf(R.prodArr)+' @ produzidas')}
+  </div>
+
+  <div class="panel"><h2>Onde o dinheiro foi</h2>
+    ${tot?`<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Setor</th><th>Lançado só nele</th><th>Parte da fazenda toda</th><th>Total</th><th>R$/cab/mês</th><th>R$/@ produzida</th></tr></thead><tbody>
+    ${FASES.map(([k,n])=>{const F=RF[k];return `<tr><td><span class="dot" style="background:${FCOR[k]}"></span>${n}</td><td>${brl(F.direto)}</td><td>${brl(F.rateio)}${ok(F.share)&&F.share?' <span class="muted">('+pct(F.share,0)+')</span>':''}</td><td><b>${brl(F.despesas)}</b></td><td>${brl(F.desembCab,2)}</td><td>${brl(F.desembArr,2)}</td></tr>`;}).join('')}
+    </tbody><tfoot><tr><td>Fazenda</td><td colspan="2">${brl(sum(de.filter(x=>col(x)==='geral'),x=>x.valor))} lançado para a fazenda toda</td><td>${brl(tot)}</td><td>${brl(R.desembCab,2)}</td><td>${brl(R.desembArr,2)}</td></tr></tfoot></table></div>
+    <p class="note" style="margin-top:8px">O que é da fazenda toda (peão fixo, combustível geral, contador…) é dividido entre as fases pelo tamanho de cada uma no rebanho, em UA. O que você lança só para um setor ou lote fica só nele.</p>`:'<p class="empty">Nenhum custo no período. Use "Lançar custos do mês" para registrar tudo de uma vez.</p>'}</div>
+
+  ${porItem.length?`<div class="panel"><h2>Custos por tipo</h2><div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Tipo de custo</th><th>Total</th><th>%</th><th>Fazenda toda</th>${FASES.map(([k,n])=>`<th>Só ${n.toLowerCase()}</th>`).join('')}<th>Por mês</th><th>R$/@ prod.</th></tr></thead><tbody>
+    ${porItem.sort((a,b)=>b.t-a.t).map(r=>`<tr><td>${r.n}</td><td><b>${brl(r.t)}</b></td><td>${pct(r.t/tot*100,0)}</td><td>${r.geral?brl(r.geral):'—'}</td>${CENTROS.map(c=>`<td>${r[c]?brl(r[c]):'—'}</td>`).join('')}<td>${brl(r.t/meses)}</td><td>${brl(r.t/R.prodArr,2)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Total</td><td>${brl(tot)}</td><td>100%</td><td>${brl(sum(porItem,r=>r.geral))}</td>${CENTROS.map(c=>`<td>${brl(sum(porItem,r=>r[c]))}</td>`).join('')}<td>${brl(tot/meses)}</td><td>${brl(R.desembArr,2)}</td></tr></tfoot></table></div></div>`:''}
+
+  ${ms.length?`<div class="panel"><h2>Mês a mês</h2><div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Mês</th><th>Total</th><th>Fazenda toda</th>${FASES.map(([k,n])=>`<th>Só ${n.toLowerCase()}</th>`).join('')}</tr></thead><tbody>
+    ${ms.map(m=>{const a=de.filter(x=>ym(x.data)===m);return `<tr><td>${mLabel(m)}</td><td><b>${brl(sum(a,x=>x.valor))}</b></td><td>${brl(sum(a.filter(x=>col(x)==='geral'),x=>x.valor))}</td>${CENTROS.map(c=>`<td>${brl(sum(a.filter(x=>col(x)===c),x=>x.valor))}</td>`).join('')}</tr>`;}).join('')}
+    </tbody></table></div></div>`:''}
+
+  <div class="panel"><div class="row-head"><h2>Comparação com as fazendas mais rentáveis</h2><span class="num muted">${brl(tot)}</span></div>
+    <p class="note" style="margin:4px 0 6px">Cada tipo de custo cai num grupo do Benchmarking Inttegra. A marca verde é a participação nas fazendas mais rentáveis.</p>
+    ${tot?REF_TOP.map(([nm,gs,ref])=>{const v=sum(gs,g=>R.porGrupo[g]),p=v/tot*100;return `<div style="padding:7px 0"><div class="row-head small"><span>${nm}</span><span class="num">${brl(v)} · ${pct(p,1)} ${ref!=null?`<span class="muted">(${nf(ref,1)}%)</span>`:''}</span></div><div class="bar"><i style="width:${Math.min(100,p)}%"></i>${ref!=null?`<s style="left:${ref}%"></s>`:''}</div></div>`;}).join(''):'<p class="empty">Nenhum custo no período.</p>'}
+  </div>
+
+  <div class="row-head"><h2>Lançamentos</h2></div>
+  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}</span><span class="act"><button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
+  <p class="note">Custeio é o gasto que se consome em menos de 12 meses. Investimento dura mais de 12 meses e vira patrimônio. Compra de boi não entra aqui: registre como compra no Rebanho, ela vai para a reposição.</p>
+
+  <div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
+  <div class="panel"><div class="list">${S.insumos.length?[...S.insumos].sort((a,b)=>a.nome<b.nome?-1:1).map(i=>{const sd=saldo(i),min=+i.minimo||0;return `<div class="item"><span class="t">${esc(i.nome)} ${sd<=min?'<span class="chip warn">Repor</span>':''}</span><span class="amt ${sd<=min?'neg':''}">${nf(sd,1)} ${esc(i.unidade)}</span><span class="meta">mínimo ${nf(min,1)} ${esc(i.unidade)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.insumos}:${i.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Cadastre os insumos que você controla, como sal mineral, proteinado, vacinas e diesel.</p>'}</div>
+    <p class="note" style="margin-top:8px">Valor do estoque hoje: ${brl(estoqueValor(today()))}. A variação entra no resultado da operação.</p></div>
+  ${simArroba()}`;
+}
+const ICO={
+ boi:'<path d="M4 8c0-2 1-3 3-3M20 8c0-2-1-3-3-3M6 8h12l-1 7a5 5 0 0 1-10 0z"/><path d="M10 13h.01M14 13h.01M10 17h4"/>',
+ ua:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+ ha:'<path d="M3 18l5-9 4 6 3-4 6 7z"/>',
+ cal:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+ caixa:'<path d="M3 10h18l-2.5 8h-13z"/><path d="M8 10V6h8v4"/>',
+ alerta:'<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+ pasto:'<path d="M5 20c0-6 2-10 7-14 5 4 7 8 7 14"/><path d="M12 20V9"/>'};
+const svgI=k=>`<svg viewBox="0 0 24 24">${ICO[k]}</svg>`;
+const lastFech=()=>[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop();
+const adaptAtivas=()=>S.adapt.map(a=>{const r=SUP_REF[a.tipo]; if(!r||!r.etapas.length) return null; const d=days(a.inicio,today())+1, fim=r.etapas[r.etapas.length-1].de; return d>=1&&d<fim?{a,r,d,fim}:null;}).filter(Boolean);
+function saudacao(){ const h=new Date().getHours(); return (h<12?'Bom dia':h<18?'Boa tarde':'Boa noite')+', '+(S.config.usuario||'Dr. Higor')+'!'; }
+function bandInfo(){
+  const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0, painel=UI.tab==='painel';
+  document.body.dataset.tab=UI.tab; $('#band').classList.toggle('slim',!painel);
+  $('#welcome').textContent=painel?saudacao():(S.config.nome||'Minha Fazenda');
+  $('#bandSub').textContent=(S.config.nome||'Minha Fazenda')+(last?' · '+nf(cab)+' cab. em '+nf(ua)+' UA'+(A?' em '+nf(A)+' ha':''):' · comece pelo fechamento do rebanho');
+  const nm=S.config.usuario||'Dr. Higor'; $('#who').innerHTML=`<span class="av">${esc(nm.replace(/^(dr|dra)\.?\s+/i,'').charAt(0).toUpperCase()||'F')}</span><div><b>${esc(nm)}</b><small>${esc(S.config.nome||'Minha Fazenda')}</small></div>`;
+}
+function statRow(){
+  const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0;
+  const c=(ic,v,l)=>`<div class="stat-c"><span class="ico">${svgI(ic)}</span><div><b>${v}</b><small>${l}</small></div></div>`;
+  return `<div class="statrow">${c('boi',last?nf(cab):'—','Cabeças hoje')}${c('ua',last?nf(ua):'—','UA hoje (450 kg)')}${c('pasto',last&&A?nf(ua/A,2):'—','Lotação UA/ha')}${c('cal',last?mLabel(last.mes):'—','Último fechamento')}</div>`;
+}
+function donutFases(RT,RF){
+  const R=54, C=2*Math.PI*R, J=RT.J; let off=0, segs='';
+  const tot=J.ok?FASES.reduce((t,[k])=>t+(RF[k].share||0),0):0;
+  if(tot>0) FASES.forEach(([k])=>{ const f=(RF[k].share||0)/tot, len=f*C; if(len<=0) return; const g=len>6?3:0;
+    segs+=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${FCOR[k]}" stroke-width="20" stroke-dasharray="${(len-g).toFixed(2)} ${(C-len+g).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"/>`; off+=len; });
+  const centro=J.ok&&ok(RT.rebMed)?nf(RT.rebMed):'—';
+  const rows=FASES.map(([k,n])=>{const F=RF[k], sh=J.ok?(F.share||0):0; return `<div class="dl-row"><span class="n"><i style="background:${FCOR[k]}"></i>${n}</span><span class="v">${J.ok&&ok(F.rebMed)?nf(F.rebMed)+' cab.':'—'} · ${pct(sh,0)}</span><span class="mbar"><i style="width:${Math.min(100,sh)}%;background:${FCOR[k]}"></i></span></div>`;}).join('');
+  return `<div class="panel"><div class="row-head"><h2>Rebanho por fase</h2><span class="small muted">média do período · em UA</span></div>
+    <div class="donut-wrap"><svg class="donut" viewBox="0 0 140 140" role="img" aria-label="Participação de cada fase no rebanho"><circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--sunk)" stroke-width="20"/>${segs}<text class="c" x="70" y="73" text-anchor="middle">${centro}</text><text class="u" x="70" y="90" text-anchor="middle">cabeças</text></svg>
+    <div class="dl">${rows}</div></div></div>`;
+}
+function renderSide(){
+  const el=$('#side'); if(!el) return; const hoje=today(), last=lastFech(), A=[];
+  const card=(o)=>{ const tile=o.ic?svgI(o.ic):`<span><b>${o.dia}</b><small>${o.mes}</small></span>`, inner=`<span class="tile">${tile}</span><span class="tx"><b>${o.t}</b><small>${o.s}</small></span>`;
+    return o.attr?`<button type="button" class="ac ${o.cls||''}" ${o.attr}>${inner}</button>`:`<div class="ac ${o.cls||''}">${inner}</div>`; };
+  if(!last) A.push({ic:'cal',cls:'warn',t:'Fazer o primeiro fechamento',s:'Cabeças e peso por categoria',attr:'data-open="fechamento"'});
+  else { const prox=addM(last.mes,1); if(prox<ym(hoje)||(prox===ym(hoje)&&+hoje.slice(8)>=25)) A.push({ic:'cal',cls:'warn',t:'Fechamento de '+mLabel(prox)+(prox<ym(hoje)?' pendente':' já pode ser feito'),s:'Último fechamento: '+mLabel(last.mes),attr:`data-open="fechamento" data-mes="${prox}"`}); }
+  S.insumos.filter(i=>saldo(i)<=(+i.minimo||0)).slice(0,3).forEach(i=>A.push({ic:'alerta',cls:'warn',t:'Repor: '+esc(i.nome),s:nf(saldo(i),1)+' '+esc(i.unidade)+' em estoque',attr:'data-tab="suplementacao"'}));
+  adaptAtivas().slice(0,3).forEach(({a,r,d,fim})=>A.push({ic:'caixa',t:'Adaptação: '+esc(a.nome||'Lote'),s:r.nome+' · dia '+d+' de '+(fim-1),attr:'data-tab="suplementacao"'}));
+  if(!area()) A.push({ic:'ha',t:'Informar a área produtiva',s:'Para lotação e @/ha',attr:'data-ajustes'});
+  const ev=[...S.movs.map(x=>({d:x.data,t:TIPOS_MOV[x.tipo]+' · '+esc(CN[x.categoria]||''),s:nf(x.cab)+' cab.'+(x.valor?' · '+brl(x.valor):'')})),
+    ...S.desemb.map(x=>({d:x.data,t:esc(ITN[itemOf(x)]||'Custo'),s:brl(x.valor)+' · '+esc(ondeTxt(x))}))].filter(x=>x.d).sort((a,b)=>a.d<b.d?1:-1).slice(0,6);
+  const lotes=S.engorda.filter(l=>!l.dataSaida).slice(0,3);
+  el.innerHTML=`<h2>Atividade</h2>
+   <div class="sd-sec"><div class="sd-head"><h3>Atenção</h3></div>${A.length?A.map(card).join(''):'<p class="sd-empty">Tudo em dia por aqui.</p>'}</div>
+   <div class="sd-sec"><div class="sd-head"><h3>Últimos lançamentos</h3><button class="btn link" type="button" data-tab="custos">Custos</button></div>${ev.length?ev.map(x=>card({dia:x.d.slice(8,10),mes:MES[+x.d.slice(5,7)-1],t:x.t,s:x.s})).join(''):'<p class="sd-empty">Nenhum lançamento ainda.</p>'}</div>
+   <div class="sd-sec"><div class="sd-head"><h3>Lotes na engorda</h3><button class="btn link" type="button" data-tab="engorda">Abrir</button></div>${lotes.length?lotes.map(l=>card({ic:'boi',t:esc(l.nome),s:nf(+l.cab||0)+' cab.'+(l.dataEntrada?' · dia '+Math.max(1,days(l.dataEntrada,hoje)+1):''),attr:'data-tab="engorda"'})).join(''):'<p class="sd-empty">Nenhum lote em andamento.</p>'}</div>`;
+}
+/* tema claro/escuro (segue o sistema até a pessoa escolher) */
+const temaAtual=()=>document.documentElement.dataset.theme||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+function marcaTema(){ const t=temaAtual(); document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeSet===t))); }
+function setTema(v){ document.documentElement.dataset.theme=v; try{localStorage.setItem('tema',v);}catch(e){} marcaTema(); }
+const themeToggle=()=>`<div class="theme" role="group" aria-label="Tema"><button type="button" data-theme-set="light" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>Claro</button><button type="button" data-theme-set="dark" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>Escuro</button></div>`;
+function openMore(){ $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Mais"><div class="row-head"><h2>Mais</h2><button class="btn link" type="button" data-close>Fechar</button></div>
+  <div class="types"><button type="button" data-tab="rebanho">Rebanho<span>Fechamentos e movimentos</span></button><button type="button" data-tab="suplementacao">Suplementação<span>Formulações, cocho e adaptação</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
+function suplFaseHTML(k){
+  const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&m.fase===k&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
+  const kg=sum(fs,x=>x.kg), c=sum(fs,x=>x.custo), cd=sum(fs,x=>x.cd), v=fs.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), pr=calc(UI.per,k).prodArr;
+  const ad=S.adapt.filter(a=>a.fase===k);
+  return `<div class="row-head"><h2>Suplementação</h2><div class="btns"><button class="btn" type="button" data-open="adaptacao">Iniciar adaptação</button><button class="btn" type="button" data-open="fornecimento">Registrar fornecimento</button></div></div>
+  ${ad.length?`<div class="cards">${ad.map(renderAdapt).join('')}</div>`:''}
+  <div class="panel">${fs.length?`${ind('Fornecido no período',nf(kg)+' kg',{ref:brl(c)})}${ind('Consumo médio',nf(kg*1000/cd)+' g/cab/dia',{ref:pct(pv,2)+' do peso vivo'})}${ind('Custo por cabeça',brl(c/cd,2)+'/dia')}${ind('Custo da suplementação por @ produzida',brl(c/pr,2))}`
+    :'<p class="empty">Nenhum fornecimento desta fase no período.</p>'}<button class="btn link" type="button" data-tab="suplementacao">Abrir a aba Suplementação</button></div>`;
+}
+function movsFaseHTML(k){
+  const ms=[...S.movs].filter(x=>faseOf(x.categoria)===k||(x.para&&faseOf(x.para)===k)).sort((a,b)=>a.data<b.data?1:-1).slice(0,10);
+  return `<div class="row-head"><h2>Movimentos recentes</h2><button class="btn" type="button" data-open="movimento">Registrar movimento</button></div>
+  <div class="panel"><div class="list">${ms.length?ms.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}</span></div>`).join(''):'<p class="empty">Nenhum movimento desta fase.</p>'}</div></div>`;
+}
+function renderFase(k){
+  const R=calc(UI.per,k), J=R.J, n=FN[k], last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===k);
+  const kp=(l,v,sub,cls='')=>`<div class="kpi"><span class="l">${l}</span><span class="v ${cls}">${v}</span><span class="s">${sub}</span></div>`;
+  $('#v-'+k).innerHTML=`
+  <div class="page-title"><h2><span class="dot" style="background:${FCOR[k]}"></span>${n}</h2><span class="chip">${last?nf(fCab(last,cs))+' cab. hoje · ':''}${pct(R.share,0)} do rebanho</span></div>
+  ${segPer()}${janelaTxt(J)}
+  <div class="hero">
+    ${kp('Rebanho médio',nf(R.rebMed)+' cab.',nf(R.uaMed)+' UA')}
+    ${kp('Produção',nf(R.prodArr)+' @',nf(R.prodKg)+' kg vivo')}
+    ${kp('GMD',nf(R.gmd,3)+' kg','por cabeça ao dia')}
+    ${kp('Custo/cab/mês',brl(R.desembCab,2),brl(R.despesas)+' no período')}
+    ${kp('Desembolso/@',brl(R.desembArr,2),'por @ produzida')}
+    ${kp('Resultado',brl(R.resFinal),'caixa + variação do rebanho',R.resFinal<0?'neg':R.resFinal>0?'pos':'')}
+    ${kp('Arrobas/ha/ano',nf(R.arrHa,1)+' @',R.area?nf(R.area)+' ha da fase':'informe a área da fase em Ajustes')}
+    ${kp('Margem',pct(R.margem,0),'sobre a venda · meta 35%',R.margem>=35?'pos':'')}
+  </div>
+  ${k==='cria'?reproHTML():''}
+  ${k==='engorda'?engordaHTML():''}
+  ${suplFaseHTML(k)}
+  <div class="sec-title"><h2>Indicadores da ${n.toLowerCase()}</h2></div>
+  ${detalhe(R,false)}
+  ${movsFaseHTML(k)}`;
+}
+function render(){ setStatus(); bandInfo(); renderSide();
+  ({painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); }
+function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; closeSheet(); UI.tab=t; ['painel','cria','recria','engorda','custos','rebanho','suplementacao'].forEach(k=>$('#v-'+k).hidden=k!==t);
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
+  try{history.replaceState(null,'','#'+t);}catch(e){} render(); window.scrollTo(0,0); }
+
+/* ---------- formulários ---------- */
+const fld=(label,name,type='text',attrs='',val='')=>`<label class="fl">${label}<input id="f-${name}" name="${name}" type="${type}" value="${esc(val??'')}" ${attrs}></label>`;
+const sel=(label,name,opts,val='',attrs='')=>`<label class="fl">${label}<select id="f-${name}" name="${name}" ${attrs}>${opts.map(([v,t])=>`<option value="${esc(v)}" ${String(v)===String(val)?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;
+const num='step="any" min="0"';
+const FORMS={
+  fechamento:{t:'Fechamento do mês',d:'Estoque por categoria',html:o=>{
+    const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1]; const mes=o.mes||(last?addM(last.mes,1):ym(today()));
+    return `${fld('Mês','mes','month','required',mes)}<p class="note">Já vem calculado: fechamento anterior + nascimentos e compras − vendas e mortes ± mudanças de categoria. Confira as cabeças e atualize o peso médio.</p><div id="fechRows">${fechRows(mes)}</div>`;}},
+  movimento:{t:'Movimento do rebanho',d:'Nascer, comprar, vender, morrer',html:()=>`${sel('Tipo','tipo',Object.entries(TIPOS_MOV))}<div class="grid2">${fld('Data','data','date','required',today())}${sel('Categoria','categoria',CATS)}</div>
+    <div data-show="transferencia" hidden>${sel('Para a categoria','para',CATS,'m8_12')}</div>
+    <div class="grid2">${fld('Cabeças','cab','number','min="1" required')}${fld('Peso médio (kg vivo)','pesoMedio','number','step="any" min="0"')}</div>
+    <div data-show="venda" hidden><div class="grid2">${fld('Preço da @ (R$)','precoArroba','number','step="0.01" min="0"')}${fld('Valor total (R$)','valorV','number','step="0.01" min="0"')}</div><div class="calc" id="calc">Preencha cabeças, peso e preço para calcular.</div></div>
+    <div data-show="transferencia" hidden><p class="note">Se a categoria de destino for de outra fase (ex.: bezerros desmamados indo para a recria), o app conta como venda de uma fase e compra da outra. Informe o peso médio na passagem.</p></div>
+    <div data-show="compra" hidden>${fld('Valor total pago (R$), com frete e comissão','valorC','number','step="0.01" min="0"')}</div>
+    ${fld('Observação','obs','text','placeholder="Comprador, causa da morte…"')}`},
+  desembolso:{t:'Custo',d:'Um gasto da fazenda',html:o=>{const x=S.desemb.find(d=>d.id===o.edit)||{item:'peao',tipo:'custeio'}; const it=itemOf(x);
+    return `<div class="grid2">${fld('Data','data','date','required',x.data||today())}${fld('Valor (R$)','valor','number','step="0.01" min="0.01" required',x.valor)}</div>
+    ${sel('Tipo de custo','item',ITENS.map(i=>[i[0],i[1]]),it)}
+    ${sel('Onde entra','onde',ondeOpts(),o.edit?ondeVal(x):ondePadrao(it))}
+    <div class="grid2">${sel('Tipo','tipo',[['custeio','Custeio (até 12 meses)'],['investimento','Investimento (mais de 12 meses)']],x.tipo)}${fld('Descrição','descricao','text','placeholder="Ex.: salário outubro"',x.descricao)}</div>
+    <p class="note" id="grpNote"></p>`;}},
+  custosMes:{t:'Custos do mês',d:'Vários gastos de uma vez',html:()=>`${fld('Mês','mes','month','required',ym(today()))}
+    <p class="note">Preencha só o que teve no mês. Em "Onde entra", escolha se o gasto é da fazenda toda ou só de um setor ou lote. O app lembra a escolha para o próximo mês.</p>
+    ${ITENS.map(([k,n])=>`<div class="ing" style="grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr) minmax(0,1.2fr)"><span class="cat" style="padding-bottom:10px;font-weight:600;font-size:14px">${n}</span><label class="fl"><input id="f-v_${k}" name="v_${k}" type="number" step="0.01" min="0" inputmode="decimal" placeholder="R$" aria-label="Valor ${n}"></label><label class="fl"><select id="f-o_${k}" name="o_${k}" aria-label="Onde entra ${n}">${ondeOpts().map(([v,t])=>`<option value="${esc(v)}" ${v===ondePadrao(k)?'selected':''}>${esc(t.replace(' (dividido entre as fases)',''))}</option>`).join('')}</select></label></div>`).join('')}
+    <div class="calc" id="calc">Total do mês: R$ 0</div>`},
+  entrada:{t:'Entrada de insumo',d:'Compra para o estoque',need:()=>S.insumos.length>0||'Cadastre um insumo antes.',html:()=>`${sel('Insumo','insumoId',S.insumos.map(i=>[i.id,i.nome+' ('+i.unidade+')']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade','qtd','number','step="any" min="0.01" required')}</div>${fld('Valor pago (R$)','valor','number','step="0.01" min="0" required')}${fld('Observação','obs','text')}<label class="ck"><input type="checkbox" id="f-lancar" name="lancar" checked> Lançar também como custo</label>${sel('Onde entra o custo','onde',ondeOpts(),'geral')}`},
+  saida:{t:'Saída de insumo',d:'Uso no rebanho',need:()=>S.insumos.length>0||'Cadastre um insumo antes.',html:()=>`${sel('Insumo','insumoId',S.insumos.map(i=>[i.id,i.nome+' ('+i.unidade+')']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade','qtd','number','step="any" min="0.01" required')}</div>${fld('Observação','obs','text')}`},
+  fornecimento:{t:'Fornecimento no cocho',d:'Suplemento por fase ou lote',need:()=>supl().length>0||'Cadastre um suplemento antes (aba Suplementação).',html:()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)==='recria');
+    return `${sel('Suplemento','insumoId',supl().map(i=>[i.id,i.nome+' ('+i.unidade+', '+nf(kgUn(i))+' kg)']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Dias que a quantidade cobre','dias','number','min="1" step="1" required','7')}</div>
+    <div class="grid2">${fld('Quantidade (embalagens)','qtd','number','step="any" min="0.01" required')}${sel('Fase','fase',FASES,'recria')}</div>
+    ${fld('Lote ou pasto (opcional)','lote','text','placeholder="Ex.: Pasto 4"')}
+    <div class="grid2">${fld('Cabeças no cocho','cab','number','min="1" step="1" required',last?fCab(last,cs)||'':'')}${fld('Peso médio (kg)','peso','number','step="any" min="0"',last&&fCab(last,cs)?Math.round(fKg(last,cs)/fCab(last,cs)):'')}</div>
+    <div class="calc" id="calc">Preencha para ver o consumo.</div>`;}},
+  suplemento:{t:'Suplemento',d:'Produto do cocho',html:o=>{const i=S.insumos.find(x=>x.id===o.edit)||{metaTipo:'pv'};
+    return `${fld('Nome','nome','text','required placeholder="Ex.: Proteinado águas"',i.nome)}<div class="grid2">${sel('Tipo','tipo',TIPOS_SUP,i.tipo||'proteinado')}${fld('Embalagem','unidade','text','required placeholder="saco"',i.unidade||'saco')}${fld('Kg por embalagem','kgUn','number','step="any" min="0.01" required',i.kgUn||30)}${fld('Estoque mínimo (embalagens)','minimo','number','step="any" min="0"',i.minimo??0)}</div>
+    ${sel('Formulação própria (opcional)','formulacaoId',[['','Produto comprado pronto'],...S.form.map(f=>[f.id,f.nome])],i.formulacaoId||'')}
+    <fieldset><legend>Meta de consumo</legend>${sel('Medida','metaTipo',[['pv','% do peso vivo'],['g','gramas por cabeça ao dia']],i.metaTipo||'pv')}<div class="grid2">${fld('Mínimo','metaMin','number','step="any" min="0"',i.metaMin)}${fld('Máximo','metaMax','number','step="any" min="0"',i.metaMax)}</div>
+    <p class="note">Ao escolher o tipo, a meta vem do guia de suplementação. Pode ajustar.</p></fieldset>`;}},
+  adaptacao:{t:'Adaptação de lote',d:'Plano dia a dia',html:o=>{const a=S.adapt.find(x=>x.id===o.edit)||{tipo:'proteinado',fase:'recria',inicio:today()}; const last=[...S.fech].sort((x,y)=>x.mes<y.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===(a.fase||'recria'));
+    return `${fld('Lote ou pasto','nome','text','required placeholder="Ex.: Garrotes pasto 4"',a.nome)}<div class="grid2">${sel('Suplemento','tipo',COM_ADAPT.map(k=>[k,SUP_REF[k].nome]),a.tipo)}${sel('Formulação (opcional)','formulacaoId',[['','—'],...S.form.map(f=>[f.id,f.nome])],a.formulacaoId||'')}${fld('Início da adaptação','inicio','date','required',a.inicio)}${sel('Fase','fase',FASES,a.fase)}${fld('Cabeças','cab','number','min="1" step="1" required',a.cab??(last?fCab(last,cs)||'':''))}${fld('Peso médio (kg)','peso','number','min="1" step="any" required',a.peso??(last&&fCab(last,cs)?Math.round(fKg(last,cs)/fCab(last,cs)):''))}</div>
+    <div id="adaptPrev"></div>`;}},
+  formulacao:{t:'Formulação',d:'Receita da mistura',html:o=>{const f=S.form.find(x=>x.id===o.edit)||{ingredientes:[],adaptacao:[]}; const ig=[...(f.ingredientes||[])]; while(ig.length<6) ig.push({});
+    return `${fld('Nome','nome','text','required placeholder="Ex.: Proteinado águas"',f.nome)}
+    <fieldset><legend>Ingredientes</legend>${ig.map((x,k)=>`<div class="ing"><label class="fl">${k?'':'Ingrediente'}<input id="f-in_${k}" name="in_${k}" value="${esc(x.nome||'')}" aria-label="Ingrediente ${k+1}"></label><label class="fl">${k?'':'%'}<input id="f-ip_${k}" name="ip_${k}" type="number" step="any" min="0" value="${esc(x.pct??'')}" aria-label="Percentual ${k+1}"></label><label class="fl">${k?'':'R$/kg'}<input id="f-iv_${k}" name="iv_${k}" type="number" step="0.001" min="0" value="${esc(x.preco??'')}" aria-label="Preço por kg ${k+1}"></label></div>`).join('')}
+    <div class="calc" id="calc">A soma dos percentuais deve dar 100%.</div></fieldset>
+    ${sel('Tipo de suplemento (define a adaptação)','tipo',TIPOS_SUP,f.tipo||'proteinado')}<div id="adaptPrev">${adaptTabela(f.tipo||'proteinado')}</div>`;}},
+  insumo:{t:'Novo insumo',d:'Item do estoque',html:()=>`${fld('Nome','nome','text','required placeholder="Ex.: Sal mineral"')}<div class="grid2">${fld('Unidade','unidade','text','required placeholder="sc 25 kg, L, frasco"')}${fld('Estoque mínimo','minimo','number','step="any" min="0"','0')}</div>${sel('Grupo do desembolso','grupo',GRUPOS.slice(0,4).map(g=>[g[0],g[1]]).concat([['maquinas','Parque de máquinas'],['outros','Outros']]))}`},
+  lote:{t:'Lote de engorda',d:'Recria, terminação, confinamento',html:o=>{const l=S.engorda.find(x=>x.id===o.edit)||{};return `${fld('Nome do lote','nome','text','required',l.nome||'')}<div class="grid2">${sel('Sistema','sistema',[['pasto','Pasto'],['semi','Terminação intensiva a pasto'],['confinamento','Confinamento']],l.sistema||'confinamento')}${fld('Cabeças','cab','number','min="1" required',l.cab)}</div>
+    <fieldset><legend>Entrada</legend><div class="grid2">${fld('Data de entrada','dataEntrada','date','required',l.dataEntrada||today())}${fld('Peso médio (kg)','pesoEntrada','number','step="any" min="1" required',l.pesoEntrada)}</div>${fld('Valor por cabeça na entrada (R$)','aquisicao','number',num,l.aquisicao)}<p class="note">Na compra, inclua frete e comissão. Se o animal é da própria fazenda, use o valor de transferência (peso em @ × preço da @), senão o resultado por boi fica inflado.</p></fieldset>
+    <fieldset><legend>Diária por cabeça</legend><div class="grid2">${fld('Nutrição (R$/dia)','nutricaoDia','number',num,l.nutricaoDia)}${fld('Operacional (R$/dia)','operacionalDia','number',num,l.operacionalDia)}</div></fieldset>
+    <fieldset><legend>Saída</legend><div class="grid2">${fld('Data de saída','dataSaida','date','',l.dataSaida)}${fld('Peso vivo médio (kg)','pesoSaida','number',num,l.pesoSaida)}${fld('Carcaça por cabeça (kg, romaneio)','carcaca','number',num,l.carcaca)}${fld('Preço da @ (R$)','precoVenda','number',num,l.precoVenda)}${fld('Idade ao abate (meses)','idadeAbate','number',num,l.idadeAbate)}${fld('Idade ao desmame (meses)','idadeDesmame','number',num,l.idadeDesmame)}</div></fieldset>`;}},
+  estacao:{t:'Estação de monta',d:'Prenhez, nascimento, desmame',html:o=>{const e=S.estacoes.find(x=>x.id===o.edit)||{cats:{}};const c=k=>e.cats?.[k]||{};
+    return `<div class="grid2">${fld('Nome','nome','text','required placeholder="Estação 2025/26"',e.nome)}${fld('Data do diagnóstico (DG)','dataDG','date','',e.dataDG)}</div>
+    <fieldset><legend>Fêmeas em monta e prenhes no DG</legend>${RCATS.map(([k,n])=>`<div class="grid3"><span class="cat">${n}</span>${fld('Expostas','exp_'+k,'number',num,c(k).expostas)}${fld('Prenhes','pre_'+k,'number',num,c(k).prenhes)}</div>`).join('')}<p class="note">Não conte as fêmeas que morreram antes do DG.</p></fieldset>
+    <fieldset><legend>IATF</legend><div class="grid3"><span class="cat">Protocolo</span>${fld('Inseminadas','iatfExpostas','number',num,e.iatfExpostas)}${fld('Prenhes','iatfPrenhes','number',num,e.iatfPrenhes)}</div>${fld('Doses de sêmen gastas','doses','number',num,e.doses)}</fieldset>
+    <fieldset><legend>Nascimento e desmame</legend>${fld('Bezerros nascidos vivos','nascidosVivos','number',num,e.nascidosVivos)}<p class="note">Natimortos ficam fora: casco limpo indica que nasceu morto.</p>
+      <div class="grid2">${fld('Machos desmamados','desmMachos','number',num,e.desmMachos)}${fld('Peso médio machos (kg)','pesoDesmMachos','number',num,e.pesoDesmMachos)}${fld('Fêmeas desmamadas','desmFemeas','number',num,e.desmFemeas)}${fld('Peso médio fêmeas (kg)','pesoDesmFemeas','number',num,e.pesoDesmFemeas)}${fld('Peso médio das vacas (kg)','pesoVacas','number',num,e.pesoVacas)}${fld('Gasto direto por bezerro (R$)','desembBezerro','number',num,e.desembBezerro)}</div></fieldset>
+    ${fld('Data da venda das vacas vazias','dataVendaVazias','date','',e.dataVendaVazias)}`;}},
+};
+function fechRows(mes){const cats=prefillFech(mes);
+  return `<div class="grid3" style="margin-bottom:4px"><span class="small muted">Categoria</span><span class="small muted">Cabeças</span><span class="small muted">Peso médio kg</span></div>`+CATS.map(([k,n])=>`<div class="grid3" style="margin-bottom:6px"><span class="cat">${n}</span><label class="fl"><input id="f-cab_${k}" name="cab_${k}" type="number" min="0" step="1" value="${cats[k]?.cab||0}" aria-label="Cabeças ${n}"></label><label class="fl"><input id="f-peso_${k}" name="peso_${k}" type="number" min="0" step="any" value="${cats[k]?.peso||0}" aria-label="Peso médio ${n}"></label></div>`).join('');}
+function closeSheet(){$('#sheetRoot').innerHTML='';}
+function openPicker(){$('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Registrar"><div class="row-head"><h2>O que você quer registrar?</h2><button class="btn link" type="button" data-close>Fechar</button></div><div class="types">${['custosMes','desembolso','movimento','fechamento','fornecimento','adaptacao','entrada','saida','lote','estacao','insumo'].map(k=>`<button type="button" data-open="${k}">${FORMS[k].t}<span>${FORMS[k].d}</span></button>`).join('')}</div></div></div>`;}
+function openForm(k,o={}){
+  const F=FORMS[k], okN=F.need?F.need():true; if(okN!==true) return toast(okN);
+  if(!db||!writable) return toast(!db?'Abra o app pelo link do Claude, com login, para salvar.':'Você só tem acesso de leitura.');
+  $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="${F.t}"><div class="row-head"><h2>${o.edit?'Editar':''} ${F.t}</h2><button class="btn link" type="button" data-close>Cancelar</button></div><form class="f" id="frm" data-kind="${k}" data-edit="${o.edit||''}">${F.html(o)}<div class="btns"><button class="btn primary" type="submit">Salvar</button></div></form></div></div>`;
+  const f=$('#frm');
+  if(k==='fornecimento'){ const upd=()=>{const i=S.insumos.find(x=>x.id===f.insumoId.value), c=fornCalc({insumoId:f.insumoId.value,qtd:f.qtd.value,cab:f.cab.value,dias:f.dias.value,peso:f.peso.value}); if(!ok(c.g)) return; const ms=metaSt(i,c);
+      $('#calc').innerHTML=`${nf(c.kg)} kg · <b>${nf(c.g)} g/cab/dia</b>${ok(c.pv)?' · '+pct(c.pv,2)+' do peso vivo':''}${ok(c.rcd)?' · '+brl(c.rcd,2)+'/cab/dia':''}${ms?' · '+ST_TXT[ms]+' ('+metaTxt(i)+')':''}`;};
+    f.addEventListener('input',upd); f.fase.addEventListener('change',()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===f.fase.value); if(last&&fCab(last,cs)){f.cab.value=fCab(last,cs); f.peso.value=Math.round(fKg(last,cs)/fCab(last,cs));} upd();}); }
+  if(k==='desembolso'){ const upd=()=>{$('#grpNote').textContent='Grupo do benchmark: '+(GN[ITG[f.item.value]]||'Outros');}; f.item.addEventListener('change',()=>{ if(!o.edit) f.onde.value=ondePadrao(f.item.value); upd();}); upd(); }
+  if(k==='custosMes') f.addEventListener('input',()=>{let t=0; ITENS.forEach(([k2])=>t+=Number(f['v_'+k2].value)||0); $('#calc').innerHTML='Total do mês: <b>'+brl(t,2)+'</b>';});
+  if(k==='formulacao') f.tipo.addEventListener('change',()=>{$('#adaptPrev').innerHTML=adaptTabela(f.tipo.value);});
+  if(k==='suplemento') f.tipo.addEventListener('change',()=>{const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
+  if(k==='adaptacao'){ const upd=()=>{const r=SUP_REF[f.tipo.value]; if(!r) return; const cab=+f.cab.value||0,peso=+f.peso.value||0; $('#adaptPrev').innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Período</th><th>Fornecimento</th><th>Lote/dia</th></tr></thead><tbody>${r.etapas.map(e=>`<tr><td>${periodo(e)}</td><td style="white-space:normal;text-align:left">${etapaTxt(e)}</td><td>${cab&&peso?kgTxt(etapaKg(e,r,cab,peso)):'—'}</td></tr>`).join('')}</tbody></table></div>`;}; f.addEventListener('input',upd); f.addEventListener('change',upd); upd(); }
+  if(k==='formulacao'){ const upd=()=>{let t=0,c=0; for(let n=0;n<6;n++){const p=+f['ip_'+n].value||0; t+=p; c+=p*(+f['iv_'+n].value||0);} $('#calc').innerHTML=`Soma: <b class="${Math.abs(t-100)<0.01?'pos':'neg'}">${nf(t,1)}%</b>${t&&c?' · custo da mistura '+brl(c/t,3)+'/kg':''}`;}; f.addEventListener('input',upd); upd(); }
+  if(k==='fechamento') f.mes.addEventListener('change',()=>{ if(f.mes.value) $('#fechRows').innerHTML=fechRows(f.mes.value); });
+  if(k==='movimento'){ let manual=false; const sync=()=>{f.querySelectorAll('[data-show]').forEach(d=>d.hidden=d.dataset.show!==f.tipo.value); if(f.tipo.value==='nascimento') f.categoria.value='bezerros';};
+    f.tipo.addEventListener('change',sync); sync(); f.valorV.addEventListener('input',()=>manual=true);
+    f.addEventListener('input',e=>{ if(f.tipo.value!=='venda') return; const c=+f.cab.value,p=+f.pesoMedio.value,pr=+f.precoArroba.value; if(c&&p){const a=c*p/kgA(); if(pr&&!manual&&e.target!==f.valorV) f.valorV.value=(a*pr).toFixed(2); $('#calc').textContent=`${nf(a,1)} @ no total, ${nf(p/kgA(),2)} @ por cabeça`;}}); }
+  setTimeout(()=>f.querySelector('input,select')?.focus(),50);
+}
+async function submitForm(f){
+  const k=f.dataset.kind, v=Object.fromEntries(new FormData(f)), N=x=>x===''||x==null?null:Number(x), ed=f.dataset.edit;
+  const add=(col,d)=>db.collection(col).add({...d,criadoEm:new Date().toISOString()});
+  if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};}); await db.doc(COL.fech+'/'+v.mes).set({mes:v.mes,cats}); }
+  if(k==='movimento'){ const d={tipo:v.tipo,data:v.data,categoria:v.categoria,cab:N(v.cab),pesoMedio:N(v.pesoMedio)||0,obs:v.obs||''};
+    if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
+    if(v.tipo==='venda'){ d.precoArroba=N(v.precoArroba)||0; d.valor=N(v.valorV)||0; }
+    if(v.tipo==='compra') d.valor=N(v.valorC)||0; await add(COL.movs,d); }
+  if(k==='desembolso'){ const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde)}; lembraOnde(v.item,v.onde);
+    if(ed) await db.doc(COL.desemb+'/'+ed).update(d); else await add(COL.desemb,d); }
+  if(k==='custosMes'){ const m=v.mes; if(!m) throw {code:'form'}; const dt=m===ym(today())?today():mEnd(m); let n=0;
+    for(const [it] of ITENS){ const val=N(v['v_'+it]); lembraOnde(it,v['o_'+it]); if(val>0){ await add(COL.desemb,{data:dt,valor:val,item:it,grupo:ITG[it],tipo:'custeio',descricao:'',...parseOnde(v['o_'+it])}); n++; } }
+    if(!n) throw {code:'form',msg:'Preencha o valor de pelo menos um custo.'}; }
+  if(k==='insumo') await add(COL.insumos,{nome:v.nome,unidade:v.unidade,minimo:N(v.minimo)||0,grupo:v.grupo});
+  if(k==='entrada'){ await add(COL.emovs,{tipo:'entrada',insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),valor:N(v.valor)||0,obs:v.obs||''});
+    const i=S.insumos.find(x=>x.id===v.insumoId); if(v.lancar&&N(v.valor)>0) await add(COL.desemb,{data:v.data,valor:N(v.valor),grupo:i?.grupo||'nutricao',item:GRUPO_ITEM[i?.grupo||'nutricao']||'outros',tipo:'custeio',...parseOnde(v.onde),descricao:`${nf(N(v.qtd),1)} ${i?.unidade||''} de ${i?.nome||'insumo'}`}); }
+  if(k==='fornecimento') await add(COL.emovs,{tipo:'saida',fornecimento:true,insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),dias:N(v.dias),fase:v.fase,lote:v.lote||'',cab:N(v.cab),peso:N(v.peso)||0,obs:''});
+  if(k==='suplemento'){ const d={nome:v.nome,tipo:v.tipo,unidade:v.unidade,kgUn:N(v.kgUn)||1,minimo:N(v.minimo)||0,grupo:'nutricao',formulacaoId:v.formulacaoId||'',metaTipo:v.metaTipo,metaMin:N(v.metaMin)||0,metaMax:N(v.metaMax)||0};
+    if(ed) await db.doc(COL.insumos+'/'+ed).update(d); else await add(COL.insumos,d); }
+  if(k==='formulacao'){ const ingredientes=[]; for(let n=0;n<6;n++){ if(v['in_'+n]||N(v['ip_'+n])) ingredientes.push({nome:v['in_'+n]||'',pct:N(v['ip_'+n])||0,preco:N(v['iv_'+n])||0}); }
+    const d={nome:v.nome,ingredientes,tipo:v.tipo};
+    if(ed) await db.doc(COL.form+'/'+ed).update(d); else await add(COL.form,d); }
+  if(k==='adaptacao'){ const d={nome:v.nome,tipo:v.tipo,formulacaoId:v.formulacaoId||'',inicio:v.inicio,fase:v.fase,cab:N(v.cab),peso:N(v.peso)};
+    if(ed) await db.doc(COL.adapt+'/'+ed).update(d); else await add(COL.adapt,d); }
+  if(k==='saida') await add(COL.emovs,{tipo:'saida',insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),obs:v.obs||''});
+  if(k==='lote'){ const d={}; ['nome','sistema','dataEntrada','dataSaida'].forEach(x=>d[x]=v[x]||''); ['cab','pesoEntrada','aquisicao','nutricaoDia','operacionalDia','pesoSaida','carcaca','precoVenda','idadeAbate','idadeDesmame'].forEach(x=>d[x]=N(v[x]));
+    if(ed) await db.doc(COL.engorda+'/'+ed).update(d); else await add(COL.engorda,d); }
+  if(k==='estacao'){ const d={nome:v.nome,dataDG:v.dataDG||'',dataVendaVazias:v.dataVendaVazias||'',cats:{}}; RCATS.forEach(([c])=>d.cats[c]={expostas:N(v['exp_'+c])||0,prenhes:N(v['pre_'+c])||0});
+    ['iatfExpostas','iatfPrenhes','doses','nascidosVivos','desmMachos','pesoDesmMachos','desmFemeas','pesoDesmFemeas','pesoVacas','desembBezerro'].forEach(x=>d[x]=N(v[x])||0);
+    if(ed) await db.doc(COL.estacoes+'/'+ed).update(d); else await add(COL.estacoes,d); }
+}
+
+/* ---------- eventos ---------- */
+let toastT; function toast(m){clearTimeout(toastT);$('#toastRoot').innerHTML=`<div class="toast" role="status">${esc(m)}</div>`;toastT=setTimeout(()=>$('#toastRoot').innerHTML='',2800);}
+function dbErr(e){ if(e?.code==='form') return toast(e.msg||'Confira os campos do formulário.'); if(e?.code==='invalid_argument'){writable=false;setStatus();toast('Você não tem permissão para salvar aqui.');} else if(e?.code==='quota_exceeded') toast('Limite de registros atingido. Apague registros antigos.'); else toast('Não foi possível salvar. Tente de novo.'); }
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('button,[data-close]'); if(!b) return; if(b.matches('.sheet-bg')&&e.target!==b) return;
+  if(b.dataset.tab) return showTab(b.dataset.tab);
+  if(b.dataset.per){UI.per=b.dataset.per;try{localStorage.setItem('per2',UI.per);}catch(x){} return render();}
+  if(b.dataset.themeSet) return setTema(b.dataset.themeSet);
+  if(b.hasAttribute('data-more')) return openMore();
+  if(b.hasAttribute('data-ajustes')){ showTab('painel'); setTimeout(()=>document.getElementById('ajustes')?.scrollIntoView({block:'start'}),50); return; }
+  if(b.dataset.simFill) return simFill(b.dataset.simFill);
+  if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
+  if(b.id==='fab') return openPicker();
+  if(b.hasAttribute('data-close')) return closeSheet();
+  if(b.dataset.open) return openForm(b.dataset.open,{edit:b.dataset.edit,mes:b.dataset.mes});
+  if(b.dataset.del||b.hasAttribute('data-clear-ex')){
+    if(!b.hasAttribute('data-armed')){b.dataset.orig=b.textContent;b.setAttribute('data-armed','');b.textContent='Toque de novo para confirmar';setTimeout(()=>{if(b.isConnected){b.removeAttribute('data-armed');b.textContent=b.dataset.orig;}},3500);return;}
+    if(!db||!writable) return toast('Sem permissão para excluir.');
+    try{ if(b.dataset.del){const [c,id]=b.dataset.del.split(':');await db.doc(c+'/'+id).delete();toast('Excluído');}
+      else{ b.disabled=true; b.textContent='Apagando…';
+        for(const [key,col] of Object.entries(COL)) for(const x of S[key].filter(x=>x.exemplo)) await db.doc(col+'/'+x.id).delete();
+        if(S.config.exemplo) await db.doc('config/geral').set({...CFG0,nome:'Minha Fazenda'});
+        toast('Exemplos apagados. Comece pelo fechamento do mês no Rebanho.'); }
+    }catch(err){dbErr(err);}
+  }
+});
+document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
+    try{ await db.doc('config/geral').set({nome:f.nome.value.trim()||'Minha Fazenda',usuario:f.usuario.value.trim()||'Dr. Higor',area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+  if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
+    try{ await submitForm(f); closeSheet(); toast('Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape') closeSheet();});
+document.addEventListener('input',e=>{const id=e.target.dataset?.mix; if(!id) return; const fo=S.form.find(x=>x.id===id), kg=+e.target.value||0, ig=(fo?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct);
+  $('#mixout-'+id).innerHTML=kg&&t?`<div class="list">${ig.map(x=>`<div class="item"><span class="t">${esc(x.nome)}</span><span class="amt">${nf(kg*x.pct/t,1)} kg</span></div>`).join('')}</div>${ok(formCost(fo))&&formCost(fo)>0?`<p class="note">Custo da batida: <b>${brl(kg*formCost(fo),2)}</b></p>`:''}`:'';});
+document.addEventListener('input',e=>{const f=e.target.closest&&e.target.closest('#simArr'); if(!f) return; SIM[e.target.name]=e.target.value; saveSim(); $('#simOut').innerHTML=simOut(SIM);});
+
+/* ---------- dados ---------- */
+try{const p=localStorage.getItem('per2'); if(PERS[p]) UI.per=p;}catch(e){}
+try{const t=localStorage.getItem('tema'); if(t==='dark'||t==='light') document.documentElement.dataset.theme=t;}catch(e){}
+marcaTema();
+const h=({reproducao:'cria',financeiro:'custos'})[location.hash.slice(1)]||location.hash.slice(1); showTab(['painel','cria','recria','engorda','custos','rebanho','suplementacao'].includes(h)?h:'painel');
+(async()=>{
+  try{ db=window.claude?.use?await window.claude.use('db'):null; }catch(e){db=null;}
+  if(db){
+    try{const u=await window.claude.use('user'); const w=u?await u.can('data.write'):null; if(w===false) writable=false;}catch(e){}
+    const sub=(key,col)=>db.collection(col).onSnapshot(s=>{S[key]=s.docs.map(d=>({id:d.id,...d.data()}));render();},()=>{});
+    Object.entries(COL).forEach(([k,c])=>sub(k,c));
+    db.doc('config/geral').onSnapshot(s=>{S.config={...CFG0,...(s.exists?s.data():{})};S.config.precos={...PRECO_PADRAO,...(S.config.precos||{})};S.config.fases={...FASE_PADRAO,...(S.config.fases||{})};S.config.areaFase={...CFG0.areaFase,...(S.config.areaFase||{})};render();},()=>{});
+  }
+  render();
+})();
+})();
+</script>
