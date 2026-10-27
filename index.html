@@ -1155,7 +1155,7 @@ function renderFase(k){
   ${movsFaseHTML(k)}`;
 }
 function render(){ setStatus(); bandInfo(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF'))) return;
   ({inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; closeSheet(); UI.tab=t; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -1246,10 +1246,22 @@ function bgiHTML(){
   <details><summary>Atualizar os valores</summary><form class="f" id="bgiF"><div class="grid2">${fld('Data do pregão','bdata','date','',BGI.data)}${fld('Outubro / à vista (R$/@)','bspot','number','step="0.01"',BGI.spot)}</div>
   <div class="grid2">${BGI.v.map(([n,p,v],i)=>fld(n+' (R$/@)','bp'+i,'number','step="0.01"',p)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
   <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/boi-gordo-b3-prego-regular" target="_blank" rel="noopener">Notícias Agrícolas / B3</a>. Os valores ficam salvos neste aparelho; atualize quando quiser.</p></details></div>`;}
+
+/* ---------- milho futuro B3 ---------- */
+const MIL0={data:'2026-10-26',v:[['Nov/26',66.99,2.23],['Jan/27',71.83,2.50],['Mar/27',77.34,2.65],['Mai/27',76.65,2.62]]};
+let MIL=(()=>{try{const o=JSON.parse(localStorage.getItem('milho')||'null'); return o&&o.v&&o.v.length===4?o:MIL0;}catch(e){return MIL0;}})();
+function milhoHTML(){
+  return `<div class="panel bgi"><div class="row-head"><h2>Milho futuro (B3)</h2><span class="small muted">fechamento de ${dBR(MIL.data)}</span></div>
+  <div class="bgi-g">${MIL.v.map(([n,p,v])=>`<div class="bgi-c"><span class="l">${n}</span><b class="num">${brl(p,2)}</b><span class="s ${v>=0?'pos':'neg'}">${v>=0?'▲':'▼'} ${nf(Math.abs(v),2)}%</span></div>`).join('')}</div>
+  <p class="note" style="margin-top:8px">R$ por saca de 60 kg (${brl(MIL.v[0][1]/60,2)}/kg no 1º vencimento). Diferença do 1º ao 4º vencimento: ${brl(MIL.v[3][1]-MIL.v[0][1],2)}.</p>
+  <details><summary>Atualizar os valores</summary><form class="f" id="milhoF">${fld('Data do pregão','mdata','date','',MIL.data)}
+  <div class="grid2">${MIL.v.map(([n,p],i)=>fld(n+' (R$/saca)','mp'+i,'number','step="0.01"',p)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
+  <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/milho/milho-b3-prego-regular" target="_blank" rel="noopener">Notícias Agrícolas / B3</a>. Os valores ficam salvos neste aparelho; atualize quando quiser.</p></details></div>`;}
 function renderInicio(){
   const de=[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).slice(0,5);
   $('#v-inicio').innerHTML=`
   <div style="margin-top:18px">${bgiHTML()}</div>
+  <div style="margin-top:12px">${milhoHTML()}</div>
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
@@ -1353,6 +1365,7 @@ document.addEventListener('click',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='milhoF'){ MIL={data:f.mdata.value||MIL.data,v:MIL.v.map(([n,p,x],i)=>[n,Number(f['mp'+i].value)||p,x])}; try{localStorage.setItem('milho',JSON.stringify(MIL));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='bgiF'){ const v=BGI.v.map(([n,p,x],i)=>[n,Number(f['bp'+i].value)||p,x]); BGI={data:f.bdata.value||BGI.data,spot:Number(f.bspot.value)||BGI.spot,v}; try{localStorage.setItem('bgi',JSON.stringify(BGI));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
     try{ await db.doc('config/geral').set({nome:f.nome.value.trim()||FAZ,usuario:f.usuario.value.trim()||'Dr. Higor',area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
