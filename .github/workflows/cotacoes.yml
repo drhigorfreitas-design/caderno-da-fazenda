@@ -1,0 +1,30 @@
+name: Atualizar cotações
+on:
+  schedule:
+    - cron: "30 19 * * 1-5"
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Buscar cotações
+        id: busca
+        continue-on-error: true
+        run: python scripts/atualizar_cotacoes.py
+      - name: Salvar
+        run: |
+          git config user.name "cotacoes-bot"
+          git config user.email "cotacoes-bot@users.noreply.github.com"
+          git add cotacoes.json
+          git diff --cached --quiet || (git commit -m "Atualiza cotações" && git push)
+      - name: Avisar se algo falhou
+        if: steps.busca.outcome == 'failure'
+        run: |
+          echo "Alguma cotação não pôde ser lida. Veja o passo Buscar cotações." && exit 1
