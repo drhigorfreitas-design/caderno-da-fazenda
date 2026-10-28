@@ -1155,7 +1155,7 @@ function renderFase(k){
   ${movsFaseHTML(k)}`;
 }
 function render(){ setStatus(); bandInfo(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF'))) return;
   ({inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; closeSheet(); UI.tab=t; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -1240,28 +1240,53 @@ const BGI0={data:'2026-10-26',spot:384.5,v:[['Nov/26',397.00,1.16],['Dez/26',396
 let BGI=(()=>{try{const o=JSON.parse(localStorage.getItem('bgi')||'null'); return o&&o.v&&o.v.length===4?o:BGI0;}catch(e){return BGI0;}})();
 function bgiHTML(){
   const m=Math.max(...BGI.v.map(x=>x[1])), mn=Math.min(...BGI.v.map(x=>x[1]));
-  return `<div class="panel bgi"><div class="row-head"><h2>Boi gordo futuro (B3 · BGI)</h2><span class="small muted">fechamento de ${dBR(BGI.data)}</span></div>
+  return `<div class="panel bgi"><div class="row-head"><h2>Boi gordo futuro (B3 · BGI)</h2><span class="small muted">fechamento de ${dBR(BGI.data)}${COT_AUTO?' · automático':''}</span></div>
   <div class="bgi-g">${BGI.v.map(([n,p,v])=>`<div class="bgi-c"><span class="l">${n}</span><b class="num">${brl(p,2)}</b><span class="s ${v>=0?'pos':'neg'}">${v>=0?'▲':'▼'} ${nf(Math.abs(v),2)}%</span></div>`).join('')}</div>
   <p class="note" style="margin-top:8px">R$ por @ · mês de outubro (à vista na B3): ${brl(BGI.spot,2)}. Diferença do 1º ao 4º vencimento: ${brl(BGI.v[3][1]-BGI.v[0][1],2)}.</p>
   <details><summary>Atualizar os valores</summary><form class="f" id="bgiF"><div class="grid2">${fld('Data do pregão','bdata','date','',BGI.data)}${fld('Outubro / à vista (R$/@)','bspot','number','step="0.01"',BGI.spot)}</div>
   <div class="grid2">${BGI.v.map(([n,p,v],i)=>fld(n+' (R$/@)','bp'+i,'number','step="0.01"',p)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
-  <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/boi-gordo-b3-prego-regular" target="_blank" rel="noopener">Notícias Agrícolas / B3</a>. Os valores ficam salvos neste aparelho; atualize quando quiser.</p></details></div>`;}
+  <p class="note">Atualiza sozinho nos dias úteis, depois do fechamento do pregão. Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/boi-gordo-b3-prego-regular" target="_blank" rel="noopener">Notícias Agrícolas / B3</a>. Os valores ficam salvos neste aparelho; atualize quando quiser.</p></details></div>`;}
 
 /* ---------- milho futuro B3 ---------- */
 const MIL0={data:'2026-10-26',v:[['Nov/26',66.99,2.23],['Jan/27',71.83,2.50],['Mar/27',77.34,2.65],['Mai/27',76.65,2.62]]};
 let MIL=(()=>{try{const o=JSON.parse(localStorage.getItem('milho')||'null'); return o&&o.v&&o.v.length===4?o:MIL0;}catch(e){return MIL0;}})();
 function milhoHTML(){
-  return `<div class="panel bgi"><div class="row-head"><h2>Milho futuro (B3)</h2><span class="small muted">fechamento de ${dBR(MIL.data)}</span></div>
+  return `<div class="panel bgi"><div class="row-head"><h2>Milho futuro (B3)</h2><span class="small muted">fechamento de ${dBR(MIL.data)}${COT_AUTO?' · automático':''}</span></div>
   <div class="bgi-g">${MIL.v.map(([n,p,v])=>`<div class="bgi-c"><span class="l">${n}</span><b class="num">${brl(p,2)}</b><span class="s ${v>=0?'pos':'neg'}">${v>=0?'▲':'▼'} ${nf(Math.abs(v),2)}%</span></div>`).join('')}</div>
   <p class="note" style="margin-top:8px">R$ por saca de 60 kg (${brl(MIL.v[0][1]/60,2)}/kg no 1º vencimento). Diferença do 1º ao 4º vencimento: ${brl(MIL.v[3][1]-MIL.v[0][1],2)}.</p>
   <details><summary>Atualizar os valores</summary><form class="f" id="milhoF">${fld('Data do pregão','mdata','date','',MIL.data)}
   <div class="grid2">${MIL.v.map(([n,p],i)=>fld(n+' (R$/saca)','mp'+i,'number','step="0.01"',p)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
   <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/milho/milho-b3-prego-regular" target="_blank" rel="noopener">Notícias Agrícolas / B3</a>. Os valores ficam salvos neste aparelho; atualize quando quiser.</p></details></div>`;}
+
+/* ---------- reposição macho Nelore MT (Scot Consultoria) ---------- */
+const REP0={uf:'MT',v:[['Desmama','8 meses',195,6.5,3391.54,'2026-10-26'],['Bezerro','12 meses',240,8,4032.81,'2026-10-26'],['Garrote','18 meses',300,10,4585.24,'2026-10-27'],['Boi magro','',375,12.5,5318.96,'2026-10-26']]};
+let REP=(()=>{try{const o=JSON.parse(localStorage.getItem('repoNelore')||'null'); return o&&o.v&&o.v.length===4?o:REP0;}catch(e){return REP0;}})();
+function repoHTML(){
+  return `<div class="panel"><div class="row-head"><h2>Reposição: macho Nelore em ${REP.uf}</h2><span class="small muted">Scot Consultoria${COT_AUTO?' · automático':''}</span></div>
+  <div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Categoria</th><th>R$/cabeça</th><th>R$/kg</th><th>R$/@</th></tr></thead><tbody>
+  ${REP.v.map(([n,i,kg,arr,cab,d])=>`<tr><td><b>${n}</b><br><span class="small muted">${i?i+' · ':''}${nf(kg)} kg · ${nf(arr,1)} @</span></td><td><b>${brl(cab,2)}</b><br><span class="small muted">${dBR(d).slice(0,5)}</span></td><td>${brl(cab/kg,2)}</td><td>${brl(cab/arr,2)}</td></tr>`).join('')}
+  </tbody></table></div>
+  <p class="note" style="margin-top:8px">Data de cada cotação abaixo do valor. R$/@ é o preço da cabeça dividido pelas @ de peso vivo da categoria.</p>
+  <details><summary>Atualizar os valores</summary><form class="f" id="repF"><div class="grid2">${REP.v.map(([n,i,kg,arr,cab,d],k)=>fld(n+' (R$/cabeça)','rc'+k,'number','step="0.01"',cab)+fld('Data '+n.toLowerCase(),'rd'+k,'date','',d)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
+  <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/macho-nelore-boi-magro" target="_blank" rel="noopener">Scot Consultoria, via Notícias Agrícolas</a>. Pesos de referência: desmama 195 kg, bezerro 240 kg, garrote 300 kg, boi magro 375 kg. Os valores ficam salvos neste aparelho.</p></details></div>`;}
+
+/* cotações automáticas: o GitHub atualiza cotacoes.json todo dia útil */
+let COT_AUTO=false;
+const COT_URL='https://raw.githubusercontent.com/drhigorfreitas-design/caderno-da-fazenda/main/cotacoes.json';
+async function carregaCot(){
+  try{ const r=await fetch(COT_URL+'?t='+Date.now(),{cache:'no-store'}); if(!r.ok) return; const j=await r.json(); let mudou=false;
+    if(j.boi&&j.boi.v&&j.boi.v.length===4&&j.boi.data>=BGI.data){ BGI={data:j.boi.data,spot:j.boi.spot||BGI.spot,v:j.boi.v}; mudou=true; }
+    if(j.milho&&j.milho.v&&j.milho.v.length===4&&j.milho.data>=MIL.data){ MIL={data:j.milho.data,v:j.milho.v}; mudou=true; }
+    const mx=a=>a.reduce((m,x)=>x[5]>m?x[5]:m,'');
+    if(j.reposicao&&j.reposicao.v&&j.reposicao.v.length===4&&mx(j.reposicao.v)>=mx(REP.v)){ REP=j.reposicao; mudou=true; }
+    if(mudou){ COT_AUTO=true; if(UI.tab==='inicio') render(); } }catch(e){}
+}
 function renderInicio(){
   const de=[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).slice(0,5);
   $('#v-inicio').innerHTML=`
   <div style="margin-top:18px">${bgiHTML()}</div>
   <div style="margin-top:12px">${milhoHTML()}</div>
+  <div style="margin-top:12px">${repoHTML()}</div>
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
@@ -1365,6 +1390,7 @@ document.addEventListener('click',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='repF'){ REP={uf:REP.uf,v:REP.v.map((r,k)=>[r[0],r[1],r[2],r[3],Number(f['rc'+k].value)||r[4],f['rd'+k].value||r[5]])}; try{localStorage.setItem('repoNelore',JSON.stringify(REP));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='milhoF'){ MIL={data:f.mdata.value||MIL.data,v:MIL.v.map(([n,p,x],i)=>[n,Number(f['mp'+i].value)||p,x])}; try{localStorage.setItem('milho',JSON.stringify(MIL));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='bgiF'){ const v=BGI.v.map(([n,p,x],i)=>[n,Number(f['bp'+i].value)||p,x]); BGI={data:f.bdata.value||BGI.data,spot:Number(f.bspot.value)||BGI.spot,v}; try{localStorage.setItem('bgi',JSON.stringify(BGI));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
@@ -1380,6 +1406,7 @@ document.addEventListener('input',e=>{const cf=e.target.closest&&e.target.closes
   const f=e.target.closest&&e.target.closest('#simArr'); if(!f) return; SIM[e.target.name]=e.target.value; saveSim(); $('#simOut').innerHTML=simOut(SIM);});
 
 /* ---------- dados ---------- */
+carregaCot(); document.addEventListener('visibilitychange',()=>{ if(!document.hidden) carregaCot(); });
 try{const p=localStorage.getItem('per2'); if(PERS[p]) UI.per=p;}catch(e){}
 try{const t=localStorage.getItem('tema'); if(t==='dark'||t==='light') document.documentElement.dataset.theme=t;}catch(e){}
 marcaTema();
