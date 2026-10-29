@@ -1590,6 +1590,7 @@ function dbMake(){
     }};
 }
 const FORM_PADRAO=[
+ ['proteico-ddg','Proteico-energético recria (DDG + núcleo)','proteico',[['DDG',95],['Núcleo mineral',5]]],
  ['proteico-energetico','Proteico-energético','proteico',[['Milho moído (fubá)',65],['Farelo de soja',21],['Núcleo mineral / sal mineral',11],['Ureia pecuária',3]]],
  ['proteinado-aguas','Proteinado águas','proteinado',[['Milho moído (fubá)',31],['Farelo de soja',35],['Núcleo mineral / sal mineral',30],['Ureia pecuária',4]]],
  ['proteinado-seca','Proteinado seca','proteinado',[['Milho moído (fubá)',40],['Farelo de soja',20],['Núcleo mineral / sal mineral',30],['Ureia pecuária',10]]],
@@ -1612,7 +1613,10 @@ async function sair(){ if(sb) await sb.auth.signOut(); }
 async function iniciar(session){
   if(started) return; started=true; UID=session.user.id; showAuth(false); db=dbMake(); writable=true; subs={}; cache={};
   try{ const {data}=await sb.from('config').select('dados');
-    if(!data||!data.length){ await db.doc('config/geral').set({...CFG0,nome:FAZ}); for(const [id,nome,tipo,ing] of FORM_PADRAO) await db.doc('formulacoes/'+id).set({nome,tipo,ingredientes:ing.map(([n,p])=>({nome:n,pct:p,preco:0}))}); } }catch(e){}
+    const novaForm=([id,nome,tipo,ing])=>db.doc('formulacoes/'+id).set({nome,tipo,ingredientes:ing.map(([n,p])=>({nome:n,pct:p,preco:0}))});
+    if(!data||!data.length){ await db.doc('config/geral').set({...CFG0,nome:FAZ}); for(const f of FORM_PADRAO) await novaForm(f); }
+    else { /* contas antigas: acrescenta a formulação de DDG da recria uma única vez */
+      const {data:fd}=await sb.from('formulacoes').select('id').eq('id','proteico-ddg'); if(fd&&!fd.length) await novaForm(FORM_PADRAO[0]); } }catch(e){}
   const sub=(key,col)=>db.collection(col).onSnapshot(s=>{S[key]=s.docs.map(d=>({id:d.id,...d.data()}));render();},()=>{});
   Object.entries(COL).forEach(([k,c])=>sub(k,c));
   db.doc('config/geral').onSnapshot(s=>{S.config={...CFG0,...(s.exists?s.data():{})};S.config.precos={...PRECO_PADRAO,...(S.config.precos||{})};S.config.fases={...FASE_PADRAO,...(S.config.fases||{})};S.config.areaFase={...CFG0.areaFase,...(S.config.areaFase||{})};render();},()=>{});
