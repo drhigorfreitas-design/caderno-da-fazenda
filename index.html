@@ -338,6 +338,19 @@ nav.tabs .nav-cap{display:none}
 .meta-r{padding:7px 0}
 .meta-r .bar{height:8px}.meta-r .bar i{height:8px}
 .page-title .btn[data-print]{font-size:13px}
+/* bloco de notas */
+.ano-nav{display:flex;align-items:center;gap:10px}.ano-nav b{font-size:17px}.ano-nav .btn{padding:6px 14px;font-size:18px;line-height:1}
+.meses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+@media (min-width:700px){.meses{grid-template-columns:repeat(6,minmax(0,1fr))}}
+.mes-b{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px;text-align:left;font:inherit;color:var(--ink);cursor:pointer;display:flex;flex-direction:column;gap:3px;min-width:0}
+.mes-b b{font-size:14px;text-transform:capitalize;display:flex;align-items:center;gap:6px}
+.mes-b span{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mes-b.tem b::after{content:'';width:7px;height:7px;border-radius:50%;background:var(--capim);flex:none}
+.mes-b.hoje{border-style:dashed;border-color:var(--capim)}
+.mes-b[aria-pressed="true"]{border:2px solid var(--capim);background:var(--gold-soft);padding:9px}
+.nota-h{font-size:15px;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px;width:100%;min-width:0;min-height:320px;resize:vertical}
+.entry.editando{outline:2px solid var(--capim);outline-offset:-2px}
 @media print{
   nav.tabs,.side,.band,#fab,.seg,[data-print],[data-exportar],#toastRoot,#sheetRoot{display:none !important}
   .frame{display:block !important} body{background:#fff}
@@ -364,6 +377,7 @@ nav.tabs .nav-cap{display:none}
   <section class="view" id="v-custos" hidden></section>
   <section class="view" id="v-rebanho" hidden></section>
   <section class="view" id="v-suplementacao" hidden></section>
+  <section class="view" id="v-notas" hidden></section>
 </div>
 <aside class="side" id="side" aria-label="Atividade"></aside>
 </div></div>
@@ -382,6 +396,7 @@ nav.tabs .nav-cap{display:none}
     <button type="button" class="tab-extra" data-tab="recria"><svg viewBox="0 0 24 24"><path d="M4 18c3-1 4-5 8-5s5 4 8 5"/><path d="M12 13V5M9 8l3-3 3 3"/></svg>Recria</button>
     <button type="button" class="tab-extra" data-tab="engorda"><svg viewBox="0 0 24 24"><path d="M3 20l5-7 4 4 4-8 5 11"/><path d="M3 20h18"/></svg>Engorda</button>
     <button type="button" class="tab-extra" data-tab="relatorios"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>Relatórios</button>
+    <button type="button" class="tab-extra" data-tab="notas"><svg viewBox="0 0 24 24"><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z"/><path d="M6 3v18M10 8h5M10 12h5M10 16h3"/></svg>Bloco de notas</button>
     <button type="button" class="tab-more" data-more><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>Mais</button>
   </div>
   <div class="nav-bottom">
@@ -446,8 +461,8 @@ const FAZ='Fazenda Recanto do Boqueirão';
 const fazNome=()=>{const n=(S.config.nome||'').trim(); return !n||n==='Minha Fazenda'?FAZ:n;};
 const CFG0={nome:FAZ,usuario:'Dr. Higor',kgArroba:30,area:0,safraMes:7,selic:15,precos:PRECO_PADRAO,fases:FASE_PADRAO,areaFase:{cria:0,recria:0,engorda:0}};
 const S={fech:[],movs:[],desemb:[],estacoes:[],engorda:[],insumos:[],emovs:[],form:[],adapt:[],config:{...CFG0}};
-const UI={tab:'inicio',per:'safra',fase:'total',entry:{}};
-const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao'];
+const UI={tab:'inicio',per:'safra',fase:'total',entry:{},eo:{},relFase:'total',notaMes:''};
+const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao','notas'];
 let DIRTY=false;
 let db=null, writable=true;
 
@@ -761,6 +776,18 @@ function renderRel(){
   /* peso médio por fase */
   const vP=fm.map(f=>FASES.map(([k])=>{ if(!f) return null; const c=fCab(f,csF(k)); return c?fKg(f,csF(k))/c:null; }));
   const temP=vP.flat().some(ok);
+  /* produção e GMD de cada fase no mês: precisa do fechamento do mês e do anterior (mesma conta do calc, num mês só) */
+  const prodMes=(m,k)=>{ const m0=addM(m,-1), f1=S.fech.find(f=>f.mes===m0), f2=S.fech.find(f=>f.mes===m); if(!f1||!f2) return null;
+    const cs=csF(k), inF=c=>faseOf(c)===k, mv=S.movs.filter(x=>ym(x.data)===m), kg=a=>sum(a,x=>(+x.cab||0)*pesoMov(x));
+    const sai=kg(mv.filter(x=>(x.tipo==='venda'&&inF(x.categoria))||(x.tipo==='transferencia'&&inF(x.categoria)&&!inF(x.para))));
+    const ent=kg(mv.filter(x=>(x.tipo==='compra'&&inF(x.categoria))||(x.tipo==='transferencia'&&!inF(x.categoria)&&inF(x.para))));
+    const pk=fKg(f2,cs)-fKg(f1,cs)-ent+sai, cab=(fCab(f1,cs)+fCab(f2,cs))/2;
+    return cab?{arr:pk/kgA(),gmd:pk/cab/days(mEnd(m0),mEnd(m))}:null; };
+  const vPr=ms.map(m=>FASES.map(([k])=>prodMes(m,k)));
+  const vArr=vPr.map(v=>v.map(p=>p?p.arr:null)), vGmd=vPr.map(v=>v.map(p=>p?p.gmd:null)), temPr=vArr.flat().some(ok);
+  /* metas: fazenda toda ou uma fase */
+  if(UI.relFase!=='total'&&!FN[UI.relFase]) UI.relFase='total';
+  const fz=UI.relFase==='total', RM=fz?RT:calc(UI.per,UI.relFase), nomeM=fz?'fazenda toda':FN[UI.relFase].toLowerCase();
   /* custos por tipo no período dos gráficos */
   const deP=S.desemb.filter(x=>ms.includes(ym(x.data))), totP=sum(deP,x=>x.valor);
   const porItem=ITENS.map(([k,n])=>({n,t:sum(deP.filter(x=>itemOf(x)===k),x=>x.valor)})).filter(r=>r.t).sort((a,b)=>b.t-a.t);
@@ -786,23 +813,68 @@ function renderRel(){
   <div class="panel"><div class="row-head"><h2>Peso médio por fase</h2>${legendaR(FASE_SER)}</div>
     ${temP?linhasR(ms,FASE_SER,vP,v=>nf(v)+' kg','Peso médio por cabeça em cada fase')+`<p class="note">Peso médio por cabeça (kg vivo) informado em cada fechamento.</p>`:ped('Sem pesos nos fechamentos do período.')}</div>
 
+  <div class="panel"><div class="row-head"><h2>Arrobas produzidas por fase</h2>${legendaR(FASE_SER)}</div>
+    ${temPr?linhasR(ms,FASE_SER,vArr,v=>nf(v,1)+' @','Arrobas produzidas por fase em cada mês')+`<p class="note">Quanto cada fase engordou no mês: rebanho do fechamento − rebanho do mês anterior − compras + vendas e passagens para outra fase. Na seca pode ficar abaixo de zero.</p>`:ped('Faltam dois fechamentos seguidos no período.','A produção do mês sai da diferença entre o fechamento do mês e o do mês anterior.')}</div>
+
+  <div class="panel"><div class="row-head"><h2>Ganho de peso (GMD) por fase</h2>${legendaR(FASE_SER)}</div>
+    ${temPr?linhasR(ms,FASE_SER,vGmd,v=>nf(v,3)+' kg/dia','GMD por fase em cada mês')+`<p class="note">Ganho médio por cabeça ao dia em cada mês. Compare o mesmo mês entre safras: águas e seca mudam muito o ganho.</p>`:ped('Faltam dois fechamentos seguidos no período.')}</div>
+
   <div class="panel"><div class="row-head"><h2>Para onde foi o dinheiro</h2><span class="num muted">${brl(totP)}</span></div>
     ${porItem.length?porItem.map(r=>{const p=r.t/totP*100;return `<div class="meta-r"><div class="row-head small"><span>${r.n}</span><span class="num">${brl(r.t)} <span class="muted">· ${pct(p,0)}</span></span></div><div class="bar"><i style="width:${Math.min(100,p)}%"></i></div></div>`;}).join(''):ped('Nenhum custo lançado no período.')}</div>
   </div>
 
-  <div class="sec-title"><h2>Metas do Método Inttegra</h2><span class="small muted">fazenda toda · ${esc(J.nome)}</span></div>
-  <div class="panel">
-    ${metaR('Arrobas por hectare ao ano',RT.arrHa,25,true,v=>nf(v,1)+' @')}
-    ${metaR('Resultado por hectare ao ano',RT.resHa,1200,true,v=>brl(v),'fazendas top passam de R$ 1.925')}
-    ${metaR('Margem sobre a venda',RT.margem,35,true,v=>pct(v,0))}
-    ${metaR('Desembolso sobre o valor de venda',RT.pctDesVenda,70,false,v=>pct(v,0))}
-    ${metaR('Insumos + pastagem no desembolso',RT.pctInsPas,50,true,v=>pct(v,0))}
-    ${metaR('Custo variável no desembolso',RT.pctVar,60,true,v=>pct(v,0))}
-    ${metaR('Lotação',RT.uaHa,1.5,true,v=>nf(v,2)+' UA/ha','média do Brasil 0,6')}
-    ${metaR('Resultado sobre o valor do rebanho',RT.resValReb,25,true,v=>pct(v,0),'compare com a Selic: '+nf(+S.config.selic,2)+'%')}
-    ${!J.ok?'<p class="note neg">Faltam dois fechamentos do rebanho no período para calcular as metas.</p>':!area()?'<p class="note neg">Informe a área produtiva em Ajustes para ver @/ha, resultado/ha e lotação.</p>':''}
+  <div class="sec-title"><h2>Metas do Método Inttegra</h2><span class="small muted">${nomeM} · ${esc(J.nome)}</span></div>
+  <div class="seg" role="group" aria-label="Metas de qual fase">${[['total','Fazenda toda'],...FASES].map(([k,n])=>`<button type="button" data-relfase="${k}" aria-pressed="${UI.relFase===k}">${n}</button>`).join('')}</div>
+  <div class="panel" style="margin-top:10px">
+    ${ind('Custo por @ produzida',brl(RM.desembArr,2),{f:'desembolso ÷ @ produzidas'+(fz?'':' (inclui a parte da fase nos custos da fazenda toda)'),ref:ok(RM.precoArr)?'venda média '+brl(RM.precoArr,2)+'/@':''})}
+    ${metaR('Arrobas por hectare ao ano',RM.arrHa,25,true,v=>nf(v,1)+' @')}
+    ${metaR('Resultado por hectare ao ano',RM.resHa,1200,true,v=>brl(v),'fazendas top passam de R$ 1.925')}
+    ${metaR('Margem sobre a venda',RM.margem,35,true,v=>pct(v,0))}
+    ${metaR('Desembolso sobre o valor de venda',RM.pctDesVenda,70,false,v=>pct(v,0))}
+    ${metaR('Insumos + pastagem no desembolso',RM.pctInsPas,50,true,v=>pct(v,0))}
+    ${metaR('Custo variável no desembolso',RM.pctVar,60,true,v=>pct(v,0))}
+    ${metaR('Lotação',RM.uaHa,1.5,true,v=>nf(v,2)+' UA/ha','média do Brasil 0,6')}
+    ${metaR('Resultado sobre o valor do rebanho',RM.resValReb,25,true,v=>pct(v,0),'compare com a Selic: '+nf(+S.config.selic,2)+'%')}
+    ${!J.ok?'<p class="note neg">Faltam dois fechamentos do rebanho no período para calcular as metas.</p>':!RM.area?`<p class="note neg">Informe a área ${fz?'produtiva':'da '+nomeM} em Ajustes para ver @/ha, resultado/ha e lotação.</p>`:''}
+    ${fz?'':'<p class="note">Na fase, a venda inclui a passagem de animais para a fase seguinte, valorizada pelo preço de referência da @ em Ajustes.</p>'}
   </div>`;
 }
+/* ---------- Bloco de notas: uma página por mês, guardada no config (notas: {AAAA-MM: texto}) ---------- */
+const MESF=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const notas=()=>S.config.notas||{};
+let notaT=null, notaPend=null;
+async function salvaNota(m,txt){
+  clearTimeout(notaT); notaT=null; notaPend=null;
+  const N={...notas()}; if((N[m]||'')===txt) return notaSt('Salvo');
+  if(!db||!writable){ notaSt('Não salvo'); return toast('Entre na sua conta para salvar as anotações.'); }
+  if(txt.trim()) N[m]=txt; else delete N[m];
+  S.config.notas=N; notaSt('Salvando…');
+  try{ await db.doc('config/geral').update({notas:N}); notaSt(OFF?'Guardado no aparelho, envia quando tiver internet':'Salvo'); }catch(e){ notaSt('Não salvo'); dbErr(e); }
+}
+const notaSt=t=>{ const s=$('#notaSt'); if(s) s.textContent=t; };
+/* grava o que ficou digitado antes de trocar de mês ou de aba */
+const salvaNotaPendente=()=>notaPend?salvaNota(notaPend.m,notaPend.txt):Promise.resolve();
+function renderNotas(){
+  if(!UI.notaMes) UI.notaMes=ym(today());
+  const m=UI.notaMes, y=m.slice(0,4), N=notas(), hoje=ym(today()), txt=N[m]||'';
+  const prev=t=>{ const l=(t||'').trim().split('\n')[0]; return l?esc(l):'<i>vazio</i>'; };
+  const comNota=Object.keys(N).filter(k=>k.startsWith(y+'-')).length;
+  $('#v-notas').innerHTML=`
+  <div class="page-title"><h2>Bloco de notas</h2><div class="ano-nav"><button class="btn" type="button" data-nano="-1" aria-label="Ano anterior">‹</button><b class="num">${y}</b><button class="btn" type="button" data-nano="1" aria-label="Próximo ano">›</button></div></div>
+  <p class="note" style="margin:4px 0 0">Uma página para cada mês. ${comNota?comNota+(comNota>1?' meses':' mês')+' de '+y+' com anotações.':'Toque num mês e escreva.'}</p>
+  <div class="meses" role="group" aria-label="Meses de ${y}">${MESF.map((n,i)=>{ const k=y+'-'+String(i+1).padStart(2,'0');
+    return `<button type="button" class="mes-b${N[k]?' tem':''}${k===hoje?' hoje':''}" data-nota="${k}" aria-pressed="${k===m}"><b>${n}</b><span>${prev(N[k])}</span></button>`; }).join('')}</div>
+  <div class="panel"><form class="f" id="notaF" data-mes="${m}">
+    <label class="fl"><span class="nota-h">Anotações de ${MESF[+m.slice(5)-1]} de ${y}${m===hoje?' <span class="chip">este mês</span>':''}</span>
+      <textarea id="nota-txt" name="txt" rows="14" placeholder="Ex.: chuva de 40 mm no dia 12. Vacinação de aftosa no dia 20. Comprar sal mineral. Vendi 30 bois para o frigorífico…">${esc(txt)}</textarea></label>
+    <div class="btns"><button class="btn primary" type="submit">Salvar</button><span class="small muted" id="notaSt">${txt?'Salvo':''}</span></div>
+    <p class="note">Salva sozinho enquanto você escreve. Fica guardado na sua conta e aparece no celular e no computador.</p>
+  </form></div>`;
+}
+document.addEventListener('input',e=>{ if(e.target.id!=='nota-txt') return; const m=e.target.form.dataset.mes; notaPend={m,txt:e.target.value}; notaSt('Escrevendo…');
+  clearTimeout(notaT); notaT=setTimeout(()=>salvaNotaPendente(),1200); });
+document.addEventListener('focusout',e=>{ if(e.target.id==='nota-txt') salvaNotaPendente(); });
+window.addEventListener('pagehide',()=>{ salvaNotaPendente(); });
 function renderAjustes(){
   const c=S.config, af=c.areaFase||{};
   return `<div class="panel" id="ajustes"><h2>Ajustes</h2>
@@ -1203,7 +1275,8 @@ const ICO={
  cifra:'<path d="M12 3v18M16 7.5c-.8-1-2.2-1.5-4-1.5-2.4 0-4 1.2-4 3s1.6 2.6 4 3 4 1.2 4 3-1.6 3-4 3c-1.8 0-3.2-.5-4-1.5"/>',
  balanca:'<path d="M12 4v16M6 20h12M5 8h14M5 8l-3 7a3 3 0 0 0 6 0zM19 8l-3 7a3 3 0 0 0 6 0z"/>',
  alvo:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>',
- graf:'<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>'};
+ graf:'<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
+ nota:'<path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z"/><path d="M6 3v18M10 8h5M10 12h5M10 16h3"/>'};
 const svgI=k=>`<svg viewBox="0 0 24 24">${ICO[k]}</svg>`;
 const lastFech=()=>[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop();
 const adaptAtivas=()=>S.adapt.map(a=>{const r=SUP_REF[a.tipo]; if(!r||!r.etapas.length) return null; const d=days(a.inicio,today())+1, fim=r.etapas[r.etapas.length-1].de; return d>=1&&d<fim?{a,r,d,fim}:null;}).filter(Boolean);
@@ -1267,6 +1340,7 @@ async function exportaExcel(){
    ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
    ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
+   ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
    ['Adaptações',S.adapt.map(a=>({'Lote':a.nome,'Suplemento':(SUP_REF[a.tipo]||{}).nome||a.tipo,'Início':a.inicio,'Fase':FN[a.fase]||'','Cabeças':n(a.cab),'Peso (kg)':n(a.peso)}))],
    ['Ajustes',[['Fazenda',fazNome()],['Área produtiva (ha)',area()],['Kg por @',kgA()],['Mês de início da safra',S.config.safraMes],['Selic (%)',S.config.selic],...FASES.map(([k,nm])=>['Área '+nm+' (ha)',(S.config.areaFase||{})[k]||0]),...CATS.map(([c,cn])=>['Preço da @ · '+cn,preco(c)])].map(([a,b])=>({'Item':a,'Valor':b}))]];
   const wb=X.utils.book_new();
@@ -1280,7 +1354,7 @@ let PEDE_INST=null; window.addEventListener('beforeinstallprompt',e=>{e.preventD
 function openMore(){ $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Mais"><div class="row-head"><h2>Indicadores</h2><button class="btn link" type="button" data-close>Fechar</button></div>
   <div class="types"><button type="button" data-tab="painel">Fazenda toda<span>Resultado, @ produzidas e margem</span></button><button type="button" data-tab="cria">Cria<span>Reprodução e bezerros</span></button><button type="button" data-tab="recria">Recria<span>Ganho e custo da recria</span></button><button type="button" data-tab="engorda">Engorda<span>Lotes e resultado</span></button><button type="button" data-tab="relatorios">Relatórios<span>Gráficos mês a mês e metas</span></button></div>
   <div class="row-head" style="margin-top:16px"><h2>Mais</h2></div>
-  <div class="types">${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
+  <div class="types"><button type="button" data-tab="notas">Bloco de notas<span>Anotações de cada mês do ano</span></button>${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
 function suplFaseHTML(k){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&m.fase===k&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
   const kg=sum(fs,x=>x.kg), c=sum(fs,x=>x.custo), cd=sum(fs,x=>x.cd), v=fs.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), pr=calc(UI.per,k).prodArr;
@@ -1320,9 +1394,9 @@ function renderFase(k){
   ${movsFaseHTML(k)}`;
 }
 function render(){ setStatus(); bandInfo(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF'))) return;
-  ({inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
-function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; closeSheet(); UI.tab=t; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF'))) return;
+  ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
+function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   try{history.replaceState(null,'','#'+t);}catch(e){} render(); window.scrollTo(0,0); }
 
@@ -1400,15 +1474,16 @@ function repeteMes(){ const f=$('#frm'); if(!f||f.dataset.kind!=='custosMes') re
     f['o_'+it].value=ks[0]; if(ks.length>1) div.push(nm+' ('+ks.map(k=>ondeTxt(parseOnde(k)).replace(' (rateado)','')+' '+brl(por[k])).join(' + ')+')'); n++; });
   const nota=$('#repeteNota'); nota.hidden=!div.length; nota.innerHTML=div.length?'Em '+mLabel(prev)+' estes custos foram divididos entre setores e aqui ficaram somados num só: <b>'+esc(div.join('; '))+'</b>. Para manter a divisão, apague o valor aqui e lance cada parte em "Um custo".':'';
   DIRTY=true; f.dispatchEvent(new Event('input',{bubbles:true})); toast(n+' custos copiados de '+mLabel(prev)+'. Confira e salve.'); }
-function entryHTML(tab){const ks=ENTRY[tab]; if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab];
-  return `<div class="panel entry" id="entry"><div class="row-head"><h2>Lançar</h2><span class="small muted">${esc(FORMS[cur].d)}</span></div>
+function entryHTML(tab){const ks=ENTRY[tab]; if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab], ed=!!(UI.eo&&UI.eo.edit);
+  return `<div class="panel entry${ed?' editando':''}" id="entry"><div class="row-head"><h2>${ed?'Editar':'Lançar'}</h2><span class="small muted">${esc(FORMS[cur].d)}</span></div>
   <div class="seg" role="group" aria-label="O que lançar">${ks.map(k=>`<button type="button" data-entry="${k}" aria-pressed="${k===cur}">${ENTRY_T[k]}</button>`).join('')}</div><div id="entrySlot"></div></div>`;}
 function mountEntry(){const slot=$('#entrySlot'); if(!slot||$('#sheetRoot').firstChild) return; const k=UI.entry[UI.tab], F=FORMS[k];
   const okN=F.need?F.need():true;
   if(okN!==true){ slot.innerHTML=`<p class="note">${esc(okN)}</p>${k==='fornecimento'?'<button class="btn" type="button" data-open="suplemento">Cadastrar suplemento</button>':'<button class="btn" type="button" data-open="insumo">Cadastrar insumo</button>'}`; return; }
   if(!db||!writable){ slot.innerHTML='<p class="note">Entre na sua conta para salvar lançamentos.</p>'; return; }
-  slot.innerHTML=`<form class="f" id="frm" data-kind="${k}" data-edit="" data-inline="1">${F.html({})}<div class="btns"><button class="btn primary" type="submit">Salvar</button></div></form>`;
-  wireForm(k,{},true); }
+  const o=UI.eo||{};
+  slot.innerHTML=`<form class="f" id="frm" data-kind="${k}" data-edit="${esc(o.edit||'')}" data-inline="1">${F.html(o)}<div class="btns"><button class="btn primary" type="submit">${o.edit?'Salvar alterações':'Salvar'}</button>${o.edit||o.mes?'<button class="btn" type="button" data-cancel-edit>Cancelar</button>':''}</div></form>`;
+  wireForm(k,o,true); }
 function toolCard(ic,t,d,go){return `<button type="button" class="tool" data-go="${go}"><span class="tic">${svgI(ic)}</span><b>${t}</b><span class="d">${d}</span></button>`;}
 
 /* ---------- boi gordo futuro B3 (BGI) ---------- */
@@ -1467,7 +1542,8 @@ function renderInicio(){
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
     ${toolCard('caixa','Fornecimento no cocho','Suplemento por fase ou lote','suplementacao:fornecimento')}${toolCard('pasto','Entrada de insumo','Compra para o estoque','suplementacao:entrada')}
-    ${toolCard('boi','Novo lote de engorda','Entrada no confinamento ou TIP','engorda:lote')}${toolCard('cal','Estação de monta','Prenhez, nascimento, desmame','cria:estacao')}</div>
+    ${toolCard('boi','Novo lote de engorda','Entrada no confinamento ou TIP','engorda:lote')}${toolCard('cal','Estação de monta','Prenhez, nascimento, desmame','cria:estacao')}
+    ${toolCard('nota','Bloco de notas','Anotações de '+MESF[+today().slice(5,7)-1],'notas')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Calculadoras</h2></div>
   <div class="tools">${toolCard('calc','Diluir ágio','Em quantos dias o ganho paga o ágio','calc:c-agio')}${toolCard('balanca','Ponto de equilíbrio','Preço mínimo da @ para não ter prejuízo','calc:c-peq')}${toolCard('alvo','Custo da arroba','Quanto custa produzir uma @','calc:c-custo')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Indicadores</h2><span class="small muted">também no menu Mais</span></div>
@@ -1560,9 +1636,15 @@ document.addEventListener('click',async e=>{
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
   if(b.id==='fab') return openPicker();
   if(b.hasAttribute('data-close')) return closeSheet();
-  if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; DIRTY=false; return render();}
+  if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
+  if(b.dataset.relfase){UI.relFase=b.dataset.relfase; return render();}
+  /* tira o foco do texto antes de trocar (com foco, o render não redesenha a tela) */
+  if(b.dataset.nota){ document.activeElement?.blur(); await salvaNotaPendente(); UI.notaMes=b.dataset.nota; render(); $('#notaF')?.closest('.panel').scrollIntoView({block:'start'}); return; }
+  if(b.dataset.nano){ document.activeElement?.blur(); await salvaNotaPendente(); const y=+UI.notaMes.slice(0,4)+(+b.dataset.nano); UI.notaMes=y+UI.notaMes.slice(4); return render(); }
   if(b.dataset.go){const [t,k]=b.dataset.go.split(':'); if(ENTRY[t]) UI.entry[t]=k; showTab(t); if(t==='calc'&&k) setTimeout(()=>document.getElementById(k)?.scrollIntoView({block:'start'}),60); return;}
-  if(b.dataset.open){ const t=UI.tab; if(!b.dataset.edit&&ENTRY[t]&&ENTRY[t].includes(b.dataset.open)){UI.entry[t]=b.dataset.open; DIRTY=false; render(); window.scrollTo(0,0); return;} }
+  if(b.dataset.cancelEdit!=null){ document.activeElement?.blur(); UI.eo={}; DIRTY=false; return render(); }
+  /* formulário que a aba já tem no painel "Lançar" (novo ou editar) abre ali mesmo, sem janela */
+  if(b.dataset.open){ const t=UI.tab; if(ENTRY[t]&&ENTRY[t].includes(b.dataset.open)){UI.entry[t]=b.dataset.open; UI.eo={edit:b.dataset.edit||'',mes:b.dataset.mes||''}; DIRTY=false; document.activeElement?.blur(); $('#sheetRoot').innerHTML=''; render(); const en=$('#entry'); if(en) en.scrollIntoView({block:'start'}); else window.scrollTo(0,0); return;} }
   if(b.dataset.open) return openForm(b.dataset.open,{edit:b.dataset.edit,mes:b.dataset.mes});
   if(b.dataset.del||b.hasAttribute('data-clear-ex')){
     if(!b.hasAttribute('data-armed')){b.dataset.orig=b.textContent;b.setAttribute('data-armed','');b.textContent='Toque de novo para confirmar';setTimeout(()=>{if(b.isConnected){b.removeAttribute('data-armed');b.textContent=b.dataset.orig;}},3500);return;}
@@ -1570,19 +1652,20 @@ document.addEventListener('click',async e=>{
     try{ if(b.dataset.del){const [c,id]=b.dataset.del.split(':');await db.doc(c+'/'+id).delete();toast('Excluído');}
       else{ b.disabled=true; b.textContent='Apagando…';
         for(const [key,col] of Object.entries(COL)) for(const x of S[key].filter(x=>x.exemplo)) await db.doc(col+'/'+x.id).delete();
-        if(S.config.exemplo) await db.doc('config/geral').set({...CFG0,nome:FAZ});
+        if(S.config.exemplo) await db.doc('config/geral').set({...CFG0,nome:FAZ,notas:notas()});
         toast('Exemplos apagados. Comece pelo fechamento do mês no Rebanho.'); }
     }catch(err){dbErr(err);}
   }
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='notaF'){ await salvaNota(f.dataset.mes,f.txt.value); document.activeElement?.blur(); render(); toast('Anotações salvas'); return; }
   if(f.id==='repF'){ REP={uf:REP.uf,v:REP.v.map((r,k)=>[r[0],r[1],r[2],r[3],Number(f['rc'+k].value)||r[4],f['rd'+k].value||r[5]])}; try{localStorage.setItem('repoNelore',JSON.stringify(REP));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='milhoF'){ MIL={data:f.mdata.value||MIL.data,v:MIL.v.map(([n,p,x],i)=>[n,Number(f['mp'+i].value)||p,x])}; try{localStorage.setItem('milho',JSON.stringify(MIL));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='bgiF'){ const v=BGI.v.map(([n,p,x],i)=>[n,Number(f['bp'+i].value)||p,x]); BGI={data:f.bdata.value||BGI.data,spot:Number(f.bspot.value)||BGI.spot,v}; try{localStorage.setItem('bgi',JSON.stringify(BGI));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
-    try{ await db.doc('config/geral').set({nome:f.nome.value.trim()||FAZ,usuario:f.usuario.value.trim()||'Dr. Higor',area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    try{ await db.doc('config/geral').update({nome:f.nome.value.trim()||FAZ,usuario:f.usuario.value.trim()||'Dr. Higor',area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
-    try{ await submitForm(f); if(f.dataset.inline){DIRTY=false; render();} else closeSheet(); toast('Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
+    try{ await submitForm(f); if(f.dataset.inline){DIRTY=false; UI.eo={}; render();} else closeSheet(); toast(f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
 });
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#frm[data-inline]')) DIRTY=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape') closeSheet();});
