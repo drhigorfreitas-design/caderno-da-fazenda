@@ -189,7 +189,10 @@ export async function trata(d: Deps, up: any) {
 if (typeof Deno !== "undefined") {
   const token = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
   const anthropic = new Anthropic(); // lê ANTHROPIC_API_KEY
-  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+  // chave de serviço: a antiga (SUPABASE_SERVICE_ROLE_KEY) ou a nova (SUPABASE_SECRET_KEYS, um JSON {"default": "sb_secret_..."})
+  const chaveServico = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    (() => { try { const k = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}"); return k.default || Object.values(k)[0] || ""; } catch { return ""; } })();
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, chaveServico as string, { auth: { persistSession: false } });
   const tg = async (metodo: string, corpo: Record<string, unknown>) =>
     (await fetch(`https://api.telegram.org/bot${token}/${metodo}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) })).json();
   const baixa = async (caminho: string) => new Uint8Array(await (await fetch(`https://api.telegram.org/file/bot${token}/${caminho}`)).arrayBuffer());
