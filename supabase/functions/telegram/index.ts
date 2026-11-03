@@ -188,7 +188,8 @@ export async function trata(d: Deps, up: any) {
 /* ---------- servidor ---------- */
 if (typeof Deno !== "undefined") {
   const token = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-  const anthropic = new Anthropic(); // lê ANTHROPIC_API_KEY
+  // a chave foi salva no Supabase como ANTHOPIC_API_KEY (sem o R); aceita os dois nomes
+  const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") || Deno.env.get("ANTHOPIC_API_KEY") });
   // chave de serviço: a antiga (SUPABASE_SERVICE_ROLE_KEY) ou a nova (SUPABASE_SECRET_KEYS, um JSON {"default": "sb_secret_..."})
   const chaveServico = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
     (() => { try { const k = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}"); return k.default || Object.values(k)[0] || ""; } catch { return ""; } })();
