@@ -880,6 +880,16 @@ document.addEventListener('focusout',e=>{ if(e.target.id==='nota-txt') salvaNota
 window.addEventListener('pagehide',()=>{ salvaNotaPendente(); });
 /* ---------- Sócios: quem participa da fazenda e convites por e-mail ---------- */
 const linkApp=()=>location.origin+location.pathname;
+/* robô do Telegram: nome do robô criado no @BotFather (vazio = ainda não configurado) */
+const TG_BOT='';
+let TG_COD=null;
+const telegramHTML=()=>{ if(!TG_BOT) return `<h3 style="margin-top:16px">Robô do Telegram</h3><p class="note">O robô ainda está sendo configurado.</p>`;
+  const minhas=S.telegram||[];
+  return `<h3 style="margin-top:16px">Robô do Telegram</h3>
+  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "anotar: choveu 40 mm" vai para o Bloco de notas. Cada sócio conecta o próprio Telegram.</p>
+  ${minhas.length?`<div class="list">${minhas.map(t=>`<div class="item"><span class="t">Telegram conectado${t.nome_telegram?' · '+esc(t.nome_telegram):''}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(t.chat_id))}">Desconectar</button></span></div>`).join('')}</div>`:''}
+  ${TG_COD?`<div class="calc" style="margin-top:8px">Seu código: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_COD)}</b> · vale 30 minutos<br><a class="btn primary" style="margin-top:8px;display:inline-flex" href="https://t.me/${esc(TG_BOT)}?start=${esc(TG_COD)}" target="_blank" rel="noopener">Abrir o robô no Telegram</a><br><span class="small">No Telegram, toque em <b>Iniciar</b>. Se não abrir, procure @${esc(TG_BOT)} e mande o código.</span></div>`
+    :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}`; };
 function sociosHTML(){
   if(!FID) return `<div class="panel" id="socios"><h2>Sócios</h2><p class="note" style="margin-top:4px">Para compartilhar a fazenda com seus sócios, falta ativar o compartilhamento no Supabase (um passo único, feito uma vez).</p></div>`;
   const mem=S.membros, conv=S.convites;
@@ -890,6 +900,7 @@ function sociosHTML(){
   <form class="f" id="convF" style="margin-top:12px"><label class="fl">E-mail do sócio<input id="conv-email" name="email" type="email" required autocomplete="off" placeholder="nome@gmail.com"></label><div class="btns"><button class="btn primary" type="submit">Convidar</button></div></form>
   <p class="note">Depois de convidar, envie o link do app. Ele toca em <b>Criar conta</b> usando <b>este mesmo e-mail</b>, confirma pelo link que chega no e-mail e entra: já cai nesta fazenda. Se ele já tiver conta, é só sair e entrar de novo.</p>
   <div class="btns"><button class="btn" type="button" data-share-app>Enviar o link do app</button></div>
+  ${telegramHTML()}
   ${MEMB.length>1?`<label class="fl" style="margin-top:12px">Fazenda aberta neste aparelho<select id="fazSel">${MEMB.map(m=>`<option value="${esc(m.fazenda_id)}" ${m.fazenda_id===FID?'selected':''}>${esc(m.nome_fazenda||'Fazenda')}</option>`).join('')}</select></label>`:''}
   </div>`;
 }
@@ -1667,6 +1678,8 @@ document.addEventListener('click',async e=>{
   if(b.hasAttribute('data-share-app')){ const txt='Entre no Caderno da Fazenda ('+fazNome()+'): toque em Criar conta usando o e-mail em que eu te convidei.';
     try{ if(navigator.share){ await navigator.share({title:'Caderno da Fazenda',text:txt,url:linkApp()}); return; } }catch(x){ return; }
     try{ await navigator.clipboard.writeText(txt+' '+linkApp()); toast('Link copiado. Cole no WhatsApp para ele.'); }catch(x){ toast(linkApp()); } return; }
+  if(b.hasAttribute('data-tg-on')){ const {data,error}=await sb.rpc('telegram_codigo',{p_fazenda:FID}); if(error) return toast(semRede(error)?'Sem internet.':'Não foi possível gerar o código.'); TG_COD=data; render(); return; }
+  if(b.dataset.tgOff){ if(arma(b)) return; const {error}=await sb.from('telegram_contas').delete().eq('chat_id',+b.dataset.tgOff).eq('user_id',UID); if(error) return toast('Não foi possível desconectar.'); toast('Telegram desconectado'); return carregaSocios(); }
   if(b.hasAttribute('data-socios')){ showTab('painel'); setTimeout(()=>document.getElementById('socios')?.scrollIntoView({block:'start'}),50); return; }
   if(b.dataset.relfase){UI.relFase=b.dataset.relfase; return render();}
   /* tira o foco do texto antes de trocar (com foco, o render não redesenha a tela) */
@@ -1862,8 +1875,10 @@ async function escolheFazenda(){
 }
 async function carregaSocios(){ if(!FID||!sb||!UID) return;
   try{ const [m,c]=await Promise.all([sb.from('membros').select('user_id,email,nome,created_at').eq('fazenda_id',FID).order('created_at'),sb.from('convites').select('email,created_at').eq('fazenda_id',FID).order('created_at')]);
-    if(!m.error){ S.membros=m.data||[]; locPut('membros',S.membros); } if(!c.error) S.convites=c.data||[]; render(); }catch(e){} }
-function encerrar(){ started=false; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
+    if(!m.error){ S.membros=m.data||[]; locPut('membros',S.membros); } if(!c.error) S.convites=c.data||[];
+    if(TG_BOT){ const t=await sb.from('telegram_contas').select('chat_id,nome_telegram').eq('user_id',UID); if(!t.error){ const novo=(t.data||[]).length>(S.telegram||[]).length; S.telegram=t.data||[]; if(novo) TG_COD=null; } }
+    render(); }catch(e){} }
+function encerrar(){ started=false; TG_COD=null; S.telegram=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&db) db.refreshAll(); });
 (async()=>{
   if(!sb){ showAuth(true); authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue a página.','bad'); render(); return; }
