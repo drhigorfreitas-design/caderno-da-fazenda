@@ -1,0 +1,25 @@
+name: Manter o Supabase acordado
+# O plano gratuito do Supabase pausa o projeto depois de ~1 semana sem uso.
+# Uma consulta por dia ao banco (com a chave pública, a mesma do app) evita a pausa.
+# A resposta "permission denied" (42501) é esperada: o banco respondeu, então está acordado.
+on:
+  schedule:
+    - cron: "15 11 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar o banco
+        run: |
+          resp=$(curl -s -w '\n%{http_code}' "https://siolfbiubwjwvbeqekut.supabase.co/rest/v1/config?select=owner&limit=1" \
+            -H "apikey: sb_publishable_awdAFlQVVjSEX_x65OCGug_zK2JMTFE")
+          code=$(echo "$resp" | tail -n1); corpo=$(echo "$resp" | head -n -1)
+          echo "HTTP $code: $corpo"
+          if [ "$code" = "200" ] || echo "$corpo" | grep -q '"42501"'; then
+            echo "Banco acordado."
+          else
+            echo "O banco não respondeu como esperado. Pode estar pausado: entre no painel do Supabase e clique em Restore." && exit 1
+          fi

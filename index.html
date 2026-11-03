@@ -3,8 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#171513">
+<meta name="theme-color" content="#2f7a26">
 <title>Fazenda Recanto do Boqueirão</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fazenda">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <style>
@@ -322,6 +327,8 @@ nav.tabs .nav-cap{display:none}
 .auth .msg{font-size:13px;border-radius:10px;padding:9px 11px;background:var(--sunk)} .auth .msg.bad{color:var(--bad)} .auth .msg.good{color:var(--good)}
 .auth .btns .btn{flex:1}
 .who .out{margin-left:auto;border:0;background:transparent;color:var(--nav-ink);font:600 11px var(--body);cursor:pointer;padding:4px}
+.mais-cat{margin:4px 0 8px}
+.mais-cat summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--capim);padding:8px 0}
 /* relatórios */
 .rel-g{display:grid;gap:14px;margin-top:12px}
 @media (min-width:1100px){.rel-g{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -332,7 +339,7 @@ nav.tabs .nav-cap{display:none}
 .meta-r .bar{height:8px}.meta-r .bar i{height:8px}
 .page-title .btn[data-print]{font-size:13px}
 @media print{
-  nav.tabs,.side,.band,#fab,.seg,[data-print],#toastRoot,#sheetRoot{display:none !important}
+  nav.tabs,.side,.band,#fab,.seg,[data-print],[data-exportar],#toastRoot,#sheetRoot{display:none !important}
   .frame{display:block !important} body{background:#fff}
   .panel{break-inside:avoid;box-shadow:none}
   .rel-g{grid-template-columns:1fr 1fr}
@@ -537,7 +544,7 @@ function calc(per=UI.per,fase=null){
 function quadrante(R){ if(!ok(R.pctDesVenda)||!ok(R.pctInsPas)) return 0; const x=R.pctDesVenda<70, y=R.pctInsPas>50; return x&&y?1:x?2:y?3:4; }
 
 /* ---------- render: comuns ---------- */
-function setStatus(){const s=$('#status'); if(!db){s.textContent='Sem conexão: nada é salvo';s.className='chip bad';} else if(!writable){s.textContent='Somente leitura';s.className='chip warn';} else {s.textContent='Salvo no Supabase';s.className='chip good';}}
+function setStatus(){const s=$('#status'); if(!db){s.textContent='Sem conexão: nada é salvo';s.className='chip bad';} else if(!writable){s.textContent='Somente leitura';s.className='chip warn';} else if(FILA.length){s.textContent=(OFF?'Sem internet · ':'Enviando · ')+FILA.length+(FILA.length>1?' lançamentos guardados':' lançamento guardado');s.className='chip warn';} else if(OFF){s.textContent='Sem internet · mostrando o último salvo';s.className='chip warn';} else {s.textContent='Salvo no Supabase';s.className='chip good';}}
 const PERS={safraAnt:'Safra anterior',safra:'Safra atual','12m':'12 meses'};
 const segPer=()=>`<div class="seg" role="group" aria-label="Período">${Object.entries(PERS).map(([k,v])=>`<button type="button" data-per="${k}" aria-pressed="${UI.per===k}">${v}</button>`).join('')}</div>`;
 const janelaTxt=J=>J.ok?`<p class="janela">${esc(J.nome)} · estoque inicial em ${mLabel(J.ei.mes)}, final em ${mLabel(J.ef.mes)} · ${J.meses} ${J.meses===1?'mês':'meses'}${J.meses<12?' (valores por ano são anualizados)':''}</p>${J.meses<6?'<p class="note neg">Período curto: com a seca e as águas, os índices por @ ainda oscilam muito. Compare safras fechadas.</p>':''}`:`<p class="janela">${esc(J.nome)} · faltam fechamentos mensais do rebanho neste período para calcular os índices de produção.</p>`;
@@ -760,7 +767,7 @@ function renderRel(){
   const ped=(t,txt)=>`<p class="empty">${t}</p>${txt?`<p class="note">${txt}</p>`:''}`;
   const periodo=`${mLabel(ms[0])} a ${mLabel(ms[ms.length-1])}`;
   $('#v-relatorios').innerHTML=`
-  <div class="page-title"><h2>Relatórios</h2><button class="btn" type="button" data-print>Imprimir ou salvar PDF</button></div>
+  <div class="page-title"><h2>Relatórios</h2><div class="btns"><button class="btn" type="button" data-exportar>Exportar para Excel</button><button class="btn" type="button" data-print>Imprimir ou PDF</button></div></div>
   ${segPer()}<p class="janela">${esc(J.nome)} · gráficos de ${periodo} · toque numa barra ou ponto para ver o valor</p>
 
   <div class="rel-g">
@@ -1246,10 +1253,34 @@ const temaAtual=()=>document.documentElement.dataset.theme||(window.matchMedia&&
 function marcaTema(){ const t=temaAtual(); document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeSet===t))); }
 function setTema(v){ document.documentElement.dataset.theme=v; try{localStorage.setItem('tema',v);}catch(e){} marcaTema(); }
 const themeToggle=()=>`<div class="theme" role="group" aria-label="Tema"><button type="button" data-theme-set="light" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>Claro</button><button type="button" data-theme-set="dark" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>Escuro</button></div>`;
+/* exportar tudo para Excel (SheetJS é carregado só quando precisa) */
+const carregaXLSX=()=>window.XLSX?Promise.resolve(window.XLSX):new Promise((ok,er)=>{const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; s.onload=()=>ok(window.XLSX); s.onerror=er; document.head.appendChild(s);});
+async function exportaExcel(){
+  let X; try{ toast('Preparando a planilha…'); X=await carregaXLSX(); }catch(e){ return toast('Não consegui baixar o gerador de planilhas. Confira a internet.'); }
+  const n=v=>ok(+v)?+v:(v==null||v===''?'':v), ord=(a,k)=>[...a].sort((x,y)=>(x[k]||'')<(y[k]||'')?-1:1), insN=id=>(S.insumos.find(i=>i.id===id)||{}).nome||'';
+  const abas=[
+   ['Fechamentos',ord(S.fech,'mes').flatMap(f=>CATS.filter(([c])=>cabOf(f,c)>0).map(([c,cn])=>({'Mês':f.mes,'Categoria':cn,'Fase':FN[faseOf(c)],'Cabeças':cabOf(f,c),'Peso médio (kg)':pesoOf(f,c),'@ total':Math.round(cabOf(f,c)*pesoOf(f,c)/kgA()*10)/10})))],
+   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Preço da @':n(x.precoArroba),'Valor (R$)':n(x.valor),'Observação':x.obs||''}))],
+   ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||''}))],
+   ['Lotes engorda',ord(S.engorda,'dataEntrada').map(l=>({'Lote':l.nome,'Sistema':l.sistema,'Cabeças':n(l.cab),'Entrada':l.dataEntrada,'Peso entrada (kg)':n(l.pesoEntrada),'Valor entrada/cab (R$)':n(l.aquisicao),'Nutrição R$/dia':n(l.nutricaoDia),'Operacional R$/dia':n(l.operacionalDia),'Saída':l.dataSaida||'','Peso saída (kg)':n(l.pesoSaida),'Carcaça (kg)':n(l.carcaca),'Preço da @ venda':n(l.precoVenda)}))],
+   ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
+   ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
+   ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
+   ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
+   ['Adaptações',S.adapt.map(a=>({'Lote':a.nome,'Suplemento':(SUP_REF[a.tipo]||{}).nome||a.tipo,'Início':a.inicio,'Fase':FN[a.fase]||'','Cabeças':n(a.cab),'Peso (kg)':n(a.peso)}))],
+   ['Ajustes',[['Fazenda',fazNome()],['Área produtiva (ha)',area()],['Kg por @',kgA()],['Mês de início da safra',S.config.safraMes],['Selic (%)',S.config.selic],...FASES.map(([k,nm])=>['Área '+nm+' (ha)',(S.config.areaFase||{})[k]||0]),...CATS.map(([c,cn])=>['Preço da @ · '+cn,preco(c)])].map(([a,b])=>({'Item':a,'Valor':b}))]];
+  const wb=X.utils.book_new();
+  abas.forEach(([nome,linhas])=>{ const ws=linhas.length?X.utils.json_to_sheet(linhas):X.utils.aoa_to_sheet([['Sem dados']]);
+    if(linhas.length) ws['!cols']=Object.keys(linhas[0]).map(k=>({wch:Math.min(40,Math.max(10,k.length+2,...linhas.slice(0,50).map(r=>String(r[k]??'').length+1)))}));
+    X.utils.book_append_sheet(wb,ws,nome); });
+  X.writeFile(wb,'fazenda-recanto-do-boqueirao-'+today()+'.xlsx'); toast('Planilha baixada.');
+}
+/* instalar na tela inicial (Android/Chrome avisa quando dá para instalar) */
+let PEDE_INST=null; window.addEventListener('beforeinstallprompt',e=>{e.preventDefault(); PEDE_INST=e;}); window.addEventListener('appinstalled',()=>{PEDE_INST=null; toast('App instalado na tela inicial.');});
 function openMore(){ $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Mais"><div class="row-head"><h2>Indicadores</h2><button class="btn link" type="button" data-close>Fechar</button></div>
   <div class="types"><button type="button" data-tab="painel">Fazenda toda<span>Resultado, @ produzidas e margem</span></button><button type="button" data-tab="cria">Cria<span>Reprodução e bezerros</span></button><button type="button" data-tab="recria">Recria<span>Ganho e custo da recria</span></button><button type="button" data-tab="engorda">Engorda<span>Lotes e resultado</span></button><button type="button" data-tab="relatorios">Relatórios<span>Gráficos mês a mês e metas</span></button></div>
   <div class="row-head" style="margin-top:16px"><h2>Mais</h2></div>
-  <div class="types"><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
+  <div class="types">${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
 function suplFaseHTML(k){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&m.fase===k&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
   const kg=sum(fs,x=>x.kg), c=sum(fs,x=>x.custo), cd=sum(fs,x=>x.cd), v=fs.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), pr=calc(UI.per,k).prodArr;
@@ -1269,6 +1300,7 @@ function renderFase(k){
   const kp=(l,v,sub,cls='')=>`<div class="kpi"><span class="l">${l}</span><span class="v ${cls}">${v}</span><span class="s">${sub}</span></div>`;
   $('#v-'+k).innerHTML=`
   <div class="page-title"><h2><span class="dot" style="background:${FCOR[k]}"></span>${n}</h2><span class="chip">${last?nf(fCab(last,cs))+' cab. hoje · ':''}${pct(R.share,0)} do rebanho</span></div>
+  ${ENTRY[k]?entryHTML(k):''}
   ${segPer()}${janelaTxt(J)}
   <div class="hero">
     ${kp('Rebanho médio',nf(R.rebMed)+' cab.',nf(R.uaMed)+' UA')}
@@ -1317,6 +1349,7 @@ const FORMS={
     <p class="note" id="grpNote"></p>`;}},
   custosMes:{t:'Custos do mês',d:'Vários gastos de uma vez',html:()=>`${fld('Mês','mes','month','required',ym(today()))}
     <p class="note">Preencha só o que teve no mês. Em "Onde entra", escolha se o gasto é da fazenda toda ou só de um setor ou lote. O app lembra a escolha para o próximo mês.</p>
+    <button class="btn" type="button" data-repete style="width:100%;margin-bottom:10px">↻ Repetir os valores do mês anterior</button><p class="note neg" id="repeteNota" hidden></p>
     ${ITENS.map(([k,n])=>`<div class="ing" style="grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr) minmax(0,1.2fr)"><span class="cat" style="padding-bottom:10px;font-weight:600;font-size:14px">${n}</span><label class="fl"><input id="f-v_${k}" name="v_${k}" type="number" step="0.01" min="0" inputmode="decimal" placeholder="R$" aria-label="Valor ${n}"></label><label class="fl"><select id="f-o_${k}" name="o_${k}" aria-label="Onde entra ${n}">${ondeOpts().map(([v,t])=>`<option value="${esc(v)}" ${v===ondePadrao(k)?'selected':''}>${esc(t.replace(' (dividido entre as fases)',''))}</option>`).join('')}</select></label></div>`).join('')}
     <div class="calc" id="calc">Total do mês: R$ 0</div>`},
   entrada:{t:'Entrada de insumo',d:'Compra para o estoque',need:()=>S.insumos.length>0||'Cadastre um insumo antes.',html:()=>`${sel('Insumo','insumoId',S.insumos.map(i=>[i.id,i.nome+' ('+i.unidade+')']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade','qtd','number','step="any" min="0.01" required')}</div>${fld('Valor pago (R$)','valor','number','step="0.01" min="0" required')}${fld('Observação','obs','text')}<label class="ck"><input type="checkbox" id="f-lancar" name="lancar" checked> Lançar também como custo</label>${sel('Onde entra o custo','onde',ondeOpts(),'geral')}`},
@@ -1355,8 +1388,18 @@ const FORMS={
 };
 
 /* ---------- lançar direto na tela ---------- */
-const ENTRY={custos:['custosMes','desembolso'],rebanho:['movimento','fechamento'],suplementacao:['fornecimento','entrada','saida']};
-const ENTRY_T={custosMes:'Custos do mês',desembolso:'Um custo',movimento:'Movimento',fechamento:'Fechamento do mês',fornecimento:'Fornecimento no cocho',entrada:'Entrada de insumo',saida:'Saída de insumo'};
+const ENTRY={custos:['custosMes','desembolso'],rebanho:['movimento','fechamento'],suplementacao:['fornecimento','entrada','saida'],cria:['estacao'],engorda:['lote']};
+const ENTRY_T={custosMes:'Custos do mês',desembolso:'Um custo',movimento:'Movimento',fechamento:'Fechamento do mês',fornecimento:'Fornecimento no cocho',entrada:'Entrada de insumo',saida:'Saída de insumo',estacao:'Nova estação de monta',lote:'Novo lote'};
+/* custos do mês: copia os valores e o "onde entra" do mês anterior ao escolhido */
+function repeteMes(){ const f=$('#frm'); if(!f||f.dataset.kind!=='custosMes') return; const prev=addM(f.mes.value||ym(today()),-1);
+  const de=S.desemb.filter(x=>ym(x.data)===prev).sort((a,b)=>a.data<b.data?-1:1); if(!de.length) return toast('Não há custos lançados em '+mLabel(prev)+'.');
+  let n=0; const div=[];
+  ITENS.forEach(([it,nm])=>{ const a=de.filter(x=>itemOf(x)===it); if(!a.length) return; f['v_'+it].value=Math.round(sum(a,x=>x.valor)*100)/100;
+    /* o formulário tem uma linha por tipo: se no mês anterior o custo foi dividido entre setores, vai tudo para o setor de maior valor e avisa */
+    const por={}; a.forEach(x=>por[ondeVal(x)]=(por[ondeVal(x)]||0)+(+x.valor||0)); const ks=Object.keys(por).sort((p,q)=>por[q]-por[p]);
+    f['o_'+it].value=ks[0]; if(ks.length>1) div.push(nm+' ('+ks.map(k=>ondeTxt(parseOnde(k)).replace(' (rateado)','')+' '+brl(por[k])).join(' + ')+')'); n++; });
+  const nota=$('#repeteNota'); nota.hidden=!div.length; nota.innerHTML=div.length?'Em '+mLabel(prev)+' estes custos foram divididos entre setores e aqui ficaram somados num só: <b>'+esc(div.join('; '))+'</b>. Para manter a divisão, apague o valor aqui e lance cada parte em "Um custo".':'';
+  DIRTY=true; f.dispatchEvent(new Event('input',{bubbles:true})); toast(n+' custos copiados de '+mLabel(prev)+'. Confira e salve.'); }
 function entryHTML(tab){const ks=ENTRY[tab]; if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab];
   return `<div class="panel entry" id="entry"><div class="row-head"><h2>Lançar</h2><span class="small muted">${esc(FORMS[cur].d)}</span></div>
   <div class="seg" role="group" aria-label="O que lançar">${ks.map(k=>`<button type="button" data-entry="${k}" aria-pressed="${k===cur}">${ENTRY_T[k]}</button>`).join('')}</div><div id="entrySlot"></div></div>`;}
@@ -1423,7 +1466,8 @@ function renderInicio(){
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
-    ${toolCard('caixa','Fornecimento no cocho','Suplemento por fase ou lote','suplementacao:fornecimento')}${toolCard('pasto','Entrada de insumo','Compra para o estoque','suplementacao:entrada')}</div>
+    ${toolCard('caixa','Fornecimento no cocho','Suplemento por fase ou lote','suplementacao:fornecimento')}${toolCard('pasto','Entrada de insumo','Compra para o estoque','suplementacao:entrada')}
+    ${toolCard('boi','Novo lote de engorda','Entrada no confinamento ou TIP','engorda:lote')}${toolCard('cal','Estação de monta','Prenhez, nascimento, desmame','cria:estacao')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Calculadoras</h2></div>
   <div class="tools">${toolCard('calc','Diluir ágio','Em quantos dias o ganho paga o ágio','calc:c-agio')}${toolCard('balanca','Ponto de equilíbrio','Preço mínimo da @ para não ter prejuízo','calc:c-peq')}${toolCard('alvo','Custo da arroba','Quanto custa produzir uma @','calc:c-custo')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Indicadores</h2><span class="small muted">também no menu Mais</span></div>
@@ -1433,7 +1477,12 @@ function renderCalc(){
   $('#v-calc').innerHTML=`<div class="page-title"><h2>Calculadoras</h2></div><p class="note" style="margin:4px 0 10px">Preencha e o resultado aparece na hora. O que você digita fica guardado neste aparelho.</p>
   <div id="c-agio">${agioHTML()}</div><div id="c-peq">${peqHTML()}</div><div id="c-custo">${simArroba()}</div>`;}
 function fechRows(mes){const cats=prefillFech(mes);
-  return `<div class="grid3" style="margin-bottom:4px"><span class="small muted">Categoria</span><span class="small muted">Cabeças</span><span class="small muted">Peso médio kg</span></div>`+CATS.map(([k,n])=>`<div class="grid3" style="margin-bottom:6px"><span class="cat">${n}</span><label class="fl"><input id="f-cab_${k}" name="cab_${k}" type="number" min="0" step="1" value="${cats[k]?.cab||0}" aria-label="Cabeças ${n}"></label><label class="fl"><input id="f-peso_${k}" name="peso_${k}" type="number" min="0" step="any" value="${cats[k]?.peso||0}" aria-label="Peso médio ${n}"></label></div>`).join('');}
+  /* mostra só as categorias que a fazenda tem; as outras ficam num "mostrar mais" */
+  const linha=([k,n])=>`<div class="grid3" style="margin-bottom:6px"><span class="cat">${n}</span><label class="fl"><input id="f-cab_${k}" name="cab_${k}" type="number" min="0" step="1" value="${cats[k]?.cab||0}" aria-label="Cabeças ${n}"></label><label class="fl"><input id="f-peso_${k}" name="peso_${k}" type="number" min="0" step="any" value="${cats[k]?.peso||0}" aria-label="Peso médio ${n}"></label></div>`;
+  const tem=CATS.filter(([k])=>(cats[k]?.cab||0)>0), resto=CATS.filter(([k])=>!((cats[k]?.cab||0)>0));
+  const cab=`<div class="grid3" style="margin-bottom:4px"><span class="small muted">Categoria</span><span class="small muted">Cabeças</span><span class="small muted">Peso médio kg</span></div>`;
+  if(!tem.length) return cab+CATS.map(linha).join('');
+  return cab+tem.map(linha).join('')+`<details class="mais-cat"><summary>Outras categorias (${resto.length})</summary>${resto.map(linha).join('')}</details>`;}
 function closeSheet(){$('#sheetRoot').innerHTML=''; if($('#entrySlot')&&!$('#entrySlot').firstChild) mountEntry();}
 function openPicker(){$('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Registrar"><div class="row-head"><h2>O que você quer registrar?</h2><button class="btn link" type="button" data-close>Fechar</button></div><div class="types">${['custosMes','desembolso','movimento','fechamento','fornecimento','adaptacao','entrada','saida','lote','estacao','insumo'].map(k=>`<button type="button" data-open="${k}">${FORMS[k].t}<span>${FORMS[k].d}</span></button>`).join('')}</div></div></div>`;}
 function openForm(k,o={}){
@@ -1503,6 +1552,9 @@ document.addEventListener('click',async e=>{
   if(b.hasAttribute('data-logout')) return sair();
   if(b.hasAttribute('data-more')) return openMore();
   if(b.hasAttribute('data-print')) return window.print();
+  if(b.hasAttribute('data-instalar')){ closeSheet(); if(PEDE_INST){ PEDE_INST.prompt(); PEDE_INST=null; } return; }
+  if(b.hasAttribute('data-exportar')){ closeSheet(); return exportaExcel(); }
+  if(b.hasAttribute('data-repete')) return repeteMes();
   if(b.hasAttribute('data-ajustes')){ showTab('painel'); setTimeout(()=>document.getElementById('ajustes')?.scrollIntoView({block:'start'}),50); return; }
   if(b.dataset.simFill) return simFill(b.dataset.simFill);
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
@@ -1540,6 +1592,7 @@ document.addEventListener('input',e=>{const cf=e.target.closest&&e.target.closes
   const f=e.target.closest&&e.target.closest('#simArr'); if(!f) return; SIM[e.target.name]=e.target.value; saveSim(); $('#simOut').innerHTML=simOut(SIM);});
 
 /* ---------- dados ---------- */
+if('serviceWorker' in navigator&&location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 carregaCot(); document.addEventListener('visibilitychange',()=>{ if(!document.hidden) carregaCot(); });
 try{const p=localStorage.getItem('per2'); if(PERS[p]) UI.per=p;}catch(e){}
 try{const t=localStorage.getItem('tema'); if(t==='dark'||t==='light') document.documentElement.dataset.theme=t;}catch(e){}
@@ -1561,34 +1614,76 @@ const TAB={
   adaptacoes:d=>({nome:d.nome||null,tipo:d.tipo||null,inicio:d.inicio||null,fase:d.fase||null})};
 const clean=d=>JSON.parse(JSON.stringify(d));
 let UID=null, subs={}, cache={}, tick=null, started=false;
+/* ---------- sem internet: cópia local dos dados + fila de gravações ----------
+   Cada coleção fica salva no aparelho (rows). Sem sinal, a gravação entra na fila
+   (FILA) e já aparece na tela; quando a internet volta, a fila é enviada em ordem. */
+let FILA=[], OFF=false, enviando=false;
+const lsK=k=>'cf_'+UID+'_'+k;
+const locGet=(k,d)=>{try{const v=localStorage.getItem(lsK(k)); return v?JSON.parse(v):d;}catch(e){return d;}};
+const locPut=(k,v)=>{try{localStorage.setItem(lsK(k),JSON.stringify(v));}catch(e){}};
+const semRede=e=>!navigator.onLine||/fetch|network|load failed|timeout|offline/i.test(String((e&&(e.message||e.details))||e||''));
 function dbMake(){
   const fail=e=>{ const x=new Error(e?.message||'erro'); x.code=e?.code||'erro'; throw x; };
+  const rows={};
+  const getRows=c=>rows[c]||(rows[c]=locGet('rows_'+c,c==='config'?null:[]));
+  const aplica=(op)=>{ if(op.c==='config'){ rows.config={dados:op.row.dados}; return; }
+    const r=getRows(op.c), i=r.findIndex(x=>x.id===op.id);
+    if(op.k==='delete'){ if(i>=0) r.splice(i,1); }
+    else if(i>=0) r[i]={id:op.id,dados:op.row.dados}; else r.push({id:op.id,dados:op.row.dados}); };
+  const emite=c=>{ if(c==='config'){ const row=getRows('config'); (subs.config||[]).forEach(f=>f.ok({exists:!!row,data:()=>row?row.dados||{}:{}})); return; }
+    const r=getRows(c); (subs[c]||[]).forEach(f=>f.ok({docs:r.map(x=>({id:x.id,data:()=>x.dados||{}}))})); };
+  const marcaRede=off=>{ if(OFF!==off){ OFF=off; setStatus(); } };
   const notify=async c=>{
     try{
-      if(c==='config'){ const {data,error}=await sb.from('config').select('dados'); if(error) throw error; const row=data&&data[0];
-        (subs.config||[]).forEach(f=>f.ok({exists:!!row,data:()=>row?row.dados||{}:{}})); return; }
-      const {data,error}=await sb.from(c).select('id,dados').order('created_at',{ascending:true}); if(error) throw error;
-      cache[c]=Object.fromEntries(data.map(r=>[r.id,r.dados||{}]));
-      (subs[c]||[]).forEach(f=>f.ok({docs:data.map(r=>({id:r.id,data:()=>r.dados||{}}))}));
-    }catch(e){ (subs[c]||[]).forEach(f=>f.err&&f.err(e)); }
+      if(c==='config'){ const {data,error}=await sb.from('config').select('dados'); if(error) throw error; rows.config=data&&data[0]?{dados:data[0].dados||{}}:null; }
+      else { const {data,error}=await sb.from(c).select('id,dados').order('created_at',{ascending:true}); if(error) throw error; rows[c]=data.map(r=>({id:r.id,dados:r.dados||{}})); }
+      FILA.filter(op=>op.c===c).forEach(aplica); locPut('rows_'+c,rows[c]); marcaRede(false);
+    }catch(e){ if(!semRede(e)){ (subs[c]||[]).forEach(f=>f.err&&f.err(e)); return; } marcaRede(true); }
+    emite(c);
   };
-  const listen=(c,ok,err)=>{ (subs[c]=subs[c]||[]).push({ok,err}); notify(c); };
+  const roda=op=>{ const now=new Date().toISOString();
+    if(op.c==='config') return sb.from('config').upsert({owner:UID,dados:op.row.dados,updated_at:now},{onConflict:'owner'});
+    if(op.k==='insert') return sb.from(op.c).insert({id:op.id,owner:UID,...op.row});
+    if(op.k==='upsert') return sb.from(op.c).upsert({id:op.id,owner:UID,...op.row},{onConflict:'owner,id'});
+    if(op.k==='update') return sb.from(op.c).update(op.row).eq('id',op.id);
+    return sb.from(op.c).delete().eq('id',op.id); };
+  const enfileira=op=>{ FILA.push(op); locPut('fila',FILA); aplica(op); locPut('rows_'+op.c,rows[op.c]); marcaRede(true); emite(op.c); };
+  /* grava agora; sem sinal (ou com fila pendente, para manter a ordem) vai para a fila */
+  const grava=async op=>{
+    if(FILA.length||!navigator.onLine){ enfileira(op); envia(); return; }
+    let res; try{ res=await roda(op); }catch(e){ res={error:e}; }
+    if(res.error){ if(semRede(res.error)){ enfileira(op); return; } fail(res.error); }
+    marcaRede(false); await notify(op.c); };
+  const envia=async()=>{
+    if(enviando||!FILA.length||!navigator.onLine) return; enviando=true; const tocadas=new Set();
+    try{ while(FILA.length){ const op=FILA[0]; let res; try{ res=await roda(op); }catch(e){ res={error:e}; }
+        if(res.error&&semRede(res.error)){ marcaRede(true); break; }
+        if(res.error&&res.error.code!=='23505') toast('Um lançamento feito sem internet não pôde ser salvo e foi descartado.');
+        FILA.shift(); locPut('fila',FILA); tocadas.add(op.c); }
+      if(!FILA.length){ marcaRede(false); if(tocadas.size) toast('Lançamentos feitos sem internet foram enviados.'); }
+    }finally{ enviando=false; setStatus(); }
+    await Promise.all([...tocadas].map(notify)); };
+  const listen=(c,ok,err)=>{ (subs[c]=subs[c]||[]).push({ok,err}); if(getRows(c)!=null) emite(c); notify(c); };
+  const dadosDe=(c,id)=>((getRows(c)||[]).find(x=>x.id===id)||{}).dados||{};
   return {
-    refreshAll:()=>Promise.all(Object.keys(subs).map(notify)),
+    envia, pendentes:()=>FILA.length,
+    refreshAll:async()=>{ await envia(); await Promise.all(Object.keys(subs).map(notify)); },
     collection:c=>({onSnapshot:(ok,err)=>{listen(c,ok,err);return()=>{};},
-      add:async d=>{ const id=crypto.randomUUID(), dd=clean(d); const {error}=await sb.from(c).insert({id,owner:UID,...TAB[c](dd),dados:dd}); if(error) fail(error); await notify(c); return {id}; }}),
+      add:async d=>{ const id=crypto.randomUUID(), dd=clean(d); await grava({c,k:'insert',id,row:{...TAB[c](dd),dados:dd}}); return {id}; }}),
     doc:path=>{ const [c,id]=path.split('/');
       if(c==='config') return {
         onSnapshot:(ok,err)=>{listen('config',ok,err);return()=>{};},
-        set:async d=>{ const {error}=await sb.from('config').upsert({owner:UID,dados:clean(d),updated_at:new Date().toISOString()},{onConflict:'owner'}); if(error) fail(error); await notify('config'); },
-        update:async d=>{ const {data}=await sb.from('config').select('dados'); const old=(data&&data[0]&&data[0].dados)||{}; const {error}=await sb.from('config').upsert({owner:UID,dados:clean({...old,...d}),updated_at:new Date().toISOString()},{onConflict:'owner'}); if(error) fail(error); await notify('config'); },
+        set:async d=>grava({c:'config',k:'upsert',row:{dados:clean(d)}}),
+        update:async d=>grava({c:'config',k:'upsert',row:{dados:clean({...((getRows('config')||{}).dados||{}),...d})}}),
         delete:async()=>{ const {error}=await sb.from('config').delete().eq('owner',UID); if(error) fail(error); await notify('config'); }};
       return {
-        set:async d=>{ const dd=clean(d); const {error}=await sb.from(c).upsert({id,owner:UID,...TAB[c](dd),dados:dd},{onConflict:'owner,id'}); if(error) fail(error); await notify(c); },
-        update:async d=>{ const old=(cache[c]||{})[id]||{}, m=clean({...old,...d}); const {error}=await sb.from(c).update({...TAB[c](m),dados:m}).eq('id',id); if(error) fail(error); await notify(c); },
-        delete:async()=>{ const {error}=await sb.from(c).delete().eq('id',id); if(error) fail(error); await notify(c); }};
+        set:async d=>{ const dd=clean(d); await grava({c,k:'upsert',id,row:{...TAB[c](dd),dados:dd}}); },
+        update:async d=>{ const m=clean({...dadosDe(c,id),...d}); await grava({c,k:'update',id,row:{...TAB[c](m),dados:m}}); },
+        delete:async()=>grava({c,k:'delete',id,row:{dados:null}})};
     }};
 }
+window.addEventListener('online',()=>{ if(db) db.refreshAll(); });
+window.addEventListener('offline',()=>{ OFF=true; setStatus(); });
 const FORM_PADRAO=[
  ['proteico-ddg','Proteico-energético recria (DDG + núcleo)','proteico',[['DDG',95],['Núcleo mineral',5]]],
  ['terminacao-ddg','Ração terminação (milho + DDG + núcleo)','tip',[['Milho moído (fubá)',77],['DDG',20],['Núcleo mineral',3]]],
@@ -1612,8 +1707,8 @@ $('#au-forgot').addEventListener('click',async()=>{ const email=$('#au-email').v
   const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname}); authMsg(error?authErro(error):'Se esse e-mail tem conta, enviamos um link para criar uma nova senha.',error?'bad':'good'); });
 async function sair(){ if(sb) await sb.auth.signOut(); }
 async function iniciar(session){
-  if(started) return; started=true; UID=session.user.id; showAuth(false); db=dbMake(); writable=true; subs={}; cache={};
-  try{ const {data}=await sb.from('config').select('dados');
+  if(started) return; started=true; UID=session.user.id; showAuth(false); FILA=locGet('fila',[]); OFF=!navigator.onLine; db=dbMake(); writable=true; subs={}; cache={};
+  try{ const {data,error}=await sb.from('config').select('dados'); if(error) throw error; /* sem internet: não recria nada */
     const novaForm=([id,nome,tipo,ing])=>db.doc('formulacoes/'+id).set({nome,tipo,ingredientes:ing.map(([n,p])=>({nome:n,pct:p,preco:0}))});
     if(!data||!data.length){ await db.doc('config/geral').set({...CFG0,nome:FAZ}); for(const f of FORM_PADRAO) await novaForm(f); }
     else { /* contas antigas: acrescenta as formulações reais da fazenda (DDG) uma única vez */
@@ -1624,7 +1719,7 @@ async function iniciar(session){
   clearInterval(tick); tick=setInterval(()=>{ if(db&&!document.hidden) db.refreshAll(); },30000);
   render();
 }
-function encerrar(){ started=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
+function encerrar(){ started=false; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&db) db.refreshAll(); });
 (async()=>{
   if(!sb){ showAuth(true); authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue a página.','bad'); render(); return; }
