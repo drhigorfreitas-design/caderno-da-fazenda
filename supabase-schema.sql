@@ -3,6 +3,7 @@
 -- Cada tabela guarda os mesmos registros do app: colunas para o que se filtra
 -- (data, mês, tipo) e um campo "dados" (jsonb) com o resto do registro.
 -- Segurança: só quem está logado e é o dono do registro lê e grava (RLS).
+-- Depois rode também compartilhar-fazenda.sql: os registros passam a ser da fazenda e os sócios entram por convite.
 
 create table if not exists public.config (
   owner uuid primary key default auth.uid() references auth.users(id) on delete cascade,

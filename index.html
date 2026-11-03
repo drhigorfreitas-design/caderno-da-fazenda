@@ -460,7 +460,9 @@ const ondePadrao=item=>{try{return localStorage.getItem('onde_'+item)||'geral';}
 const FAZ='Fazenda Recanto do Boqueirão';
 const fazNome=()=>{const n=(S.config.nome||'').trim(); return !n||n==='Minha Fazenda'?FAZ:n;};
 const CFG0={nome:FAZ,usuario:'Dr. Higor',kgArroba:30,area:0,safraMes:7,selic:15,precos:PRECO_PADRAO,fases:FASE_PADRAO,areaFase:{cria:0,recria:0,engorda:0}};
-const S={fech:[],movs:[],desemb:[],estacoes:[],engorda:[],insumos:[],emovs:[],form:[],adapt:[],config:{...CFG0}};
+const S={fech:[],movs:[],desemb:[],estacoes:[],engorda:[],insumos:[],emovs:[],form:[],adapt:[],config:{...CFG0},membros:[],convites:[]};
+/* fazenda compartilhada: FID = fazenda aberta (null = banco antigo, um dono por registro); MEMB = fazendas de quem está logado */
+let FID=null, MEMB=[], MEU_EMAIL='';
 const UI={tab:'inicio',per:'safra',fase:'total',entry:{},eo:{},relFase:'total',notaMes:''};
 const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao','notas'];
 let DIRTY=false;
@@ -620,7 +622,7 @@ function renderPainel(){
   <div class="sec-title"><h2>Indicadores da fazenda</h2></div>
   ${detalhe(RT)}
   <div class="cols">${donutFases(RT,RF)}<div class="panel"><div class="row-head"><h2>Receita e desembolso por mês</h2><div class="legend"><span><i style="background:var(--f-cria)"></i>Receita</span><span><i style="background:var(--gold)"></i>Desembolso</span></div></div>${chartMeses(J)}</div></div>
-  ${renderAjustes()}`;
+  ${renderAjustes()}${sociosHTML()}`;
 }
 function detalhe(R,comExtra=true){
   const f=R.fase, q=quadrante(R), nome=f?FN[f].toLowerCase():'fazenda';
@@ -849,7 +851,8 @@ async function salvaNota(m,txt){
   if(!db||!writable){ notaSt('Não salvo'); return toast('Entre na sua conta para salvar as anotações.'); }
   if(txt.trim()) N[m]=txt; else delete N[m];
   S.config.notas=N; notaSt('Salvando…');
-  try{ await db.doc('config/geral').update({notas:N}); notaSt(OFF?'Guardado no aparelho, envia quando tiver internet':'Salvo'); }catch(e){ notaSt('Não salvo'); dbErr(e); }
+  /* troca só este mês, em cima da versão do servidor: não apaga o que um sócio escreveu em outro mês */
+  try{ await db.configMod(b=>{ const n={...(b.notas||{})}; if(txt.trim()) n[m]=txt; else delete n[m]; return {...b,notas:n}; }); notaSt(OFF?'Guardado no aparelho, envia quando tiver internet':'Salvo'); }catch(e){ notaSt('Não salvo'); dbErr(e); }
 }
 const notaSt=t=>{ const s=$('#notaSt'); if(s) s.textContent=t; };
 /* grava o que ficou digitado antes de trocar de mês ou de aba */
@@ -875,13 +878,30 @@ document.addEventListener('input',e=>{ if(e.target.id!=='nota-txt') return; cons
   clearTimeout(notaT); notaT=setTimeout(()=>salvaNotaPendente(),1200); });
 document.addEventListener('focusout',e=>{ if(e.target.id==='nota-txt') salvaNotaPendente(); });
 window.addEventListener('pagehide',()=>{ salvaNotaPendente(); });
+/* ---------- Sócios: quem participa da fazenda e convites por e-mail ---------- */
+const linkApp=()=>location.origin+location.pathname;
+function sociosHTML(){
+  if(!FID) return `<div class="panel" id="socios"><h2>Sócios</h2><p class="note" style="margin-top:4px">Para compartilhar a fazenda com seus sócios, falta ativar o compartilhamento no Supabase (um passo único, feito uma vez).</p></div>`;
+  const mem=S.membros, conv=S.convites;
+  return `<div class="panel" id="socios"><div class="row-head"><h2>Sócios da fazenda</h2><span class="small muted">${mem.length} ${mem.length===1?'pessoa':'pessoas'}</span></div>
+  <p class="note" style="margin:4px 0 8px">Todos veem os mesmos dados e podem lançar, editar e apagar. Cada lançamento guarda quem fez.</p>
+  <div class="list">${mem.map(m=>`<div class="item"><span class="t">${esc(nomeM(m))}${m.user_id===UID?' <span class="chip">você</span>':''}</span><span class="meta">${esc(m.email||'')}</span><span class="act">${m.user_id===UID?'':`<button class="btn del" type="button" data-rm-membro="${esc(m.user_id)}">Remover</button>`}</span></div>`).join('')}
+  ${conv.map(c=>`<div class="item"><span class="t">${esc(c.email)} <span class="chip warn">convite pendente</span></span><span class="meta">ainda não criou a conta ou ainda não entrou no app</span><span class="act"><button class="btn del" type="button" data-rm-convite="${esc(c.email)}">Cancelar</button></span></div>`).join('')}</div>
+  <form class="f" id="convF" style="margin-top:12px"><label class="fl">E-mail do sócio<input id="conv-email" name="email" type="email" required autocomplete="off" placeholder="nome@gmail.com"></label><div class="btns"><button class="btn primary" type="submit">Convidar</button></div></form>
+  <p class="note">Depois de convidar, envie o link do app. Ele toca em <b>Criar conta</b> usando <b>este mesmo e-mail</b>, confirma pelo link que chega no e-mail e entra: já cai nesta fazenda. Se ele já tiver conta, é só sair e entrar de novo.</p>
+  <div class="btns"><button class="btn" type="button" data-share-app>Enviar o link do app</button></div>
+  ${MEMB.length>1?`<label class="fl" style="margin-top:12px">Fazenda aberta neste aparelho<select id="fazSel">${MEMB.map(m=>`<option value="${esc(m.fazenda_id)}" ${m.fazenda_id===FID?'selected':''}>${esc(m.nome_fazenda||'Fazenda')}</option>`).join('')}</select></label>`:''}
+  </div>`;
+}
+/* toque duplo para confirmar (igual ao Excluir) */
+const arma=b=>{ if(b.hasAttribute('data-armed')) return false; b.dataset.orig=b.textContent; b.setAttribute('data-armed',''); b.textContent='Toque de novo para confirmar'; setTimeout(()=>{ if(b.isConnected){ b.removeAttribute('data-armed'); b.textContent=b.dataset.orig; } },3500); return true; };
 function renderAjustes(){
   const c=S.config, af=c.areaFase||{};
   return `<div class="panel" id="ajustes"><h2>Ajustes</h2>
   <form class="f" id="cfg" style="margin-top:10px">
     <div class="grid2">
       <label class="fl">Nome da fazenda<input id="cfg-nome" name="nome" value="${esc(c.nome)}"></label>
-      <label class="fl">Seu nome (saudação)<input id="cfg-usuario" name="usuario" value="${esc(c.usuario||'')}"></label>
+      <label class="fl">Seu nome (saudação)<input id="cfg-usuario" name="usuario" value="${esc(FID?nomeDe(UID):(c.usuario||''))}"></label>
       <label class="fl">Área produtiva total (ha)<input id="cfg-area" name="area" type="number" step="0.1" min="0" value="${esc(c.area||'')}"></label>
       <label class="fl">Kg vivo por @<input id="cfg-kg" name="kgArroba" type="number" step="0.5" min="1" value="${esc(kgA())}"></label>
       <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
@@ -919,7 +939,7 @@ function renderRebanho(){
   <div class="panel"><div class="row-head"><h2>Mortalidade por categoria</h2><span class="small muted">${esc(J.nome)}</span></div>
     ${mortCat.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Mortes</th><th>Reb. médio</th><th>%</th></tr></thead><tbody>${mortCat.map(x=>`<tr><td>${x.n}</td><td>${nf(x.m)}</td><td>${nf(x.med)}</td><td>${pct(x.p,2)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma morte registrada no período.</p>'}</div>
   <div class="row-head"><h2>Movimentações</h2><button class="btn" type="button" data-open="movimento">Registrar</button></div>
-  <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
+  <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
   ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA</span><span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span></div>`).join('')}</div></details>`:''}`;
 }
 function chartRebanho(F){
@@ -1255,7 +1275,7 @@ function renderFin(){
   </div>
 
   <div class="row-head"><h2>Lançamentos</h2></div>
-  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}</span><span class="act"><button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
+  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}${porTxt(x)}</span><span class="act"><button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
   <p class="note">Custeio é o gasto que se consome em menos de 12 meses. Investimento dura mais de 12 meses e vira patrimônio. Compra de boi não entra aqui: registre como compra no Rebanho, ela vai para a reposição.</p>
 
   <div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
@@ -1280,13 +1300,18 @@ const ICO={
 const svgI=k=>`<svg viewBox="0 0 24 24">${ICO[k]}</svg>`;
 const lastFech=()=>[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop();
 const adaptAtivas=()=>S.adapt.map(a=>{const r=SUP_REF[a.tipo]; if(!r||!r.etapas.length) return null; const d=days(a.inicio,today())+1, fim=r.etapas[r.etapas.length-1].de; return d>=1&&d<fim?{a,r,d,fim}:null;}).filter(Boolean);
-function saudacao(){ const h=new Date().getHours(); return (h<12?'Bom dia':h<18?'Boa tarde':'Boa noite')+', '+(S.config.usuario||'Dr. Higor')+'!'; }
+/* nome de quem está usando: com fazenda compartilhada vem do cadastro de sócios, cada um com o seu */
+const nomeM=m=>m?(m.nome||(m.email||'').split('@')[0]):'';
+const nomeDe=id=>nomeM(S.membros.find(x=>x.user_id===id));
+const meuNome=()=>FID?(nomeDe(UID)||(MEU_EMAIL.split('@')[0])||''):(S.config.usuario||'Dr. Higor');
+const porTxt=x=>S.membros.length>1&&(x.porId||x.por)?' · por '+esc(nomeDe(x.porId)||x.por):'';
+function saudacao(){ const h=new Date().getHours(), n=meuNome(); return (h<12?'Bom dia':h<18?'Boa tarde':'Boa noite')+(n?', '+n:'')+'!'; }
 function bandInfo(){
   const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0, painel=UI.tab==='inicio'||UI.tab==='painel';
   document.body.dataset.tab=UI.tab; $('#band').classList.toggle('slim',!painel);
   $('#welcome').textContent=painel?saudacao():(fazNome());
   $('#bandSub').innerHTML='<b>'+esc(fazNome())+'</b>'+(last?' · '+nf(cab)+' cab. em '+nf(ua)+' UA'+(A?' em '+nf(A)+' ha':''):' · comece pelo fechamento do rebanho');
-  const nm=S.config.usuario||'Dr. Higor'; $('#who').innerHTML=`<span class="av">${esc(nm.replace(/^(dr|dra)\.?\s+/i,'').charAt(0).toUpperCase()||'F')}</span><div><b>${esc(nm)}</b><small>${esc(fazNome())}</small></div><button class="out" type="button" data-logout>Sair</button>`;
+  const nm=meuNome()||'Sócio'; $('#who').innerHTML=`<span class="av">${esc(nm.replace(/^(dr|dra)\.?\s+/i,'').charAt(0).toUpperCase()||'F')}</span><div><b>${esc(nm)}</b><small>${esc(fazNome())}</small></div><button class="out" type="button" data-logout>Sair</button>`;
 }
 function statRow(){
   const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0;
@@ -1314,7 +1339,7 @@ function renderSide(){
   adaptAtivas().slice(0,3).forEach(({a,r,d,fim})=>A.push({ic:'caixa',t:'Adaptação: '+esc(a.nome||'Lote'),s:r.nome+' · dia '+d+' de '+(fim-1),attr:'data-tab="suplementacao"'}));
   if(!area()) A.push({ic:'ha',t:'Informar a área produtiva',s:'Para lotação e @/ha',attr:'data-ajustes'});
   const ev=[...S.movs.map(x=>({d:x.data,t:TIPOS_MOV[x.tipo]+' · '+esc(CN[x.categoria]||''),s:nf(x.cab)+' cab.'+(x.valor?' · '+brl(x.valor):'')})),
-    ...S.desemb.map(x=>({d:x.data,t:esc(ITN[itemOf(x)]||'Custo'),s:brl(x.valor)+' · '+esc(ondeTxt(x))}))].filter(x=>x.d).sort((a,b)=>a.d<b.d?1:-1).slice(0,6);
+    ...S.desemb.map(x=>({d:x.data,t:esc(ITN[itemOf(x)]||'Custo'),s:brl(x.valor)+' · '+esc(ondeTxt(x))+porTxt(x)}))].filter(x=>x.d).sort((a,b)=>a.d<b.d?1:-1).slice(0,6);
   const lotes=S.engorda.filter(l=>!l.dataSaida).slice(0,3);
   el.innerHTML=`<h2>Atividade</h2>
    <div class="sd-sec"><div class="sd-head"><h3>Atenção</h3></div>${A.length?A.map(card).join(''):'<p class="sd-empty">Tudo em dia por aqui.</p>'}</div>
@@ -1333,8 +1358,8 @@ async function exportaExcel(){
   const n=v=>ok(+v)?+v:(v==null||v===''?'':v), ord=(a,k)=>[...a].sort((x,y)=>(x[k]||'')<(y[k]||'')?-1:1), insN=id=>(S.insumos.find(i=>i.id===id)||{}).nome||'';
   const abas=[
    ['Fechamentos',ord(S.fech,'mes').flatMap(f=>CATS.filter(([c])=>cabOf(f,c)>0).map(([c,cn])=>({'Mês':f.mes,'Categoria':cn,'Fase':FN[faseOf(c)],'Cabeças':cabOf(f,c),'Peso médio (kg)':pesoOf(f,c),'@ total':Math.round(cabOf(f,c)*pesoOf(f,c)/kgA()*10)/10})))],
-   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Preço da @':n(x.precoArroba),'Valor (R$)':n(x.valor),'Observação':x.obs||''}))],
-   ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||''}))],
+   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Preço da @':n(x.precoArroba),'Valor (R$)':n(x.valor),'Observação':x.obs||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
+   ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
    ['Lotes engorda',ord(S.engorda,'dataEntrada').map(l=>({'Lote':l.nome,'Sistema':l.sistema,'Cabeças':n(l.cab),'Entrada':l.dataEntrada,'Peso entrada (kg)':n(l.pesoEntrada),'Valor entrada/cab (R$)':n(l.aquisicao),'Nutrição R$/dia':n(l.nutricaoDia),'Operacional R$/dia':n(l.operacionalDia),'Saída':l.dataSaida||'','Peso saída (kg)':n(l.pesoSaida),'Carcaça (kg)':n(l.carcaca),'Preço da @ venda':n(l.precoVenda)}))],
    ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
    ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
@@ -1354,7 +1379,7 @@ let PEDE_INST=null; window.addEventListener('beforeinstallprompt',e=>{e.preventD
 function openMore(){ $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Mais"><div class="row-head"><h2>Indicadores</h2><button class="btn link" type="button" data-close>Fechar</button></div>
   <div class="types"><button type="button" data-tab="painel">Fazenda toda<span>Resultado, @ produzidas e margem</span></button><button type="button" data-tab="cria">Cria<span>Reprodução e bezerros</span></button><button type="button" data-tab="recria">Recria<span>Ganho e custo da recria</span></button><button type="button" data-tab="engorda">Engorda<span>Lotes e resultado</span></button><button type="button" data-tab="relatorios">Relatórios<span>Gráficos mês a mês e metas</span></button></div>
   <div class="row-head" style="margin-top:16px"><h2>Mais</h2></div>
-  <div class="types"><button type="button" data-tab="notas">Bloco de notas<span>Anotações de cada mês do ano</span></button>${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
+  <div class="types"><button type="button" data-tab="notas">Bloco de notas<span>Anotações de cada mês do ano</span></button>${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-socios>Sócios<span>Convide quem cuida da fazenda com você</span></button><button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
 function suplFaseHTML(k){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&m.fase===k&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
   const kg=sum(fs,x=>x.kg), c=sum(fs,x=>x.custo), cd=sum(fs,x=>x.cd), v=fs.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), pr=calc(UI.per,k).prodArr;
@@ -1394,7 +1419,7 @@ function renderFase(k){
   ${movsFaseHTML(k)}`;
 }
 function render(){ setStatus(); bandInfo(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF,#convF'))) return;
   ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -1587,7 +1612,7 @@ function wireForm(k,o,inline){
 }
 async function submitForm(f){
   const k=f.dataset.kind, v=Object.fromEntries(new FormData(f)), N=x=>x===''||x==null?null:Number(x), ed=f.dataset.edit;
-  const add=(col,d)=>db.collection(col).add({...d,criadoEm:new Date().toISOString()});
+  const add=(col,d)=>db.collection(col).add({...d,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
   if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};}); await db.doc(COL.fech+'/'+v.mes).set({mes:v.mes,cats}); }
   if(k==='movimento'){ const d={tipo:v.tipo,data:v.data,categoria:v.categoria,cab:N(v.cab),pesoMedio:N(v.pesoMedio)||0,obs:v.obs||''};
     if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
@@ -1637,6 +1662,12 @@ document.addEventListener('click',async e=>{
   if(b.id==='fab') return openPicker();
   if(b.hasAttribute('data-close')) return closeSheet();
   if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
+  if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if(b.dataset.rmConvite){ if(arma(b)) return; const {error}=await sb.from('convites').delete().eq('fazenda_id',FID).eq('email',b.dataset.rmConvite); if(error) return toast('Não foi possível cancelar.'); toast('Convite cancelado'); return carregaSocios(); }
+  if(b.hasAttribute('data-share-app')){ const txt='Entre no Caderno da Fazenda ('+fazNome()+'): toque em Criar conta usando o e-mail em que eu te convidei.';
+    try{ if(navigator.share){ await navigator.share({title:'Caderno da Fazenda',text:txt,url:linkApp()}); return; } }catch(x){ return; }
+    try{ await navigator.clipboard.writeText(txt+' '+linkApp()); toast('Link copiado. Cole no WhatsApp para ele.'); }catch(x){ toast(linkApp()); } return; }
+  if(b.hasAttribute('data-socios')){ showTab('painel'); setTimeout(()=>document.getElementById('socios')?.scrollIntoView({block:'start'}),50); return; }
   if(b.dataset.relfase){UI.relFase=b.dataset.relfase; return render();}
   /* tira o foco do texto antes de trocar (com foco, o render não redesenha a tela) */
   if(b.dataset.nota){ document.activeElement?.blur(); await salvaNotaPendente(); UI.notaMes=b.dataset.nota; render(); $('#notaF')?.closest('.panel').scrollIntoView({block:'start'}); return; }
@@ -1658,16 +1689,25 @@ document.addEventListener('click',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='convF'){ const em=f.email.value.trim().toLowerCase(); if(!/^[^@s]+@[^@s]+.[^@s]+$/.test(em)) return toast('Digite um e-mail válido.');
+    if(S.membros.some(m=>(m.email||'')===em)) return toast('Essa pessoa já é sócia da fazenda.');
+    const {error}=await sb.from('convites').insert({fazenda_id:FID,email:em});
+    if(error&&error.code!=='23505') return toast(semRede(error)?'Sem internet. Tente de novo com sinal.':'Não foi possível convidar.');
+    f.reset(); await carregaSocios(); toast('Convite criado. Agora envie o link do app para ele.'); return; }
   if(f.id==='notaF'){ await salvaNota(f.dataset.mes,f.txt.value); document.activeElement?.blur(); render(); toast('Anotações salvas'); return; }
   if(f.id==='repF'){ REP={uf:REP.uf,v:REP.v.map((r,k)=>[r[0],r[1],r[2],r[3],Number(f['rc'+k].value)||r[4],f['rd'+k].value||r[5]])}; try{localStorage.setItem('repoNelore',JSON.stringify(REP));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='milhoF'){ MIL={data:f.mdata.value||MIL.data,v:MIL.v.map(([n,p,x],i)=>[n,Number(f['mp'+i].value)||p,x])}; try{localStorage.setItem('milho',JSON.stringify(MIL));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='bgiF'){ const v=BGI.v.map(([n,p,x],i)=>[n,Number(f['bp'+i].value)||p,x]); BGI={data:f.bdata.value||BGI.data,spot:Number(f.bspot.value)||BGI.spot,v}; try{localStorage.setItem('bgi',JSON.stringify(BGI));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
-    try{ await db.doc('config/geral').update({nome:f.nome.value.trim()||FAZ,usuario:f.usuario.value.trim()||'Dr. Higor',area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
+    /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
+    if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
+    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); if(f.dataset.inline){DIRTY=false; UI.eo={}; render();} else closeSheet(); toast(f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
 });
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#frm[data-inline]')) DIRTY=true;});
+document.addEventListener('change',e=>{ if(e.target.id!=='fazSel') return; lsRaw('cf_fid_'+UID,e.target.value); location.reload(); });
 document.addEventListener('keydown',e=>{if(e.key==='Escape') closeSheet();});
 document.addEventListener('input',e=>{const id=e.target.dataset?.mix; if(!id) return; const fo=S.form.find(x=>x.id===id), kg=+e.target.value||0, ig=(fo?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct);
   $('#mixout-'+id).innerHTML=kg&&t?`<div class="list">${ig.map(x=>`<div class="item"><span class="t">${esc(x.nome)}</span><span class="amt">${nf(kg*x.pct/t,1)} kg</span></div>`).join('')}</div>${ok(formCost(fo))&&formCost(fo)>0?`<p class="note">Custo da batida: <b>${brl(kg*formCost(fo),2)}</b></p>`:''}`:'';});
@@ -1701,9 +1741,10 @@ let UID=null, subs={}, cache={}, tick=null, started=false;
    Cada coleção fica salva no aparelho (rows). Sem sinal, a gravação entra na fila
    (FILA) e já aparece na tela; quando a internet volta, a fila é enviada em ordem. */
 let FILA=[], OFF=false, enviando=false;
-const lsK=k=>'cf_'+UID+'_'+k;
+const lsK=k=>'cf_'+UID+'_'+(FID?FID+'_':'')+k;
 const locGet=(k,d)=>{try{const v=localStorage.getItem(lsK(k)); return v?JSON.parse(v):d;}catch(e){return d;}};
 const locPut=(k,v)=>{try{localStorage.setItem(lsK(k),JSON.stringify(v));}catch(e){}};
+const daFaz=q=>FID?q.eq('fazenda_id',FID):q;
 const semRede=e=>!navigator.onLine||/fetch|network|load failed|timeout|offline/i.test(String((e&&(e.message||e.details))||e||''));
 function dbMake(){
   const fail=e=>{ const x=new Error(e?.message||'erro'); x.code=e?.code||'erro'; throw x; };
@@ -1718,21 +1759,22 @@ function dbMake(){
   const marcaRede=off=>{ if(OFF!==off){ OFF=off; setStatus(); } };
   const notify=async c=>{
     try{
-      if(c==='config'){ const {data,error}=await sb.from('config').select('dados'); if(error) throw error; rows.config=data&&data[0]?{dados:data[0].dados||{}}:null; }
-      else { const {data,error}=await sb.from(c).select('id,dados').order('created_at',{ascending:true}); if(error) throw error; rows[c]=data.map(r=>({id:r.id,dados:r.dados||{}})); }
+      if(c==='config'){ const {data,error}=await daFaz(sb.from('config').select('dados')); if(error) throw error; rows.config=data&&data[0]?{dados:data[0].dados||{}}:null; }
+      else { const {data,error}=await daFaz(sb.from(c).select('id,dados')).order('created_at',{ascending:true}); if(error) throw error; rows[c]=data.map(r=>({id:r.id,dados:r.dados||{}})); }
       FILA.filter(op=>op.c===c).forEach(aplica); locPut('rows_'+c,rows[c]); marcaRede(false);
     }catch(e){ if(!semRede(e)){ (subs[c]||[]).forEach(f=>f.err&&f.err(e)); return; } marcaRede(true); }
     emite(c);
   };
-  const roda=op=>{ const now=new Date().toISOString();
-    if(op.c==='config') return sb.from('config').upsert({owner:UID,dados:op.row.dados,updated_at:now},{onConflict:'owner'});
-    if(op.k==='insert') return sb.from(op.c).insert({id:op.id,owner:UID,...op.row});
-    if(op.k==='upsert') return sb.from(op.c).upsert({id:op.id,owner:UID,...op.row},{onConflict:'owner,id'});
-    if(op.k==='update') return sb.from(op.c).update(op.row).eq('id',op.id);
-    return sb.from(op.c).delete().eq('id',op.id); };
+  /* com fazenda (op.f): a chave é (fazenda, id) e "owner" fica com o padrão do banco (quem lançou) */
+  const roda=op=>{ const now=new Date().toISOString(), fz=op.f, eqF=q=>fz?q.eq('fazenda_id',fz):q;
+    if(op.c==='config') return fz?sb.from('config').upsert({fazenda_id:fz,dados:op.row.dados,updated_at:now},{onConflict:'fazenda_id'}):sb.from('config').upsert({owner:UID,dados:op.row.dados,updated_at:now},{onConflict:'owner'});
+    if(op.k==='insert') return sb.from(op.c).insert(fz?{id:op.id,fazenda_id:fz,...op.row}:{id:op.id,owner:UID,...op.row});
+    if(op.k==='upsert') return fz?sb.from(op.c).upsert({id:op.id,fazenda_id:fz,...op.row},{onConflict:'fazenda_id,id'}):sb.from(op.c).upsert({id:op.id,owner:UID,...op.row},{onConflict:'owner,id'});
+    if(op.k==='update') return eqF(sb.from(op.c).update(op.row).eq('id',op.id));
+    return eqF(sb.from(op.c).delete().eq('id',op.id)); };
   const enfileira=op=>{ FILA.push(op); locPut('fila',FILA); aplica(op); locPut('rows_'+op.c,rows[op.c]); marcaRede(true); emite(op.c); };
   /* grava agora; sem sinal (ou com fila pendente, para manter a ordem) vai para a fila */
-  const grava=async op=>{
+  const grava=async op=>{ if(!('f' in op)) op.f=FID;
     if(FILA.length||!navigator.onLine){ enfileira(op); envia(); return; }
     let res; try{ res=await roda(op); }catch(e){ res={error:e}; }
     if(res.error){ if(semRede(res.error)){ enfileira(op); return; } fail(res.error); }
@@ -1747,9 +1789,13 @@ function dbMake(){
     }finally{ enviando=false; setStatus(); }
     await Promise.all([...tocadas].map(notify)); };
   const listen=(c,ok,err)=>{ (subs[c]=subs[c]||[]).push({ok,err}); if(getRows(c)!=null) emite(c); notify(c); };
+  /* altera o config a partir da versão mais nova do servidor: um sócio não apaga o que o outro acabou de salvar */
+  const configMod=async fn=>{ let base=(getRows('config')||{}).dados||{};
+    if(navigator.onLine&&!FILA.length){ try{ const {data,error}=await daFaz(sb.from('config').select('dados')); if(!error&&data&&data[0]) base=data[0].dados||{}; }catch(e){} }
+    await grava({c:'config',k:'upsert',row:{dados:clean(fn(base))}}); };
   const dadosDe=(c,id)=>((getRows(c)||[]).find(x=>x.id===id)||{}).dados||{};
   return {
-    envia, pendentes:()=>FILA.length,
+    envia, configMod, pendentes:()=>FILA.length,
     refreshAll:async()=>{ await envia(); await Promise.all(Object.keys(subs).map(notify)); },
     collection:c=>({onSnapshot:(ok,err)=>{listen(c,ok,err);return()=>{};},
       add:async d=>{ const id=crypto.randomUUID(), dd=clean(d); await grava({c,k:'insert',id,row:{...TAB[c](dd),dados:dd}}); return {id}; }}),
@@ -1757,8 +1803,8 @@ function dbMake(){
       if(c==='config') return {
         onSnapshot:(ok,err)=>{listen('config',ok,err);return()=>{};},
         set:async d=>grava({c:'config',k:'upsert',row:{dados:clean(d)}}),
-        update:async d=>grava({c:'config',k:'upsert',row:{dados:clean({...((getRows('config')||{}).dados||{}),...d})}}),
-        delete:async()=>{ const {error}=await sb.from('config').delete().eq('owner',UID); if(error) fail(error); await notify('config'); }};
+        update:async d=>configMod(b=>({...b,...d})),
+        delete:async()=>{ const {error}=await (FID?sb.from('config').delete().eq('fazenda_id',FID):sb.from('config').delete().eq('owner',UID)); if(error) fail(error); await notify('config'); }};
       return {
         set:async d=>{ const dd=clean(d); await grava({c,k:'upsert',id,row:{...TAB[c](dd),dados:dd}}); },
         update:async d=>{ const m=clean({...dadosDe(c,id),...d}); await grava({c,k:'update',id,row:{...TAB[c](m),dados:m}}); },
@@ -1790,19 +1836,34 @@ $('#au-forgot').addEventListener('click',async()=>{ const email=$('#au-email').v
   const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname}); authMsg(error?authErro(error):'Se esse e-mail tem conta, enviamos um link para criar uma nova senha.',error?'bad':'good'); });
 async function sair(){ if(sb) await sb.auth.signOut(); }
 async function iniciar(session){
-  if(started) return; started=true; UID=session.user.id; showAuth(false); FILA=locGet('fila',[]); OFF=!navigator.onLine; db=dbMake(); writable=true; subs={}; cache={};
-  try{ const {data,error}=await sb.from('config').select('dados'); if(error) throw error; /* sem internet: não recria nada */
+  if(started) return; started=true; UID=session.user.id; MEU_EMAIL=(session.user.email||'').toLowerCase(); showAuth(false);
+  await escolheFazenda();
+  FILA=locGet('fila',[]); S.membros=locGet('membros',[]); OFF=!navigator.onLine; db=dbMake(); writable=true; subs={}; cache={};
+  try{ const {data,error}=await daFaz(sb.from('config').select('dados')); if(error) throw error; /* sem internet: não recria nada */
     const novaForm=([id,nome,tipo,ing])=>db.doc('formulacoes/'+id).set({nome,tipo,ingredientes:ing.map(([n,p])=>({nome:n,pct:p,preco:0}))});
     if(!data||!data.length){ await db.doc('config/geral').set({...CFG0,nome:FAZ}); for(const f of FORM_PADRAO) await novaForm(f); }
     else { /* contas antigas: acrescenta as formulações reais da fazenda (DDG) uma única vez */
-      for(const f of FORM_PADRAO.filter(f=>f[0].endsWith('-ddg'))){ const {data:fd}=await sb.from('formulacoes').select('id').eq('id',f[0]); if(fd&&!fd.length) await novaForm(f); } } }catch(e){}
+      for(const f of FORM_PADRAO.filter(f=>f[0].endsWith('-ddg'))){ const {data:fd}=await daFaz(sb.from('formulacoes').select('id').eq('id',f[0])); if(fd&&!fd.length) await novaForm(f); } } }catch(e){}
   const sub=(key,col)=>db.collection(col).onSnapshot(s=>{S[key]=s.docs.map(d=>({id:d.id,...d.data()}));render();},()=>{});
   Object.entries(COL).forEach(([k,c])=>sub(k,c));
   db.doc('config/geral').onSnapshot(s=>{S.config={...CFG0,...(s.exists?s.data():{})};S.config.precos={...PRECO_PADRAO,...(S.config.precos||{})};S.config.fases={...FASE_PADRAO,...(S.config.fases||{})};S.config.areaFase={...CFG0.areaFase,...(S.config.areaFase||{})};render();},()=>{});
-  clearInterval(tick); tick=setInterval(()=>{ if(db&&!document.hidden) db.refreshAll(); },30000);
-  render();
+  clearInterval(tick); tick=setInterval(()=>{ if(db&&!document.hidden){ db.refreshAll(); carregaSocios(); } },30000);
+  carregaSocios(); render();
 }
-function encerrar(){ started=false; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
+/* aceita convites, cria a fazenda de quem não tem e escolhe qual abrir; sem a função no banco, segue no modo antigo (FID=null) */
+const lsRaw=(k,v)=>{ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)||'null'); localStorage.setItem(k,JSON.stringify(v)); }catch(e){ return null; } };
+async function escolheFazenda(){
+  const kF='cf_fid_'+UID, kM='cf_memb_'+UID;
+  try{ const {data,error}=await sb.rpc('entrar_fazenda'); if(error) throw error;
+    MEMB=Array.isArray(data)?data:[]; const pref=lsRaw(kF);
+    FID=(MEMB.find(m=>m.fazenda_id===pref)||[...MEMB].reverse().find(m=>m.via_convite)||MEMB[0]||{}).fazenda_id||null;
+    lsRaw(kF,FID); lsRaw(kM,MEMB);
+  }catch(e){ if(semRede(e)){ FID=lsRaw(kF)||null; MEMB=lsRaw(kM)||[]; } else { FID=null; MEMB=[]; } }
+}
+async function carregaSocios(){ if(!FID||!sb||!UID) return;
+  try{ const [m,c]=await Promise.all([sb.from('membros').select('user_id,email,nome,created_at').eq('fazenda_id',FID).order('created_at'),sb.from('convites').select('email,created_at').eq('fazenda_id',FID).order('created_at')]);
+    if(!m.error){ S.membros=m.data||[]; locPut('membros',S.membros); } if(!c.error) S.convites=c.data||[]; render(); }catch(e){} }
+function encerrar(){ started=false; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&db) db.refreshAll(); });
 (async()=>{
   if(!sb){ showAuth(true); authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue a página.','bad'); render(); return; }
