@@ -42,17 +42,26 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "data", "valor", "item", "onde", "descricao", "anotacao", "movimentos", "resposta"],
+  required: ["tipo", "custos", "movimentos", "anotacao", "resposta"],
   properties: {
-    tipo: { type: "string", enum: ["custo", "rebanho", "anotacao", "pergunta", "nao_entendi"] },
-    data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
-    valor: { type: "number", description: "valor total pago em reais; 0 se não for custo" },
-    item: { type: "string", enum: ITENS.map((i) => i[0]) },
-    onde: { type: "string", enum: Object.keys(ONDE) },
-    descricao: { type: "string", description: "curta: o que foi comprado e de quem, ex.: 'Diesel S10 300 L · Posto Trevo'" },
-    anotacao: { type: "string", description: "texto da anotação quando tipo = anotacao; vazio nos outros casos" },
+    tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
+    custos: {
+      type: "array", description: "um item por gasto; vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["data", "valor", "item", "onde", "descricao"],
+        properties: {
+          data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
+          valor: { type: "number", description: "valor pago em reais" },
+          item: { type: "string", enum: ITENS.map((i) => i[0]) },
+          onde: { type: "string", enum: Object.keys(ONDE) },
+          descricao: { type: "string", description: "curta: o que foi comprado e de quem, ex.: 'Diesel S10 300 L · Posto Trevo'" },
+        },
+      },
+    },
+    anotacao: { type: "string", description: "o que é para lembrar e não é gasto nem movimento de animais; vazio se não houver" },
     movimentos: {
-      type: "array", description: "quando tipo = rebanho: um item por movimento; vazio nos outros casos",
+      type: "array", description: "um item por movimento de animais; vazio se não houver",
       items: {
         type: "object", additionalProperties: false,
         required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "preco_arroba", "valor", "obs"],
@@ -73,21 +82,25 @@ const SCHEMA = {
   },
 };
 const SISTEMA = `Você lê o que um pecuarista manda pelo Telegram para o caderno da fazenda dele (cria, recria e engorda de gado de corte, em Mato Grosso).
-Classifique a mensagem:
-- "custo": nota fiscal, cupom, recibo, boleto pago ou frase dizendo que gastou/pagou algo. Preencha data (da nota; se não houver, deixe vazio), valor TOTAL pago em reais, o tipo de custo (item) que melhor descreve a maior parte do valor, e uma descrição curta.
-- "rebanho": nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Preencha "movimentos", um item por movimento (uma mensagem pode ter vários). Se a compra ou venda também disser o valor, lance só como rebanho (o valor vai no movimento, não como custo).
+Uma mensagem pode trazer várias coisas ao mesmo tempo (ex.: "gastei 300 de sal e 200 de diesel, nasceram 5 bezerros, morreu 1 vaca e choveu 30 mm"). Separe cada uma no lugar certo; nada pode ficar de fora nem ser lançado duas vezes.
+tipo:
+- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos e anotacao (o que não houver fica vazio).
+- "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Tudo o mais fica vazio; a resposta vem depois.
+- "nao_entendi": não dá para saber o que lançar. Em "resposta", peça em uma frase o que falta.
+custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
+movimentos: nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Um item por movimento. Compra ou venda de animais vai só aqui, com o valor no movimento, nunca também em custos.
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
   Nascimento é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
-- "anotacao": algo para lembrar e não é gasto nem movimento de animais (chuva, vacinação feita, observação do pasto, "anotar: ..."). Copie o texto em "anotacao", sem o "anotar:".
-- "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Os outros campos ficam vazios/0; a resposta vem depois.
-- "nao_entendi": não dá para saber o valor ou o que é. Em "resposta", peça em uma frase o que falta.
+anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinação feita, observação do pasto, "anotar: ..."), escrito de forma curta, sem o "anotar:". Várias observações vão juntas no mesmo texto, separadas por "; ".
+resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por falta de informação, diga em uma frase o que faltou.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
 "onde": cria, recria ou engorda só se a mensagem disser claramente o setor; senão "geral" (fazenda toda).
 Responda só com o JSON pedido.`;
 
 export type Mov = { mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
-export type Leitura = { tipo: string; data: string; valor: number; item: string; onde: string; descricao: string; anotacao: string; movimentos?: Mov[]; resposta: string };
+export type Custo = { data: string; valor: number; item: string; onde: string; descricao: string };
+export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -106,13 +119,14 @@ export type Deps = {
 const responde = (d: Deps, chat: number, texto: string, extra: Record<string, unknown> = {}) =>
   d.tg("sendMessage", { chat_id: chat, text: texto, parse_mode: "HTML", ...extra });
 const esc = (s: string) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
-const botoesCusto = (id: string, onde: string) => ({
+// botões: trocar o setor (só quando a mensagem lançou um custo só) e desfazer tudo o que a mensagem lançou
+const botoes = (base: string, custoId = "", onde = "") => ({
   reply_markup: { inline_keyboard: [
-    Object.keys(ONDE).map((k) => ({ text: (k === onde ? "• " : "") + ONDE[k], callback_data: `onde:${id}:${k}` })),
-    [{ text: "↩ Desfazer", callback_data: `apagar:${id}` }],
+    ...(custoId ? [Object.keys(ONDE).map((k) => ({ text: (k === onde ? "• " : "") + ONDE[k], callback_data: `onde:${custoId}:${k}` }))] : []),
+    [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva, por exemplo:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -157,71 +171,125 @@ export async function notaApp(d: Deps, acao: string, token: string, corpo: any):
       : { type: "image", source: { type: "base64", media_type: tipo, data: dados } },
     { type: "text", text: `Hoje é ${hojeMT()}.\n(foto de nota tirada no app: é um custo)` },
   ]);
-  const leitura = L && L.tipo === "custo" && L.valor > 0 ? {
-    data: okData(L.data) && L.data <= hojeMT() ? L.data : "", valor: Math.round(L.valor * 100) / 100,
-    item: ITN[L.item] ? L.item : "outros", onde: ONDE[L.onde] ? L.onde : "geral", descricao: L.descricao || "",
+  const C = (L?.custos || []).filter((c) => Number(c.valor) > 0), c0 = C[0];
+  const leitura = c0 ? {
+    data: okData(c0.data) && c0.data <= hojeMT() ? c0.data : "", valor: Math.round(C.reduce((a, c) => a + Number(c.valor), 0) * 100) / 100,
+    item: ITN[c0.item] ? c0.item : "outros", onde: ONDE[c0.onde] ? c0.onde : "geral", descricao: C.map((c) => c.descricao).filter(Boolean).join(" · "),
   } : null;
   return { status: 200, json: { caminho, leitura, aviso: leitura ? "" : (L?.resposta || "Não consegui ler a nota. Preencha à mão.") } };
 }
 
-/* ---------- lançar ---------- */
-async function lancaCusto(d: Deps, chat: number, conta: any, quem: string, L: Leitura, nota = "") {
-  const item = ITN[L.item] ? L.item : "outros", onde = ONDE[L.onde] ? L.onde : "geral";
-  const data = okData(L.data) && L.data <= hojeMT() ? L.data : hojeMT();
-  const id = crypto.randomUUID(), valor = Math.round(L.valor * 100) / 100;
-  const dados = { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: L.descricao || "", centro: onde, loteId: "",
-    criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: "telegram", ...(nota ? { nota } : {}) };
-  const { error } = await d.db.from("desembolsos").insert({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, valor, item, grupo: ITG[item],
-    centro: onde, lote_id: null, tipo: "custeio", dados });
-  if (error) { console.error("insert desembolsos", error); return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes."); }
-  return responde(d, chat, `✅ Lancei: <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}` +
-    (L.descricao ? `\n${esc(L.descricao)}` : "") + (okData(L.data) ? "" : "\n<i>A nota não tinha data: usei hoje.</i>") +
-    (nota ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
-    "\nSe o setor estiver errado, toque nele abaixo.", botoesCusto(id, onde));
-}
+/* ---------- lançar (uma mensagem pode ter custos, movimentos e anotação juntos) ---------- */
 const nfBR = (v: number, c = 0) => v.toLocaleString("pt-BR", { maximumFractionDigits: c });
-async function lancaRebanho(d: Deps, chat: number, conta: any, quem: string, movs: Mov[]) {
-  const hoje = hojeMT(), base = crypto.randomUUID(), criadoEm = new Date().toISOString();
-  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
-  const kgA = Number(cfg?.dados?.kgArroba) || 30;
-  const linhas: any[] = [], txt: string[] = [];
-  for (const m of movs) {
-    const cab = Math.round(Number(m.cab) || 0);
-    if (!TIPOS_MOV[m.mov] || cab <= 0) continue;
-    const categoria = m.mov === "nascimento" ? "bezerros" : CATS[m.categoria] ? m.categoria : "outras";
-    if (m.mov === "transferencia" && (!CATS[m.para] || m.para === categoria)) continue;
-    const data = okData(m.data) && m.data <= hoje ? m.data : hoje;
-    const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0;
-    const x: Record<string, unknown> = { tipo: m.mov, data, categoria, cab, pesoMedio: peso, obs: String(m.obs || "").trim() };
-    if (m.mov === "transferencia") x.para = m.para;
-    let valor: number | null = null;
-    if (m.mov === "venda") {
-      x.precoArroba = Number(m.preco_arroba) > 0 ? +m.preco_arroba : 0;
-      valor = Number(m.valor) > 0 ? +m.valor : (x.precoArroba as number) && peso ? cab * peso / kgA * (x.precoArroba as number) : 0;
-    }
-    if (m.mov === "compra") valor = Number(m.valor) > 0 ? +m.valor : 0;
-    if (valor != null) x.valor = Math.round(valor * 100) / 100;
-    const id = `${base}-${linhas.length + 1}`;
-    linhas.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab, valor: valor == null ? null : x.valor,
-      dados: { ...x, criadoEm, porId: conta.user_id, por: quem, origem: "telegram" } });
-    txt.push(`• <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
-      ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
-  }
-  if (!linhas.length) return responde(d, chat, "Não entendi o movimento. Diga quantas cabeças e o que aconteceu, por exemplo: <i>nasceram 5 bezerros machos</i>.");
-  const { error } = await d.db.from("movimentos").insert(linhas);
-  if (error) { console.error("insert movimentos", error); return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes."); }
-  return responde(d, chat, `✅ Lancei no rebanho:\n${txt.join("\n")}\nSe a categoria estiver errada, toque em Desfazer e mande de novo com mais detalhe.`,
-    { reply_markup: { inline_keyboard: [[{ text: "↩ Desfazer", callback_data: `apagarm:${base}` }]] } });
-}
-async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto: string) {
+const MSG_ANOTA = "📝 Anotei: ";
+// acrescenta uma linha no bloco de notas do mês; devolve a linha ou "" se falhou
+async function anota(d: Deps, conta: any, quem: string, texto: string) {
   const hoje = hojeMT(), mes = hoje.slice(0, 7);
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
   const dados = cfg?.dados || {}, notas = { ...(dados.notas || {}) };
-  const linha = `${hoje.slice(8, 10)}/${hoje.slice(5, 7)} (${quem}): ${texto.trim()}`;
+  const linha = `${hoje.slice(8, 10)}/${hoje.slice(5, 7)} (${quem}): ${texto.trim().replace(/\s*\n\s*/g, " ")}`;
   notas[mes] = notas[mes] ? notas[mes].replace(/\s+$/, "") + "\n" + linha : linha;
   const { error } = await d.db.from("config").upsert({ fazenda_id: conta.fazenda_id, dados: { ...dados, notas }, updated_at: new Date().toISOString() }, { onConflict: "fazenda_id" });
-  if (error) { console.error("upsert config", error); return responde(d, chat, "Não consegui salvar a anotação agora. Tente de novo."); }
-  return responde(d, chat, `📝 Anotei no bloco de notas de ${MESF[+mes.slice(5) - 1]}:\n<i>${esc(linha)}</i>`);
+  if (error) { console.error("upsert config", error); return ""; }
+  return linha;
+}
+// Desfazer: tira a linha do bloco de notas (procura em todos os meses)
+async function desanota(d: Deps, conta: any, linha: string) {
+  if (!linha) return false;
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+  const dados = cfg?.dados || {}, notas = { ...(dados.notas || {}) };
+  let achou = false;
+  for (const mes of Object.keys(notas)) {
+    const ls = String(notas[mes]).split("\n"), j = ls.lastIndexOf(linha);
+    if (j >= 0) { ls.splice(j, 1); notas[mes] = ls.join("\n"); achou = true; break; }
+  }
+  if (!achou) return false;
+  const { error } = await d.db.from("config").upsert({ fazenda_id: conta.fazenda_id, dados: { ...dados, notas }, updated_at: new Date().toISOString() }, { onConflict: "fazenda_id" });
+  return !error;
+}
+async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto: string) {
+  const linha = await anota(d, conta, quem, texto);
+  if (!linha) return responde(d, chat, "Não consegui salvar a anotação agora. Tente de novo.");
+  return responde(d, chat, `${MSG_ANOTA}${esc(linha)}`, botoes(crypto.randomUUID()));
+}
+async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura, nota = "") {
+  const hoje = hojeMT(), base = crypto.randomUUID(), criadoEm = new Date().toISOString();
+  const autor = { criadoEm, porId: conta.user_id, por: quem, origem: "telegram" };
+  const txt: string[] = [], avisos: string[] = [];
+
+  // custos
+  const custos: any[] = [];
+  for (const c of L.custos || []) {
+    const valor = Math.round((Number(c.valor) || 0) * 100) / 100;
+    if (valor <= 0) continue;
+    const item = ITN[c.item] ? c.item : "outros", onde = ONDE[c.onde] ? c.onde : "geral";
+    const data = okData(c.data) && c.data <= hoje ? c.data : hoje;
+    if (!okData(c.data) && nota) avisos.push("A nota não tinha data: usei hoje.");
+    const id = `${base}-c${custos.length + 1}`;
+    custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, valor, item, grupo: ITG[item], centro: onde, lote_id: null, tipo: "custeio",
+      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
+    txt.push(`💸 <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}${c.descricao ? `\n   <i>${esc(c.descricao)}</i>` : ""}`);
+  }
+
+  // movimentos do rebanho
+  const movs: any[] = [];
+  if (L.movimentos?.length) {
+    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+    const kgA = Number(cfg?.dados?.kgArroba) || 30;
+    for (const m of L.movimentos) {
+      const cab = Math.round(Number(m.cab) || 0);
+      if (!TIPOS_MOV[m.mov] || cab <= 0) continue;
+      const categoria = m.mov === "nascimento" ? "bezerros" : CATS[m.categoria] ? m.categoria : "outras";
+      if (m.mov === "transferencia" && (!CATS[m.para] || m.para === categoria)) continue;
+      const data = okData(m.data) && m.data <= hoje ? m.data : hoje;
+      const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0;
+      const x: Record<string, unknown> = { tipo: m.mov, data, categoria, cab, pesoMedio: peso, obs: String(m.obs || "").trim() };
+      if (m.mov === "transferencia") x.para = m.para;
+      let valor: number | null = null;
+      if (m.mov === "venda") {
+        x.precoArroba = Number(m.preco_arroba) > 0 ? +m.preco_arroba : 0;
+        valor = Number(m.valor) > 0 ? +m.valor : (x.precoArroba as number) && peso ? cab * peso / kgA * (x.precoArroba as number) : 0;
+      }
+      if (m.mov === "compra") valor = Number(m.valor) > 0 ? +m.valor : 0;
+      if (valor != null) x.valor = Math.round(valor * 100) / 100;
+      movs.push({ id: `${base}-m${movs.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab,
+        valor: valor == null ? null : x.valor, dados: { ...x, ...autor } });
+      txt.push(`🐄 <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
+        ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
+    }
+  }
+
+  const temNota = !!String(L.anotacao || "").trim();
+  if (!custos.length && !movs.length && !temNota)
+    return responde(d, chat, esc(L.resposta || "Não entendi o que lançar. Escreva o valor e o que foi comprado, ou quantas cabeças e o que aconteceu."));
+
+  // grava: se uma parte falhar, desfaz o que já entrou para não ficar pela metade
+  if (custos.length) {
+    const { error } = await d.db.from("desembolsos").insert(custos);
+    if (error) { console.error("insert desembolsos", error); return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes."); }
+  }
+  if (movs.length) {
+    const { error } = await d.db.from("movimentos").insert(movs);
+    if (error) {
+      console.error("insert movimentos", error);
+      if (custos.length) await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
+      return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
+    }
+  }
+  let linhaNota = "";
+  if (temNota) {
+    linhaNota = await anota(d, conta, quem, String(L.anotacao));
+    if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
+  }
+
+  const tot = custos.length + movs.length;
+  const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
+    (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
+    (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
+    (avisos.length ? `\n<i>${esc([...new Set(avisos)].join(" "))}</i>` : "") +
+    (L.resposta ? `\n⚠️ ${esc(L.resposta)}` : "") +
+    (custos.length === 1 && !movs.length ? "\nSe o setor estiver errado, toque nele abaixo." : "");
+  return responde(d, chat, msg, botoes(base, custos.length === 1 && !movs.length ? custos[0].id : "", custos[0]?.centro));
 }
 
 /* ---------- dados da fazenda (para o resumo e as perguntas) ---------- */
@@ -334,6 +402,19 @@ async function botao(d: Deps, q: any) {
   const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
   const fim = (t: string) => d.tg("answerCallbackQuery", { callback_query_id: q.id, text: t });
   if (!conta) return fim("Telegram não está ligado ao app.");
+  if (acao === "desf" && /^[0-9a-f-]{36}$/.test(id)) {
+    const { data: cs } = await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
+    const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
+    const t = String(q.message?.text || ""), i = t.indexOf(MSG_ANOTA);
+    const tirouNota = i >= 0 ? await desanota(d, conta, t.slice(i + MSG_ANOTA.length).split("\n")[0].trim()) : false;
+    const nc = cs?.length || 0, nm = ms?.length || 0;
+    const partes = [nc && (nc === 1 ? "1 custo" : nc + " custos"), nm && (nm === 1 ? "1 movimento do rebanho" : nm + " movimentos do rebanho"), tirouNota && "a anotação"].filter(Boolean) as string[];
+    if (!partes.length) return fim("Esse lançamento já não existe.");
+    const lista = partes.length > 1 ? partes.slice(0, -1).join(", ") + " e " + partes.at(-1) : partes[0];
+    await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: `↩ Desfeito: tirei do app ${lista}.` });
+    return fim("Desfeito");
+  }
+  // botões de mensagens antigas (antes de juntar tudo numa mensagem)
   if (acao === "apagarm" && /^[0-9a-f-]{36}$/.test(id)) {
     const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
     if (!ms?.length) return fim("Esse lançamento já não existe.");
@@ -350,7 +431,11 @@ async function botao(d: Deps, q: any) {
   if (acao === "onde" && ONDE[onde]) {
     await d.db.from("desembolsos").update({ centro: onde, dados: { ...x.dados, centro: onde } }).eq("fazenda_id", conta.fazenda_id).eq("id", id);
     const t = String(q.message.text || "").replace(/· (Fazenda toda|Cria|Recria|Engorda)\b/, "· " + ONDE[onde]);
-    await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: t, ...botoesCusto(id, onde) });
+    const base = id.replace(/-c\d+$/, "");
+    const kb = base !== id ? botoes(base, id, onde) : { reply_markup: { inline_keyboard: [
+      Object.keys(ONDE).map((k) => ({ text: (k === onde ? "• " : "") + ONDE[k], callback_data: `onde:${id}:${k}` })),
+      [{ text: "↩ Desfazer", callback_data: `apagar:${id}` }]] } };
+    await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: t, ...kb });
     return fim("Agora em: " + ONDE[onde]);
   }
   return fim("");
@@ -403,10 +488,8 @@ export async function trata(d: Deps, up: any) {
   const L = await d.le(conteudo);
   if (!L) return responde(d, chat, "Não consegui ler agora. Tente de novo em instantes ou lance pelo app.");
   if (L.tipo === "pergunta" && texto) return respondePergunta(d, chat, conta, texto);
-  if (L.tipo === "rebanho" && L.movimentos?.length) return lancaRebanho(d, chat, conta, quem, L.movimentos);
-  if (L.tipo === "anotacao" && L.anotacao.trim()) return lancaNota(d, chat, conta, quem, L.anotacao);
-  if (L.tipo === "custo" && L.valor > 0) return lancaCusto(d, chat, conta, quem, L, arquivo ? await guardaNota(d, conta.fazenda_id, arquivo, tipoArq) : "");
-  return responde(d, chat, esc(L.resposta || "Não entendi. Mande a foto da nota ou escreva o valor e o que foi comprado."));
+  const temCusto = (L.custos || []).some((c) => Number(c.valor) > 0);
+  return lanca(d, chat, conta, quem, L, arquivo && temCusto ? await guardaNota(d, conta.fazenda_id, arquivo, tipoArq) : "");
 }
 
 /* ---------- servidor ---------- */
