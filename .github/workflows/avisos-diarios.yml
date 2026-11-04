@@ -1,7 +1,8 @@
 name: Lembretes e aviso da arroba
 # Todo dia às 7h de Cuiabá (11h UTC) o robô do Telegram manda os lembretes do dia.
 # Nos dias úteis roda de novo às 23h45 UTC, depois que as cotações são atualizadas, para o aviso de preço da arroba.
-# Cada lembrete e cada aviso sai uma vez só, então rodar de novo não repete.
+# No dia 1º, a mesma chamada das 7h manda também o relatório do mês que acabou.
+# Cada lembrete, aviso e relatório sai uma vez só, então rodar de novo não repete.
 on:
   schedule:
     - cron: "0 11 * * *"

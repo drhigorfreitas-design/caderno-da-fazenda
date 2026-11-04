@@ -167,7 +167,7 @@ const botoes = (base: string, custoId = "", onde = "") => ({
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês; para ver o do mês passado agora, mande <b>relatório</b>.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -516,6 +516,72 @@ async function mandaBackup(d: Deps, faz: string, chats: number[], nomeFaz: strin
   return n;
 }
 
+/* ---------- relatório mensal: todo dia 1º, sobre o mês que acabou (vem junto da chamada ?avisos=1 das 7h) ---------- */
+const pctTxt = (a: number, b: number) => { if (!b) return ""; const p = (a / b - 1) * 100; return `${p >= 0 ? "+" : ""}${p.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`; };
+// so: manda só para uma conversa, na hora (comando "relatório"), sem esperar o dia 1º
+export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number }) {
+  const hoje = hojeMT(), forcar = !!so;
+  if (hoje.slice(8) !== "01" && !forcar) return "só no dia 1º";
+  const ini = somaDias(hoje.slice(0, 7) + "-01", -1).slice(0, 7) + "-01", mes = ini.slice(0, 7), fim = somaDias(hoje.slice(0, 7) + "-01", -1);
+  const iniAnt = somaDias(ini, -1).slice(0, 7) + "-01", nomeMes = MESF[+mes.slice(5) - 1], nomeAnt = MESF[+iniAnt.slice(5, 7) - 1];
+  // uma vez por mês: se alguém chamar de novo, não manda repetido
+  if (!forcar) { const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -Number(mes.replace("-", "")) }); if (ja) return "já enviado"; }
+  const porFaz: Record<string, number[]> = {};
+  if (so) porFaz[so.faz] = [so.chat];
+  else ((await d.db.from("telegram_contas").select("chat_id,fazenda_id")).data || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
+  let n = 0;
+  for (const [faz, chats] of Object.entries(porFaz)) {
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", faz).maybeSingle();
+    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+    const D = cfg?.dados || {};
+    const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz);
+    const doMes = movs.filter((x) => x.data >= ini && x.data <= fim);
+    const gastosT = (await todos(d, "desembolsos", faz, iniAnt)).filter((x) => x.data <= fim);
+    const gastos = gastosT.filter((x) => x.data >= ini), gastosAnt = gastosT.filter((x) => x.data < ini);
+    const soma = (a: any[]) => a.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+    const cab = (t: string) => doMes.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.cab) || 0), 0);
+    const val = (t: string) => soma(doMes.filter((x) => x.tipo === t));
+    const reb = [
+      cab("nascimento") && `${nfBR(cab("nascimento"))} ${cab("nascimento") === 1 ? "nascimento" : "nascimentos"}`,
+      cab("morte") && `${nfBR(cab("morte"))} ${cab("morte") === 1 ? "morte" : "mortes"}`,
+      cab("venda") && `${nfBR(cab("venda"))} vendidos`,
+      cab("compra") && `${nfBR(cab("compra"))} comprados`,
+      cab("transferencia") && `${nfBR(cab("transferencia"))} mudaram de categoria`,
+    ].filter(Boolean);
+    const tot = soma(gastos), totAnt = soma(gastosAnt), invest = soma(gastos.filter((x) => x.tipo === "investimento"));
+    const porItem: Record<string, number> = {}, porSetor: Record<string, number> = {};
+    gastos.forEach((x) => { porItem[x.item] = (porItem[x.item] || 0) + (Number(x.valor) || 0); const s = ONDE[x.centro] ? x.centro : "geral"; porSetor[s] = (porSetor[s] || 0) + (Number(x.valor) || 0); });
+    const top = Object.entries(porItem).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([k, v]) => `   • ${esc(ITN[k] || "Outros")}: ${brl(v)} (${(v / tot * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%)`);
+    const setores = Object.keys(ONDE).filter((k) => porSetor[k]).map((k) => `${ONDE[k]} ${brl(porSetor[k])}`);
+    const vendas = val("venda"), compras = val("compra"), saldo = vendas - compras - tot;
+    // pesagens do mês, com o ganho desde a anterior do mesmo lote
+    const P = D.pesagens || [];
+    const pes = P.filter((p: any) => p.data >= ini && p.data <= fim).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)).map((p: any) => {
+      const a = anterior(P, p.lote, p.data), nd = a ? dias(a.data, p.data) : 0;
+      return `   • ${esc(p.lote)}: ${nfBR(p.peso, 1)} kg em ${dBR(p.data).slice(0, 5)}` + (a && nd ? ` · GMD ${((p.peso - a.peso) / nd).toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg/dia` : "");
+    });
+    const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
+      .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
+    const R = rebanhoHoje(fechs, movs), temFech = fechs.some((f) => f.mes === mes);
+    const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
+      `🐄 <b>Rebanho no mês:</b> ${reb.length ? reb.join(" · ") : "nenhum movimento lançado"}\n` +
+      (R ? `   Hoje: <b>${nfBR(R.total)} cabeças</b>\n` : "") +
+      `\n💸 <b>Custos: ${brl(tot)}</b>` + (totAnt ? ` (${pctTxt(tot, totAnt)} sobre ${nomeAnt})` : "") + "\n" +
+      (top.length ? top.join("\n") + "\n" : "") +
+      (setores.length > 1 || (setores.length === 1 && !porSetor.geral) ? `   Por setor: ${setores.join(" · ")}\n` : "") +
+      (invest ? `   Desse total, ${brl(invest)} foram investimento.\n` : "") +
+      (vendas || compras ? `\n💰 <b>Gado:</b>${vendas ? ` vendas ${brl(vendas)}` : ""}${vendas && compras ? " ·" : ""}${compras ? ` compras ${brl(compras)}` : ""}\n` +
+        `   Vendas − compras − custos: <b>${brl(saldo)}</b>\n` : "") +
+      (pes.length ? `\n⚖️ <b>Pesagens</b>\n${pes.join("\n")}\n` : "") +
+      (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
+      (!temFech ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app (contar o gado e o peso de cada categoria). Com ele saem produção, GMD e lotação do mês.\n` : "") +
+      `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
+    for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
+  }
+  return `relatório mensal enviado para ${n} conversa(s)`;
+}
+
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
 export async function avisosDiarios(d: Deps) {
   const hoje = hojeMT();
@@ -717,6 +783,11 @@ export async function trata(d: Deps, up: any) {
     const L = await listaLembretes(d, conta.fazenda_id);
     return responde(d, chat, L.text, L.extra);
   }
+  if (!msg.photo && !msg.document && /^\/?(manda o |mandar o |quero o |ver o )?relat[oó]rio( mensal| do m[eê]s( passado)?)?$/.test(cmd)) {
+    await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
+    await relatorioMensal(d, { faz: conta.fazenda_id, chat });
+    return;
+  }
   if (!msg.photo && !msg.document && /^\/?(fazer |quero o |manda o |mandar o )?backup$/.test(cmd)) {
     if (!d.envia) return responde(d, chat, "O backup ainda não está ligado.");
     await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
@@ -884,7 +955,10 @@ if (typeof Deno !== "undefined") {
     }
     if (url.searchParams.has("avisos")) {
       // chamado todo dia pelo GitHub Actions: lembretes do dia e avisos de preço da arroba
-      try { return new Response(await avisosDiarios(deps)); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
+      // no dia 1º, manda antes o relatório do mês que acabou
+      let mensal = "";
+      try { mensal = await relatorioMensal(deps); } catch (e) { console.error("relatório mensal", e); mensal = "erro no relatório mensal"; }
+      try { return new Response(`${await avisosDiarios(deps)} · ${mensal}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
