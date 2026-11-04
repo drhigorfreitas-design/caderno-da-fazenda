@@ -112,6 +112,7 @@ export type Deps = {
   guarda?: (caminho: string, bytes: Uint8Array, tipo: string) => Promise<boolean>; // foto da nota no Storage (pasta "notas")
   link?: (caminho: string) => Promise<string | null>; // link temporário para ver a foto
   usuario?: (token: string) => Promise<string | null>; // id de quem está logado no app
+  transcreve?: (bytes: Uint8Array, nome: string) => Promise<string | null>; // áudio → texto (OpenAI); ausente se não houver a chave
   db: any; // cliente supabase com a chave de serviço
 };
 
@@ -126,7 +127,7 @@ const botoes = (base: string, custoId = "", onde = "") => ({
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -449,7 +450,8 @@ export async function trata(d: Deps, up: any) {
   }
   if (up.callback_query) return botao(d, up.callback_query);
   const msg = up.message; if (!msg?.chat?.id) return;
-  const chat = msg.chat.id, texto = String(msg.text || msg.caption || "").trim(), nomeTg = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(" ");
+  const chat = msg.chat.id, nomeTg = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(" ");
+  let texto = String(msg.text || msg.caption || "").trim();
   const cod = texto.match(/^(?:\/start\s+)?(\d{6})$/);
   if (cod) return liga(d, chat, cod[1], nomeTg);
   const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
@@ -459,8 +461,24 @@ export async function trata(d: Deps, up: any) {
   if (!m) return responde(d, chat, "Você não faz mais parte desta fazenda no app. Peça para um sócio te convidar de novo.");
   const quem = m.nome || String(m.email || "").split("@")[0] || nomeTg || "sócio";
 
+  // áudio: vira texto e segue igual a uma mensagem escrita
+  const audio = msg.voice || msg.audio;
+  if (audio) {
+    if (!d.transcreve) return responde(d, chat, "Ainda não entendo áudio: falta ligar a transcrição (chave da OpenAI). Por enquanto, mande por escrito.");
+    if ((audio.duration || 0) > 180) return responde(d, chat, "Áudio muito longo. Mande áudios de até 3 minutos.");
+    const f = await d.tg("getFile", { file_id: audio.file_id });
+    if (!f?.ok) return responde(d, chat, "Não consegui baixar o áudio. Tente mandar de novo.");
+    await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
+    const ext = (String(f.result.file_path).match(/\.(\w+)$/)?.[1] || "ogg").replace(/^oga$/, "ogg");
+    const ouvido = (await d.transcreve(await d.baixa(f.result.file_path), `audio.${ext}`))?.trim();
+    if (!ouvido) return responde(d, chat, "Não consegui entender o áudio. Tente de novo falando mais perto do celular, ou mande por escrito.");
+    await responde(d, chat, `🎤 <i>${esc(ouvido)}</i>`);
+    texto = ouvido;
+  }
+
   // anotação direta, sem gastar com a inteligência artificial
-  const an = texto.match(/^(?:anotar|anota|nota)\s*[:\-]\s*([\s\S]+)/i);
+  // (no áudio a transcrição costuma escrever "Anotar, ..." ou "Anota ...")
+  const an = texto.match(/^(?:anotar|anota|nota)\s*[:\-]\s*([\s\S]+)/i) || (audio ? texto.match(/^(?:anotar|anota)(?:\s*[,.:\-]\s*|\s+)([\s\S]+)/i) : null);
   if (an && !msg.photo && !msg.document) return lancaNota(d, chat, conta, quem, an[1]);
 
   // pergunta direta (termina com "?"): não precisa classificar antes
@@ -478,8 +496,6 @@ export async function trata(d: Deps, up: any) {
     const dados = b64(arquivo);
     conteudo.push(tipoArq === "application/pdf" ? { type: "document", source: { type: "base64", media_type: tipoArq, data: dados } }
       : { type: "image", source: { type: "base64", media_type: tipoArq, data: dados } });
-  } else if (msg.voice || msg.audio) {
-    return responde(d, chat, "Ainda não entendo áudio. Mande por escrito ou a foto da nota.");
   } else if (!texto) {
     return responde(d, chat, AJUDA);
   }
@@ -561,7 +577,21 @@ if (typeof Deno !== "undefined") {
     return data?.signedUrl || null;
   };
   const usuario = async (jwt: string) => { const { data } = await db.auth.getUser(jwt); return data?.user?.id || null; };
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario };
+  // áudio → texto pela OpenAI (segredo OPENAI_API_KEY); sem a chave, o robô avisa que ainda não entende áudio
+  const chaveOpenAI = Deno.env.get("OPENAI_API_KEY") || "";
+  const transcreve = chaveOpenAI ? async (bytes: Uint8Array, nome: string) => {
+    try {
+      const fd = new FormData();
+      fd.append("file", new Blob([bytes]), nome);
+      fd.append("model", "gpt-4o-mini-transcribe");
+      fd.append("language", "pt");
+      fd.append("prompt", "Pecuária de corte em Mato Grosso. Palavras comuns: bezerros, matrizes, vacas, novilhas, garrotes, boi gordo, boi magro, arroba, desmama, IATF, DDG, núcleo, sal mineral, proteinado, cria, recria, engorda, confinamento, TIP, diesel. Valores em reais.");
+      const r = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${chaveOpenAI}` }, body: fd });
+      if (!r.ok) { console.error("transcrição", r.status, await r.text()); return null; }
+      return (await r.json()).text || null;
+    } catch (e) { console.error("transcrição", e); return null; }
+  } : undefined;
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
