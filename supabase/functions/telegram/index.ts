@@ -42,16 +42,16 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "retiro", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "resposta"],
+  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "resposta"],
   properties: {
-    retiro: { type: "string", description: "nome do retiro se a mensagem disser de qual é (ex.: 'Santa Helena'); senão vazio" },
     tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
     custos: {
       type: "array", description: "um item por gasto; vazio se não houver",
       items: {
         type: "object", additionalProperties: false,
-        required: ["data", "valor", "item", "onde", "descricao"],
+        required: ["data", "valor", "item", "onde", "descricao", "retiro"],
         properties: {
+          retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = fazenda toda" },
           data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
           valor: { type: "number", description: "valor pago em reais" },
           item: { type: "string", enum: ITENS.map((i) => i[0]) },
@@ -65,8 +65,9 @@ const SCHEMA = {
       type: "array", description: "um item por movimento de animais; vazio se não houver",
       items: {
         type: "object", additionalProperties: false,
-        required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "preco_arroba", "valor", "obs"],
+        required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "preco_arroba", "valor", "obs", "retiro"],
         properties: {
+          retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = fazenda toda" },
           mov: { type: "string", enum: Object.keys(TIPOS_MOV) },
           data: { type: "string", description: "AAAA-MM-DD; vazio se a mensagem não disser (usa hoje)" },
           categoria: { type: "string", enum: Object.keys(CATS), description: "categoria dos animais (na mudança de categoria: a de origem)" },
@@ -102,8 +103,9 @@ const SCHEMA = {
     pesagens: {
       type: "array", description: "pesagens de animais; vazio se não houver",
       items: {
-        type: "object", additionalProperties: false, required: ["data", "lote", "cab", "peso_medio"],
+        type: "object", additionalProperties: false, required: ["data", "lote", "cab", "peso_medio", "retiro"],
         properties: {
+          retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = fazenda toda" },
           data: { type: "string", description: "AAAA-MM-DD; vazio se a mensagem não disser (usa hoje)" },
           lote: { type: "string", description: "nome do lote como o pecuarista chama, em minúsculas (ex.: recria, engorda, lote 3, garrotes da baixada)" },
           cab: { type: "integer", description: "cabeças pesadas; 0 se não disser" },
@@ -132,15 +134,15 @@ resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por 
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
 "onde": cria, recria ou engorda só se a mensagem disser claramente o setor; senão "geral" (fazenda toda).
-retiro: a fazenda é dividida em retiros (os nomes vêm junto da mensagem), cada um com seu gado e suas contas. Preencha só se a mensagem disser de qual retiro é; senão deixe vazio (o sistema usa o retiro de quem mandou).
+retiro (em cada custo, movimento e pesagem): a fazenda é dividida em retiros (os nomes vêm junto da mensagem), cada um com seu gado e suas contas. Quem manda avisa antes de qual retiro é ("despesa Santa Helena: ...", "Santa Faustina: nasceram 3 bezerros"). O retiro citado vale para os itens que vêm depois dele, até citar outro. Item sem retiro citado fica vazio: é da fazenda toda.
 Responda só com o JSON pedido.`;
 
-export type Mov = { mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
-export type Custo = { data: string; valor: number; item: string; onde: string; descricao: string };
+export type Mov = { retiro?: string; mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
+export type Custo = { retiro?: string; data: string; valor: number; item: string; onde: string; descricao: string };
 export type Lembrete = { data: string; texto: string };
 export type Alerta = { direcao: string; valor: number };
-export type Pesagem = { data: string; lote: string; cab: number; peso_medio: number };
-export type Leitura = { tipo: string; retiro?: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; resposta?: string };
+export type Pesagem = { retiro?: string; data: string; lote: string; cab: number; peso_medio: number };
+export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -167,23 +169,26 @@ export type Retiro = { id: string; nome: string; donos?: string[] };
 const RET_PADRAO: Retiro[] = [{ id: "sh", nome: "Santa Helena", donos: [] }, { id: "sf", nome: "Santa Faustina", donos: [] }];
 export const retirosDe = (D: any): Retiro[] => (Array.isArray(D?.retiros) ? D.retiros : RET_PADRAO);
 const semAcento = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-// retiro citado na mensagem ou, se não citou, o do dono que mandou
-export function qualRetiro(rets: Retiro[], citado: string, uid: string) {
+// retiro citado na mensagem; sem citar nada, "" = fazenda toda (geral)
+export function qualRetiro(rets: Retiro[], citado: string) {
   const c = semAcento(citado).replace(/^retiro\s+/, "");
-  if (c) { const r = rets.find((r) => semAcento(r.nome) === c || semAcento(r.nome).includes(c) || c.includes(semAcento(r.nome))); if (r) return r.id; }
-  return (rets.find((r) => (r.donos || []).includes(uid)) || {} as Retiro).id || "";
+  if (!c) return "";
+  return (rets.find((r) => semAcento(r.nome) === c || semAcento(r.nome).includes(c) || c.includes(semAcento(r.nome))) || {} as Retiro).id || "";
 }
-const LINHA_RET = "🏠 Retiro: ";
-const linhaRet = (rets: Retiro[], ret: string) => ret ? `${LINHA_RET}<b>${esc(rets.find((r) => r.id === ret)?.nome || "?")}</b>` : `${LINHA_RET}<b>sem retiro</b> ⚠️ toque no retiro abaixo`;
+export const GERAL = "Fazenda toda";
+const nomeRet = (rets: Retiro[], id: string) => (id && rets.find((r) => r.id === id)?.nome) || GERAL;
+// etiqueta no fim da linha de cada item ("· 🏠 Santa Helena"); o botão de retiro troca todas
+const tagRet = (rets: Retiro[], id: string) => (rets.length ? ` · 🏠 ${esc(nomeRet(rets, id))}` : "");
 // botões: trocar o setor (só quando a mensagem lançou um custo só), trocar o retiro e desfazer tudo o que a mensagem lançou
 const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret = "") => ({
   reply_markup: { inline_keyboard: [
     ...(custoId ? [Object.keys(ONDE).map((k) => ({ text: (k === onde ? "• " : "") + ONDE[k], callback_data: `onde:${custoId}:${k}` }))] : []),
-    ...(rets.length ? [rets.map((r) => ({ text: (r.id === ret ? "• " : "") + r.nome, callback_data: `ret:${base}:${r.id}` }))] : []),
+    ...(rets.length ? [[...rets.map((r) => ({ text: (r.id === ret ? "• " : "") + r.nome, callback_data: `ret:${base}:${r.id}` })),
+      { text: (ret === "" ? "• " : "") + GERAL, callback_data: `ret:${base}:geral` }]] : []),
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês; para ver o do mês passado agora, mande <b>relatório</b>.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer o retiro, fica para a <b>fazenda toda</b>. Qualquer sócio lança em qualquer um. Para perguntar de um retiro: <i>dados Santa Faustina: quanto gastei em outubro?</i>\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês; para ver o do mês passado agora, mande <b>relatório</b>.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -294,8 +299,10 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   const txt: string[] = [], avisos: string[] = [];
   const cfgD = (await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle()).data?.dados || {};
   const kgA = Number(cfgD.kgArroba) || 30;
-  // retiro: o citado na mensagem ou o de quem mandou; sem nenhum, lança e pede para tocar no retiro
-  const rets = retirosDe(cfgD), ret = rets.length ? qualRetiro(rets, L.retiro || "", conta.user_id) : "", RT = ret ? { retiro: ret } : {};
+  // retiro de cada item: o citado na mensagem; sem citar, fazenda toda (sem "retiro" nos dados)
+  const rets = retirosDe(cfgD), usados = new Set<string>();
+  const rid = (x: any) => { const r = rets.length ? qualRetiro(rets, x?.retiro || "") : ""; usados.add(r); return r; };
+  const RT = (r: string) => (r ? { retiro: r } : {});
 
   // custos
   const custos: any[] = [];
@@ -305,10 +312,10 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     const item = ITN[c.item] ? c.item : "outros", onde = ONDE[c.onde] ? c.onde : "geral";
     const data = okData(c.data) && c.data <= hoje ? c.data : hoje;
     if (!okData(c.data) && nota) avisos.push("A nota não tinha data: usei hoje.");
-    const id = `${base}-c${custos.length + 1}`;
+    const id = `${base}-c${custos.length + 1}`, r = rid(c);
     custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, valor, item, grupo: ITG[item], centro: onde, lote_id: null, tipo: "custeio",
-      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...RT, ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
-    txt.push(`💸 <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}${c.descricao ? `\n   <i>${esc(c.descricao)}</i>` : ""}`);
+      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...RT(r), ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
+    txt.push(`💸 <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}${tagRet(rets, r)}${c.descricao ? `\n   <i>${esc(c.descricao)}</i>` : ""}`);
   }
 
   // movimentos do rebanho
@@ -320,7 +327,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       const categoria = m.mov === "nascimento" ? "bezerros" : CATS[m.categoria] ? m.categoria : "outras";
       if (m.mov === "transferencia" && (!CATS[m.para] || m.para === categoria)) continue;
       const data = okData(m.data) && m.data <= hoje ? m.data : hoje;
-      const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0;
+      const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0, r = rid(m);
       const x: Record<string, unknown> = { tipo: m.mov, data, categoria, cab, pesoMedio: peso, obs: String(m.obs || "").trim() };
       if (m.mov === "transferencia") x.para = m.para;
       let valor: number | null = null;
@@ -331,9 +338,9 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       if (m.mov === "compra") valor = Number(m.valor) > 0 ? +m.valor : 0;
       if (valor != null) x.valor = Math.round(valor * 100) / 100;
       movs.push({ id: `${base}-m${movs.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab,
-        valor: valor == null ? null : x.valor, dados: { ...x, ...RT, ...autor } });
+        valor: valor == null ? null : x.valor, dados: { ...x, ...RT(r), ...autor } });
       txt.push(`🐄 <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
-        ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
+        ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${tagRet(rets, r)}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
     }
   }
 
@@ -369,17 +376,17 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   for (const p of L.pesagens || []) {
     const peso = Math.round((Number(p.peso_medio) || 0) * 10) / 10, lote = String(p.lote || "").trim().toLowerCase();
     if (peso <= 0 || !lote) continue;
-    const data = okData(p.data) && p.data <= hoje ? p.data : hoje, cab = Math.max(0, Math.round(Number(p.cab) || 0));
-    const novo = { id: `${base}-p${pes.length + 1}`, data, lote, cab, peso, ...RT, porId: conta.user_id, por: quem, criadoEm };
-    let linha = `⚖️ <b>Pesagem</b> · ${esc(lote)} · ${cab ? nfBR(cab) + " cab. · " : ""}${nfBR(peso, 1)} kg · ${dBR(data)}`;
-    const ant = anterior([...(cfgD.pesagens || []), ...pes], lote, data, rets.length ? ret : undefined);
+    const data = okData(p.data) && p.data <= hoje ? p.data : hoje, cab = Math.max(0, Math.round(Number(p.cab) || 0)), r = rid(p);
+    const novo = { id: `${base}-p${pes.length + 1}`, data, lote, cab, peso, ...RT(r), porId: conta.user_id, por: quem, criadoEm };
+    let linha = `⚖️ <b>Pesagem</b> · ${esc(lote)} · ${cab ? nfBR(cab) + " cab. · " : ""}${nfBR(peso, 1)} kg · ${dBR(data)}${tagRet(rets, r)}`;
+    const ant = anterior([...(cfgD.pesagens || []), ...pes], lote, data, rets.length ? r : undefined);
     if (ant) {
       const n = dias(ant.data, data), gmd = (peso - ant.peso) / n;
       linha += `\n   GMD <b>${gmd.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg/dia</b> em ${n} dias (eram ${nfBR(ant.peso, 1)} kg em ${dBR(ant.data)})`;
       const setor = loteK(lote), nc = cab || ant.cab;
       if (ONDE[setor] && setor !== "geral" && gmd > 0 && nc) {
         const gasto = (await todos(d, "desembolsos", conta.fazenda_id, somaDias(ant.data, 1)))
-          .filter((x) => x.data <= data && x.centro === setor && x.tipo !== "investimento" && (!rets.length || (x.retiro || "") === ret)).reduce((s, x) => s + (Number(x.valor) || 0), 0);
+          .filter((x) => x.data <= data && x.centro === setor && x.tipo !== "investimento" && (!rets.length || (x.retiro || "") === r)).reduce((s, x) => s + (Number(x.valor) || 0), 0);
         const arr = nc * (peso - ant.peso) / kgA;
         if (gasto > 0) linha += `\n   Custo da @ produzida: <b>${brl(gasto / arr)}</b> (${brl(gasto)} lançados na ${ONDE[setor]} ÷ ${nfBR(arr, 1)} @)`;
       }
@@ -422,8 +429,8 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
   }
 
-  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0;
-  const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${temRet ? linhaRet(rets, ret) + "\n" : ""}${txt.join("\n")}` : "") +
+  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
+  const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
     (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
     (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
     (avisos.length ? `\n<i>${esc([...new Set(avisos)].join(" "))}</i>` : "") +
@@ -462,13 +469,32 @@ function rebanhoHoje(fechs: any[], movs: any[]) {
   return { mes: base.mes, cats, total: Object.values(cats).reduce((a, b) => a + b, 0) };
 }
 
-/* ---------- grupos dos resumos: um por retiro (e "sem retiro" para lançamentos de antes da divisão) ---------- */
+// rebanho da fazenda inteira hoje: um fechamento geral (sem retiro) mais novo que os dos retiros conta a fazenda toda;
+// senão soma o de cada retiro (cada um com o seu último fechamento) e os movimentos gerais lançados depois
+function rebanhoTotal(fechs: any[], movs: any[]) {
+  const ok = fechs.filter((f) => f.mes && f.cats), ger = ok.filter((f) => !f.retiro), ret = ok.filter((f) => f.retiro);
+  const mg = ger.map((f) => f.mes).sort().pop() || "", mr = ret.map((f) => f.mes).sort().pop() || "";
+  if (mg && mg >= mr) return rebanhoHoje(ger, movs);
+  const ids = [...new Set(ret.map((f) => f.retiro))];
+  if (!ids.length) return null;
+  let total = 0, base = "";
+  for (const id of ids) {
+    const R = rebanhoHoje(ret.filter((f) => f.retiro === id), movs.filter((x) => x.retiro === id));
+    if (R) { total += R.total; if (!base || R.mes < base) base = R.mes; }
+  }
+  movs.filter((x) => !x.retiro || !ids.includes(x.retiro)).filter((x) => String(x.data || "").slice(0, 7) > base).forEach((x) => {
+    const n = Number(x.cab) || 0;
+    if (x.tipo === "nascimento" || x.tipo === "compra") total += n; else if (x.tipo === "venda" || x.tipo === "morte") total -= n;
+  });
+  return { mes: base, cats: null as any, total: Math.max(0, Math.round(total)) };
+}
+/* ---------- grupos dos resumos: um por retiro e o geral (lançamentos sem retiro = da fazenda toda) ---------- */
 type Grupo = { nome: string; sem?: boolean; f: (x: any) => boolean };
 function grupos(rets: Retiro[], ...listas: any[][]): Grupo[] {
   if (!rets.length) return [{ nome: "", f: () => true }];
   const ids = new Set(rets.map((r) => r.id));
   const G: Grupo[] = rets.map((r) => ({ nome: r.nome, f: (x: any) => x.retiro === r.id }));
-  if (listas.some((l) => l.some((x) => !ids.has(x.retiro)))) G.push({ nome: "Sem retiro (lançamentos antigos)", sem: true, f: (x: any) => !ids.has(x.retiro) });
+  if (listas.some((l) => l.some((x) => !ids.has(x.retiro)))) G.push({ nome: "Geral (fazenda toda)", sem: true, f: (x: any) => !ids.has(x.retiro) });
   return G;
 }
 const tituloG = (g: Grupo) => (g.nome ? `🏠 <b>${esc(g.sem ? g.nome : "Retiro " + g.nome)}</b>\n` : "");
@@ -510,10 +536,9 @@ export async function resumoSemanal(d: Deps) {
     const semana = movs.filter((x) => x.data >= ini && x.data <= fim);
     const gastos = (await todos(d, "desembolsos", faz, ini)).filter((x) => x.data <= fim);
     const blocos: string[] = [];
-    let cabHoje = 0, temReb = false;
-    for (const g of grupos(retirosDe(cfg?.dados), semana, gastos, fechs, movs)) {
-      const sm = semana.filter(g.f), gs = gastos.filter(g.f), R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
-      if (R) { cabHoje += R.total; temReb = true; }
+    const RT = rebanhoTotal(fechs, movs);
+    for (const g of grupos(retirosDe(cfg?.dados), semana, gastos)) {
+      const sm = semana.filter(g.f), gs = gastos.filter(g.f), R = g.sem || !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
       if (g.nome && !sm.length && !gs.length && !R) continue; // retiro sem nada lançado ainda
       const tot = somaV(gs), top = topItens(gs, 3).map(([k, v]) => `${ITN[k] || "Outros"} ${brl(v)}`), reb = rebTxt(sm, true);
       blocos.push(tituloG(g) +
@@ -522,10 +547,11 @@ export async function resumoSemanal(d: Deps) {
         (R ? `\n🐮 <b>Rebanho hoje:</b> ${nfBR(R.total)} cabeças` : ""));
     }
     if (!blocos.length) blocos.push("🐄 <b>Rebanho:</b> nenhum movimento lançado\n💸 <b>Custos:</b> nenhum custo lançado");
+    if (blocos.length === 1) blocos[0] = blocos[0].replace(/^🏠 <b>Geral \(fazenda toda\)<\/b>\n/, "");
     const txt = `📊 <b>Resumo da semana</b> · ${dBR(ini).slice(0, 5)} a ${dBR(fim)}${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
       blocos.join("\n\n") +
-      (blocos.length > 1 ? `\n\n📊 <b>Fazenda toda:</b> custos ${brl(somaV(gastos))}${temReb ? ` · ${nfBR(cabHoje)} cabeças hoje` : ""}` : "") +
-      (temReb ? `\n<i>Rebanho hoje = último fechamento do mês + movimentos lançados depois.</i>` : "") +
+      `\n\n📊 <b>Total da fazenda:</b> custos ${brl(somaV(gastos))}${RT ? ` · ${nfBR(RT.total)} cabeças hoje` : ""}` +
+      (RT ? `\n<i>Rebanho hoje = último fechamento do mês + movimentos lançados depois.</i>` : "") +
       `\n\nPergunte o que quiser, ex.: <i>quantas vacas eu tenho?</i>`;
     for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
     try { await mandaBackup(d, faz, chats, fz?.nome || ""); } catch (e) { console.error("backup semanal", e); }
@@ -558,12 +584,11 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
     const gastos = gastosT.filter((x) => x.data >= ini), gastosAnt = gastosT.filter((x) => x.data < ini);
     const P = D.pesagens || [], Pm = P.filter((p: any) => p.data >= ini && p.data <= fim);
     const blocos: string[] = [], faltaFech: string[] = [];
-    let cabHoje = 0, temReb = false;
-    for (const g of grupos(rets, doMes, gastosT, fechs, movs, Pm)) {
-      const dm = doMes.filter(g.f), gs = gastos.filter(g.f), ga = gastosAnt.filter(g.f), R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+    const RT = rebanhoTotal(fechs, movs), temGeral = fechs.some((f) => f.mes === mes && !f.retiro);
+    for (const g of grupos(rets, doMes, gastosT, Pm)) {
+      const dm = doMes.filter(g.f), gs = gastos.filter(g.f), ga = gastosAnt.filter(g.f), R = g.sem || !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
       const pg = Pm.filter(g.f).sort((a: any, b: any) => (a.data < b.data ? -1 : 1));
-      if (R) { cabHoje += R.total; temReb = true; }
-      if (!g.sem && !fechs.some((f) => f.mes === mes && g.f(f))) faltaFech.push(g.nome);
+      if (g.nome && !g.sem && !temGeral && fechs.some((f) => g.f(f)) && !fechs.some((f) => f.mes === mes && g.f(f))) faltaFech.push(g.nome);
       if (g.nome && !dm.length && !gs.length && !R && !pg.length) continue; // retiro sem nada lançado ainda
       const tot = somaV(gs), totAnt = somaV(ga), invest = somaV(gs.filter((x) => x.tipo === "investimento"));
       const porSetor: Record<string, number> = {};
@@ -587,12 +612,14 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
         (pes.length ? `⚖️ <b>Pesagens</b>\n${pes.join("\n")}\n` : ""));
     }
     if (!blocos.length) blocos.push(`🐄 <b>Rebanho no mês:</b> nenhum movimento lançado\n💸 <b>Custos: ${brl(0)}</b>\n`);
+    if (blocos.length === 1) blocos[0] = blocos[0].replace(/^🏠 <b>Geral \(fazenda toda\)<\/b>\n/, "");
+    if (!fechs.some((f) => f.mes === mes) && !faltaFech.length) faltaFech.push("");
     const totM = somaV(gastos), vendM = somaV(doMes.filter((x) => x.tipo === "venda")), compM = somaV(doMes.filter((x) => x.tipo === "compra"));
     const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
       .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
     const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
       blocos.join("\n") +
-      (blocos.length > 1 ? `\n📊 <b>Fazenda toda:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${temReb ? ` · ${nfBR(cabHoje)} cabeças hoje` : ""}\n` : "") +
+      `\n📊 <b>Total da fazenda:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${RT ? ` · ${nfBR(RT.total)} cabeças hoje` : ""}\n` +
       (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
       (faltaFech.length ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app${faltaFech[0] ? ` (${esc(faltaFech.join(" e "))})` : ""}: contar o gado e o peso de cada categoria. Com ele saem produção, GMD e lotação do mês.\n` : "") +
       `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
@@ -695,19 +722,19 @@ export async function contexto(d: Deps, faz: string) {
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
   const notas = cfg?.dados?.notas || {}, rets = retirosDe(cfg?.dados);
   const CN = (k: string) => CATS[k] || k || "";
-  // retiro de cada lançamento (a fazenda é dividida em retiros com donos e contas separados)
-  const RN = (x: any) => (rets.length ? rets.find((r) => r.id === x.retiro)?.nome || "sem retiro" : "");
-  const G = grupos(rets, fechs, movs);
+  // retiro de cada lançamento; sem retiro = da fazenda toda (geral)
+  const RN = (x: any) => (rets.length ? rets.find((r) => r.id === x.retiro)?.nome || "fazenda toda" : "");
+  const G: Grupo[] = [...grupos(rets).filter((g) => !g.sem && g.nome), { nome: "Fazenda toda (total)", sem: true, f: () => true }];
   const reb = G.map((g) => {
-    const R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
-    const nome = g.nome ? `${g.sem ? "sem retiro" : "retiro " + g.nome}: ` : "";
-    return R ? `${nome}total ${R.total} cabeças (fechamento de ${R.mes} + movimentos depois); ` +
-      Object.entries(R.cats).filter(([, v]) => v).map(([k, v]) => `${CN(k)} ${v}`).join("; ") : `${nome}nenhum fechamento de mês lançado ainda`;
+    const R: any = g.sem ? rebanhoTotal(fechs, movs) : rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+    const nome = `${g.sem ? "fazenda toda (total)" : "retiro " + g.nome}: `;
+    return R ? `${nome}total ${R.total} cabeças (fechamento de ${R.mes} + movimentos depois)` +
+      (R.cats ? "; " + Object.entries(R.cats).filter(([, v]) => v).map(([k, v]) => `${CN(k)} ${v}`).join("; ") : "") : `${nome}nenhum fechamento de mês lançado ainda`;
   });
   const linhas = [
     `Hoje: ${hoje}. 1 @ = ${Number(cfg?.dados?.kgArroba) || 30} kg de peso vivo.`,
-    ...(rets.length ? [`RETIROS: a fazenda é dividida em ${rets.map((r) => r.nome).join(" e ")}, cada um com seu gado e suas contas (donos diferentes). Quando a pergunta não disser o retiro, responda separado por retiro e o total da fazenda.`] : []),
-    "REBANHO HOJE (somar os retiros para o total da fazenda):",
+    ...(rets.length ? [`RETIROS: a fazenda é dividida em ${rets.map((r) => r.nome).join(" e ")}, cada um com seu gado e suas contas (donos diferentes). Lançamentos marcados "fazenda toda" são gerais, de nenhum retiro. Se a pergunta citar um retiro (ex.: "dados Santa Helena", "quanto gastei no Santa Faustina"), responda só com os dados daquele retiro. Se não citar retiro, responda com a fazenda toda: tudo somado (os retiros e os gerais).`] : []),
+    "REBANHO HOJE:",
     ...reb,
     `FECHAMENTOS DO MÊS (${rets.length ? "retiro; " : ""}mês: categoria cabeças/peso médio kg):`,
     ...[...fechs].sort((a, b) => (a.mes < b.mes ? -1 : 1)).slice(-26).map((f) => (rets.length ? RN(f) + "; " : "") + `${f.mes}: ` +
@@ -768,23 +795,24 @@ async function botao(d: Deps, q: any) {
   }
   if (acao === "ret" && /^[0-9a-f-]{36}$/.test(id) && /^[\w-]{1,20}$/.test(onde)) {
     const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
-    const r = retirosDe(cfg?.dados).find((x) => x.id === onde);
+    const r = onde === "geral" ? { id: "", nome: GERAL } : retirosDe(cfg?.dados).find((x) => x.id === onde);
     if (!r) return fim("Esse retiro não existe mais.");
+    const troca = (dd: any) => { const o = { ...dd }; if (r.id) o.retiro = r.id; else delete o.retiro; return o; };
     let n = 0;
     for (const tab of ["desembolsos", "movimentos"]) {
       const { data: rows } = await d.db.from(tab).select("id,dados").eq("fazenda_id", conta.fazenda_id).like("id", id + "-%");
-      for (const x of rows || []) { await d.db.from(tab).update({ dados: { ...x.dados, retiro: r.id } }).eq("fazenda_id", conta.fazenda_id).eq("id", x.id); n++; }
+      for (const x of rows || []) { await d.db.from(tab).update({ dados: troca(x.dados) }).eq("fazenda_id", conta.fazenda_id).eq("id", x.id); n++; }
     }
     await mudaCfg(d, conta.fazenda_id, (D) => {
       let m = 0;
-      const p = (D.pesagens || []).map((x: any) => (String(x.id || "").startsWith(id + "-") ? (m++, { ...x, retiro: r.id }) : x));
+      const p = (D.pesagens || []).map((x: any) => (String(x.id || "").startsWith(id + "-") ? (m++, troca(x)) : x));
       n += m; return m ? { ...D, pesagens: p } : null;
     });
     if (!n) return fim("Esse lançamento já não existe.");
-    const t = String(q.message?.text || "").split("\n").map((l) => (l.startsWith(LINHA_RET) ? LINHA_RET + r.nome : l)).join("\n");
+    const t = String(q.message?.text || "").replace(/🏠 [^\n]*/g, "🏠 " + r.nome);
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: t,
-      reply_markup: { inline_keyboard: marca(q.message.reply_markup, `ret:${id}:`, `ret:${id}:${r.id}`) } });
-    return fim("Agora no retiro " + r.nome);
+      reply_markup: { inline_keyboard: marca(q.message.reply_markup, `ret:${id}:`, `ret:${id}:${r.id || "geral"}`) } });
+    return fim(r.id ? "Agora no retiro " + r.nome : "Agora na fazenda toda");
   }
   if (acao === "canc" && /^[0-9a-f-]{36}-[la]\d+$/.test(id)) {
     let achou = false;

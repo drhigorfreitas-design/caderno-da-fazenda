@@ -477,9 +477,9 @@ const RET_COLS=new Set(['fech','movs','desemb','emovs','engorda','estacoes','ada
 const retiros=()=>Array.isArray(S.config.retiros)?S.config.retiros:[];
 const retAtual=()=>retiros().find(r=>r.id===UI.ret)||null;
 const retNome=id=>(retiros().find(r=>r.id===id)||{}).nome||'';
-/* fazenda toda: os fechamentos dos retiros no mesmo mês viram um só (soma as cabeças, peso médio ponderado) */
+/* fazenda toda: no mesmo mês, o fechamento geral (sem retiro) conta a fazenda inteira; sem ele, soma os dos retiros (peso médio ponderado) */
 function juntaFech(a){ const por={}; a.forEach(f=>(por[f.mes]=por[f.mes]||[]).push(f));
-  return Object.values(por).map(fs=>{ if(fs.length===1) return fs[0]; const cats={};
+  return Object.values(por).map(fs=>{ const ger=fs.filter(f=>!f.retiro); if(ger.length) return ger[ger.length-1]; if(fs.length===1) return fs[0]; const cats={};
     fs.forEach(f=>Object.entries(f.cats||{}).forEach(([c,v])=>{ const o=cats[c]||(cats[c]={cab:0,kg:0}); o.cab+=+v.cab||0; o.kg+=(+v.cab||0)*(+v.peso||0); }));
     Object.values(cats).forEach(o=>{ o.peso=o.cab?Math.round(o.kg/o.cab*10)/10:0; delete o.kg; });
     return {id:fs[0].id,mes:fs[0].mes,cats,_junto:fs.length}; }); }
@@ -487,7 +487,7 @@ function filtraCol(k){ const a=RAW[k]||[]; if(!RET_COLS.has(k)||!retiros().lengt
   if(UI.ret) return a.filter(x=>x.retiro===UI.ret);
   return k==='fech'?juntaFech(a):a; }
 function aplicaRetiro(){ if(UI.ret&&!retAtual()) UI.ret=''; Object.keys(COL).forEach(k=>{ if(RAW[k]) S[k]=filtraCol(k); }); }
-const retTxt=x=>!UI.ret&&retiros().length?' · '+(x.retiro?esc(retNome(x.retiro)||'retiro removido'):'<b>sem retiro</b>'):'';
+const retTxt=x=>!UI.ret&&retiros().length?' · 🏠 '+(x.retiro?esc(retNome(x.retiro)||'retiro removido'):'Geral'):'';
 const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao','notas'];
 let DIRTY=false;
 let db=null, writable=true;
@@ -912,7 +912,7 @@ let TG_COD=null;
 const telegramHTML=()=>{ if(!TG_BOT) return `<h3 style="margin-top:16px">Robô do Telegram</h3><p class="note">O robô ainda está sendo configurado.</p>`;
   const minhas=S.telegram||[];
   return `<h3 style="margin-top:16px">Robô do Telegram</h3>
-  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), lançar pesagens ("pesei a recria, média 280 kg"), marcar lembretes ("lembrar: vacina dia 15/11") e pedir aviso da arroba ("me avisa quando o boi passar de 320"). Toda segunda de manhã o robô manda o resumo da semana e o backup com todos os dados. Cada sócio conecta o próprio Telegram. O que cada um manda vai para o retiro de que ele é dono (marque em Ajustes, em cada retiro); se for do outro retiro, é só dizer o nome ("no Santa Faustina") ou tocar no botão do retiro na resposta do robô.</p>
+  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), lançar pesagens ("pesei a recria, média 280 kg"), marcar lembretes ("lembrar: vacina dia 15/11") e pedir aviso da arroba ("me avisa quando o boi passar de 320"). Toda segunda de manhã o robô manda o resumo da semana e o backup com todos os dados. Cada sócio conecta o próprio Telegram. Para um retiro, diga antes: "despesa Santa Helena: 300 de sal", "Santa Faustina: nasceram 3 bezerros". Sem dizer o retiro, fica para a fazenda toda. Qualquer sócio lança em qualquer retiro, e dá para trocar no botão da resposta do robô. Nas perguntas vale o mesmo: "dados Santa Faustina: quanto gastei em outubro?".</p>
   ${minhas.length?`<div class="list">${minhas.map(t=>`<div class="item"><span class="t">Telegram conectado${t.nome_telegram?' · '+esc(t.nome_telegram):''}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(t.chat_id))}">Desconectar</button></span></div>`).join('')}</div>`:''}
   ${TG_COD?`<div class="calc" style="margin-top:8px">Seu código: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_COD)}</b> · vale 30 minutos<br><a class="btn primary" style="margin-top:8px;display:inline-flex" href="https://t.me/${esc(TG_BOT)}?start=${esc(TG_COD)}" target="_blank" rel="noopener">Abrir o robô no Telegram</a><br><span class="small">No Telegram, toque em <b>Iniciar</b>. Se não abrir, procure @${esc(TG_BOT)} e mande o código.</span></div>`
     :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}`; };
@@ -950,7 +950,6 @@ function renderAjustes(){
       <label class="fl">Nome do retiro<input id="cfg-rn-${esc(r.id)}" name="rn_${esc(r.id)}" value="${esc(r.nome)}" required maxlength="40"></label>
       <label class="fl">Área produtiva (ha)<input id="cfg-ra-${esc(r.id)}" name="ra_${esc(r.id)}" type="number" step="0.1" min="0" value="${esc(r.area||'')}"></label>
       ${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-rf-${esc(r.id)}-${k}" name="rf_${esc(r.id)}_${k}" type="number" step="0.1" min="0" value="${esc((r.areaFase||{})[k]||'')}"></label>`).join('')}</div>
-      ${S.membros.length?`<p class="small muted" style="margin:8px 0 4px">Dono(s): o robô do Telegram lança neste retiro o que eles mandarem</p><div class="btns">${S.membros.map(m=>`<label class="ck"><input type="checkbox" name="rd_${esc(r.id)}" value="${esc(m.user_id)}" ${(r.donos||[]).includes(m.user_id)?'checked':''}> ${esc(nomeM(m))}</label>`).join('')}</div>`:''}
       </fieldset>`).join('')}
     <p class="note">30 kg vivo por @ equivale a 50% de rendimento de carcaça. A área produtiva é a área de pasto usada no ano.</p>
     <details><summary>Fase de cada categoria</summary>
@@ -965,12 +964,13 @@ function renderAjustes(){
   </form>${semRetiroHTML()}</div>`;
 }
 /* lançamentos de antes dos retiros: passar todos de uma vez para um retiro */
-const semRetiro=()=>[...[...RET_COLS].flatMap(k=>(RAW[k]||[]).filter(x=>!x.retiro).map(x=>({k,id:x.id}))),...(S.config.pesagens||[]).filter(p=>!p.retiro).map(p=>({k:'pesagens',id:p.id}))];
+const DIVISAO='2026-11-05', antigo=x=>!x.retiro&&String(x.criadoEm||'')<DIVISAO;
+const semRetiro=()=>[...[...RET_COLS].flatMap(k=>(RAW[k]||[]).filter(antigo).map(x=>({k,id:x.id}))),...(S.config.pesagens||[]).filter(antigo).map(p=>({k:'pesagens',id:p.id}))];
 function semRetiroHTML(){ const n=retiros().length?semRetiro().length:0; if(!n) return '';
-  return `<div class="calc" style="margin-top:14px"><b>${nf(n)} ${n===1?'lançamento':'lançamentos'} sem retiro</b> (feitos antes de existir a divisão). Eles só aparecem na Fazenda toda.
+  return `<div class="calc" style="margin-top:14px"><b>${nf(n)} ${n===1?'lançamento antigo':'lançamentos antigos'}</b>, de antes da divisão, estão como Fazenda toda (geral). Se eram todos de um retiro, dá para passar de uma vez:
     <label class="fl" style="margin-top:8px">Passar todos para<select id="migraRet">${retiros().map(r=>`<option value="${esc(r.id)}">${esc(r.nome)}</option>`).join('')}</select></label>
     <div class="btns"><button class="btn" type="button" data-migra>Passar para o retiro</button></div>
-    <p class="note">Se uma parte for do outro retiro, depois é só abrir o lançamento em Editar e trocar o retiro.</p></div>`; }
+    <p class="note">Se forem mesmo da fazenda toda, deixe como está. Um por um, dá para trocar em Editar.</p></div>`; }
 
 /* ---------- Pesagens e lembretes: guardados no config (pesagens, lembretes, alertas); o robô do Telegram também lança e avisa ---------- */
 const loteK=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/^(o|a)\s+/,'').replace(/^lote\s+(da|do|de|das|dos)\s+/,'').replace(/\s+/g,' ').trim();
@@ -1015,7 +1015,6 @@ async function salvaCfgItem(f){
   if(pes){ const peso=Math.round(Number(f.peso.value)*10)/10, lote=f.lote.value.trim().toLowerCase(), data=f.data.value;
     if(!(peso>0)||!lote||!data) return toast('Preencha data, lote e peso.');
     if(data>today()) return toast('A data da pesagem não pode ser no futuro.');
-    if(f.retiro&&!f.retiro.value) return toast('Escolha o retiro.');
     k='pesagens'; x={...base,data,lote,cab:Math.max(0,Math.round(Number(f.cab.value)||0)),peso,...(f.retiro&&f.retiro.value?{retiro:f.retiro.value}:{})}; }
   else { const data=f.data.value, texto=f.texto.value.trim();
     if(!data||!texto) return toast('Preencha o dia e do que lembrar.');
@@ -1025,7 +1024,7 @@ async function salvaCfgItem(f){
 }
 
 /* fazenda toda: avisa quando o último mês só tem o fechamento de parte dos retiros */
-function fechFalta(last){ if(UI.ret||!last||!retiros().length) return ''; const tem=new Set((RAW.fech||[]).filter(f=>f.mes===last.mes).map(f=>f.retiro));
+function fechFalta(last){ if(UI.ret||!last||!retiros().length) return ''; const doMes=(RAW.fech||[]).filter(f=>f.mes===last.mes); if(doMes.some(f=>!f.retiro)) return ''; const tem=new Set(doMes.map(f=>f.retiro));
   const falta=retiros().filter(r=>!tem.has(r.id)); return falta.length?`<p class="note" style="margin:4px 0 8px">⚠️ Em ${mLabel(last.mes)} falta o fechamento de ${esc(falta.map(r=>r.nome).join(' e '))}: os números da fazenda toda ficam incompletos. Escolha o retiro no topo e faça o fechamento.</p>`:''; }
 /* ---------- Rebanho ---------- */
 function renderRebanho(){
@@ -1045,7 +1044,7 @@ function renderRebanho(){
     ${mortCat.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Mortes</th><th>Reb. médio</th><th>%</th></tr></thead><tbody>${mortCat.map(x=>`<tr><td>${x.n}</td><td>${nf(x.m)}</td><td>${nf(x.med)}</td><td>${pct(x.p,2)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma morte registrada no período.</p>'}</div>
   <div class="row-head"><h2>Movimentações</h2><button class="btn" type="button" data-open="movimento">Registrar</button></div>
   <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}${retTxt(x)}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
-  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA${f._junto?` · soma de ${f._junto} retiros`:retTxt(f)}</span>${!UI.ret&&retiros().length?'':`<span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span>`}</div>`).join('')}</div></details>`:''}
+  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA${f._junto?` · soma de ${f._junto} retiros`:retTxt(f)}</span>${f._junto?'':`<span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span>`}</div>`).join('')}</div></details>`:''}
   ${pesagensHTML()}`;
 }
 function chartRebanho(F){
@@ -1348,13 +1347,13 @@ function porRetiroHTML(J){ if(UI.ret||!retiros().length) return '';
   const dentro=x=>!!x.data&&ym(x.data)>=J.s&&ym(x.data)<=J.e, de=(RAW.desemb||[]).filter(dentro), mv=(RAW.movs||[]).filter(dentro);
   const linha=(nome,f)=>{ const c=sum(de.filter(f),x=>x.valor), inv=sum(de.filter(x=>f(x)&&x.tipo==='investimento'),x=>x.valor), v=sum(mv.filter(x=>f(x)&&x.tipo==='venda'),x=>x.valor), cp=sum(mv.filter(x=>f(x)&&x.tipo==='compra'),x=>x.valor);
     return {nome,c,inv,v,cp,s:v-cp-c}; };
-  const L=retiros().map(r=>linha(r.nome,x=>x.retiro===r.id)), sem=linha('Sem retiro',x=>!x.retiro||!retNome(x.retiro));
+  const L=retiros().map(r=>linha(r.nome,x=>x.retiro===r.id)), sem=linha('Geral (fazenda toda)',x=>!x.retiro||!retNome(x.retiro));
   if(sem.c||sem.v||sem.cp) L.push(sem);
-  const T={nome:'Fazenda toda',c:sum(L,x=>x.c),inv:sum(L,x=>x.inv),v:sum(L,x=>x.v),cp:sum(L,x=>x.cp)}; T.s=T.v-T.cp-T.c;
+  const T={nome:'Total da fazenda',c:sum(L,x=>x.c),inv:sum(L,x=>x.inv),v:sum(L,x=>x.v),cp:sum(L,x=>x.cp)}; T.s=T.v-T.cp-T.c;
   const tr=(x,b)=>`<tr${b?' class="sub"':''}><td>${esc(x.nome)}</td><td>${brl(x.c)}${x.inv?`<br><span class="small muted">${brl(x.inv)} invest.</span>`:''}</td><td>${brl(x.v)}</td><td>${brl(x.cp)}</td><td class="${x.s>=0?'pos':'neg'}">${brl(x.s)}</td></tr>`;
   return `<div class="panel"><div class="row-head"><h2>Por retiro</h2><span class="small muted">${esc(J.nome)}</span></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Retiro</th><th>Custos</th><th>Vendas de gado</th><th>Compras de gado</th><th>Saldo</th></tr></thead><tbody>${L.map(x=>tr(x)).join('')}</tbody><tfoot>${tr(T)}</tfoot></table></div>
-    <p class="note">Saldo = vendas − compras de gado − custos, no caixa do período. Para ver os indicadores e a planilha de um retiro só, toque nele no topo da tela.${sem.c||sem.v||sem.cp?' Há lançamentos sem retiro: passe-os em Ajustes.':''}</p></div>`; }
+    <p class="note">Saldo = vendas − compras de gado − custos, no caixa do período. Para ver os indicadores e a planilha de um retiro só, toque nele no topo da tela.</p></div>`; }
 function renderFin(){
   const R=calc(), J=R.J, de=S.desemb.filter(x=>J.inR(x.data)).sort((a,b)=>a.data<b.data?1:-1), tot=R.despesas||0;
   const RF=Object.fromEntries(FASES.map(([k])=>[k,calc(UI.per,k)])), meses=Math.max(1,J.meses||1);
@@ -1629,13 +1628,13 @@ function repeteMes(){ const f=$('#frm'); if(!f||f.dataset.kind!=='custosMes') re
 function entryHTML(tab){const ks=ENTRY[tab]; if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab], ed=!!(UI.eo&&UI.eo.edit);
   return `<div class="panel entry${ed?' editando':''}" id="entry"><div class="row-head"><h2>${ed?'Editar':'Lançar'}</h2><span class="small muted">${esc(FORMS[cur].d)}</span></div>
   <div class="seg" role="group" aria-label="O que lançar">${ks.map(k=>`<button type="button" data-entry="${k}" aria-pressed="${k===cur}">${ENTRY_T[k]}</button>`).join('')}</div><div id="entrySlot"></div></div>`;}
-/* retiro de cada lançamento: na tela de um retiro já vem escolhido; na fazenda toda tem que escolher (não há gasto comum) */
+/* retiro de cada lançamento: na tela de um retiro já vem escolhido; na fazenda toda fica "Fazenda toda (geral)", de nenhum retiro */
 const RET_KINDS=new Set(['movimento','desembolso','custosMes','entrada','saida','fornecimento','lote','estacao','adaptacao']);
 const RET_COL_OF={desembolso:'desemb',lote:'engorda',estacao:'estacoes',adaptacao:'adapt'};
 function retFld(k,o,idc='f-retiro'){ if(!RET_KINDS.has(k)||!retiros().length) return '';
   const ex=o&&o.edit&&RET_COL_OF[k]?((RAW[RET_COL_OF[k]]||[]).find(x=>x.id===o.edit)||{}).retiro:'', v=ex||UI.ret||'';
-  return `<label class="fl">Retiro<select id="${idc}" name="retiro" required>${v?'':'<option value="">Escolha o retiro…</option>'}${retiros().map(r=>`<option value="${esc(r.id)}" ${r.id===v?'selected':''}>${esc(r.nome)}</option>`).join('')}</select></label>`; }
-const fechSemRet=k=>k==='fechamento'&&retiros().length&&!UI.ret?'O fechamento é de cada retiro. Escolha o retiro no topo da tela ('+retiros().map(r=>r.nome).join(' ou ')+') e faça o fechamento dele.':'';
+  return `<label class="fl">Retiro<select id="${idc}" name="retiro"><option value="">Fazenda toda (geral)</option>${retiros().map(r=>`<option value="${esc(r.id)}" ${r.id===v?'selected':''}>${esc(r.nome)}</option>`).join('')}</select></label>`; }
+const fechSemRet=()=>'';
 function mountEntry(){const slot=$('#entrySlot'); if(!slot||$('#sheetRoot').firstChild) return; const k=UI.entry[UI.tab], F=FORMS[k];
   if(fechSemRet(k)){ slot.innerHTML=`<p class="note">${esc(fechSemRet(k))}</p>`; return; }
   const okN=F.need?F.need():true;
@@ -1754,7 +1753,7 @@ async function submitForm(f){
   if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};}); 
     /* um fechamento por retiro e mês (os antigos, de antes dos retiros, têm o mês como id) */
     const ret=UI.ret||'', ex=(RAW.fech||[]).find(x=>x.mes===v.mes&&(x.retiro||'')===ret);
-    await db.doc(COL.fech+'/'+(ex?ex.id:ret?ret+'_'+v.mes:v.mes)).set({mes:v.mes,cats,...(ret?{retiro:ret}:{})}); }
+    await db.doc(COL.fech+'/'+(ex?ex.id:ret?ret+'_'+v.mes:v.mes)).set({mes:v.mes,cats,...(ret?{retiro:ret}:{}),criadoEm:(ex&&ex.criadoEm)||new Date().toISOString()}); }
   if(k==='movimento'){ const d={tipo:v.tipo,data:v.data,categoria:v.categoria,cab:N(v.cab),pesoMedio:N(v.pesoMedio)||0,obs:v.obs||''};
     if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
     if(v.tipo==='venda'){ d.precoArroba=N(v.precoArroba)||0; d.valor=N(v.valorV)||0; }
@@ -1881,7 +1880,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
     const retirosN=retiros().map(r=>({...r,nome:(f['rn_'+r.id]?.value||'').trim()||r.nome,area:Number(f['ra_'+r.id]?.value)||0,
       areaFase:Object.fromEntries(CENTROS.map(k=>[k,Number(f['rf_'+r.id+'_'+k]?.value)||0])),
-      donos:S.membros.length?[...f.querySelectorAll('input[name="rd_'+r.id+'"]:checked')].map(i=>i.value):(r.donos||[])}));
+      donos:r.donos||[]}));
     const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
     /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
