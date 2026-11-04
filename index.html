@@ -1346,6 +1346,29 @@ function renderSupl(){
 
 /* ---------- Financeiro ---------- */
 const saldo=i=>sum(S.emovs.filter(m=>m.insumoId===i.id),m=>(m.tipo==='entrada'?1:-1)*m.qtd);
+/* ---------- contas a pagar (config.contas): o robô do Telegram avisa na véspera e no dia; "Paguei" lança o custo ---------- */
+const contasAbertas=()=>(S.config.contas||[]).filter(c=>!c.paga&&(!UI.ret||daParte(UI.ret,c))).sort((a,b)=>a.venc<b.venc?-1:1);
+function contasHTML(){ const A=contasAbertas(), h=today();
+  return `<div class="panel" id="contas"><div class="row-head"><h2>Contas a pagar</h2><span class="small muted">${A.length?brl(sum(A,c=>c.valor),2)+' no total':''}</span></div>
+  ${A.length?`<div class="list">${A.map(c=>`<div class="item"><span class="t">${esc(c.descricao)}</span><span class="amt">${brl(+c.valor,2)}</span><span class="meta">vence ${dBR(c.venc)}${c.venc<h?' · <b>vencida</b>':c.venc===h?' · <b>vence hoje</b>':''} · ${esc(ITN[c.item]||'Outros gastos')}${retTxt(c)}${porTxt(c)}</span><span class="act"><button class="btn" type="button" data-pagar="${esc(c.id)}">Paguei</button> <button class="btn del" type="button" data-rm-cfg="contas:${esc(c.id)}">Excluir</button></span></div>`).join('')}</div>`:'<p class="empty">Nenhuma conta a pagar marcada.</p>'}
+  <details style="margin-top:8px"><summary>Marcar conta a pagar</summary><form class="f" id="contaF">${retFld('desembolso',{},'cta-retiro')}<div class="grid2">
+    <label class="fl">Descrição<input id="cta-desc" name="descricao" required maxlength="80" placeholder="ex.: boleto do sal"></label>
+    <label class="fl">Valor (R$)<input id="cta-valor" name="valor" type="number" min="0.01" step="0.01" required inputmode="decimal"></label>
+    <label class="fl">Vencimento<input id="cta-venc" name="venc" type="date" required></label>
+    <label class="fl">Tipo de custo<select id="cta-item" name="item">${ITENS.map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join('')}</select></label></div>
+    <div class="btns"><button class="btn primary" type="submit">Marcar</button></div></form></details>
+  <p class="note">Quem tem o Telegram conectado recebe aviso na véspera e no dia do vencimento, com o botão Paguei. Ao tocar em Paguei (aqui ou no Telegram), o custo entra no app com a data de hoje.</p></div>`; }
+async function salvaConta(f){ if(!db||!writable) return toast('Entre na sua conta para salvar.');
+  const valor=Math.round(Number(f.valor.value)*100)/100, descricao=f.descricao.value.trim(), venc=f.venc.value;
+  if(!(valor>0)||!descricao||!venc) return toast('Preencha descrição, valor e vencimento.');
+  const x={id:crypto.randomUUID()+'-b1',descricao,valor,venc,item:f.item.value,centro:'geral',...(f.retiro&&f.retiro.value?{retiro:f.retiro.value}:{}),porId:UID,por:meuNome(),criadoEm:new Date().toISOString(),origem:'app'};
+  try{ await db.configMod(b=>({...b,contas:[...(b.contas||[]),x]})); toast('Conta marcada'); }catch(e){ dbErr(e); } }
+async function pagaConta(id){ const c=(S.config.contas||[]).find(x=>x.id===id); if(!c||c.paga) return toast('Essa conta já foi paga.');
+  const item=ITN[c.item]?c.item:'outros';
+  try{ const r=await db.collection(COL.desemb).add({data:today(),valor:+c.valor,item,grupo:ITG[item],tipo:'custeio',descricao:'Conta paga: '+c.descricao,centro:c.centro||'geral',loteId:'',
+      ...(c.retiro?{retiro:c.retiro}:{}),contaId:c.id,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
+    await db.configMod(b=>({...b,contas:(b.contas||[]).map(x=>x.id===id?{...x,paga:{data:today(),custo:r.id,por:meuNome()}}:x)}));
+    toast('Pago: o custo entrou com a data de hoje'); }catch(e){ dbErr(e); } }
 /* fazenda toda: as contas de cada retiro lado a lado (para a contabilidade de cada dono) */
 function porRetiroHTML(J){ if(UI.ret||!retiros().length) return '';
   const dentro=x=>!!x.data&&ym(x.data)>=J.s&&ym(x.data)<=J.e, de=(RAW.desemb||[]).filter(dentro), mv=(RAW.movs||[]).filter(dentro);
@@ -1369,6 +1392,7 @@ function renderFin(){
   ${entryHTML('custos')}
   ${segPer()}${janelaTxt(J)}
   ${porRetiroHTML(J)}
+  ${contasHTML()}
   <div class="hero">
     ${kp('Gasto total',brl(tot),de.length+' lançamentos')}
     ${kp('Por mês',brl(tot/meses),'média do período')}
@@ -1489,6 +1513,7 @@ async function exportaExcel(){
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
    ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
    ['Pesagens',ord((S.config.pesagens||[]).filter(p=>!UI.ret||daParte(UI.ret,p)),'data').map(p=>({'Data':p.data,...(retiros().length?{'Retiro':retNome(p.retiro)}:{}),'Lote':p.lote||'','Cabeças':n(p.cab),'Peso médio (kg)':n(p.peso),'Lançado por':nomeDe(p.porId)||p.por||''}))],
+   ['Contas a pagar',ord((S.config.contas||[]).filter(c=>!UI.ret||daParte(UI.ret,c)),'venc').map(c=>({'Vencimento':c.venc,...(retiros().length?{'Parte':retNome(c.retiro)}:{}),'Descrição':c.descricao||'','Tipo de custo':ITN[c.item]||'','Valor (R$)':n(c.valor),'Paga em':c.paga?c.paga.data:'','Marcada por':nomeDe(c.porId)||c.por||''}))],
    ['Lembretes',ord(S.config.lembretes||[],'data').map(x=>({'Dia':x.data,'Lembrar de':x.texto||'','Avisado em':x.enviado||'','Marcado por':nomeDe(x.porId)||x.por||''}))],
    ['Adaptações',S.adapt.map(a=>({'Lote':a.nome,'Suplemento':(SUP_REF[a.tipo]||{}).nome||a.tipo,'Início':a.inicio,'Fase':FN[a.fase]||'','Cabeças':n(a.cab),'Peso (kg)':n(a.peso)}))],
    ['Ajustes',[['Fazenda',fazNome()],['Área produtiva (ha)',area()],['Kg por @',kgA()],['Mês de início da safra',S.config.safraMes],['Selic (%)',S.config.selic],...FASES.map(([k,nm])=>['Área '+nm+' (ha)',(S.config.areaFase||{})[k]||0]),...CATS.map(([c,cn])=>['Preço da @ · '+cn,preco(c)])].map(([a,b])=>({'Item':a,'Valor':b}))]];
@@ -1545,7 +1570,7 @@ function renderFase(k){
 function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.hidden=!R.length||!db; if(el.hidden) return;
   el.innerHTML=`<div class="seg">${partes().map(r=>`<button type="button" data-ret="${esc(r.id)}" aria-pressed="${UI.ret===r.id}">${esc(r.nome)}</button>`).join('')}<button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`; }
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF,#convF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF,#convF,#contaF,#pesF,#lembF'))) return;
   ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -1840,8 +1865,9 @@ document.addEventListener('click',async e=>{
     try{ for(const x of L.filter(x=>x.k!=='pesagens')){ await db.doc(COL[x.k]+'/'+x.id).update({retiro:r}); n++; }
       if(L.some(x=>x.k==='pesagens')){ await db.configMod(c=>({...c,pesagens:(c.pesagens||[]).map(p=>p.retiro?p:{...p,retiro:r})})); n+=L.filter(x=>x.k==='pesagens').length; }
       toast(n+' lançamentos passados para '+retNome(r)); }catch(e){ dbErr(e); } render(); return; }
+  if(b.dataset.pagar){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); if(arma(b)) return; return pagaConta(b.dataset.pagar); }
   if(b.dataset.rmCfg){ if(arma(b)) return; if(!db||!writable) return toast('Entre na sua conta para salvar.'); const [k,id]=b.dataset.rmCfg.split(':');
-    try{ await db.configMod(c=>({...c,[k]:(c[k]||[]).filter(x=>x.id!==id)})); toast(k==='pesagens'?'Pesagem excluída':'Cancelado'); }catch(e){ dbErr(e); } return; }
+    try{ await db.configMod(c=>({...c,[k]:(c[k]||[]).filter(x=>x.id!==id)})); toast(k==='pesagens'?'Pesagem excluída':k==='contas'?'Conta excluída':'Cancelado'); }catch(e){ dbErr(e); } return; }
   if(b.dataset.rmConvite){ if(arma(b)) return; const {error}=await sb.from('convites').delete().eq('fazenda_id',FID).eq('email',b.dataset.rmConvite); if(error) return toast('Não foi possível cancelar.'); toast('Convite cancelado'); return carregaSocios(); }
   if(b.hasAttribute('data-share-app')){ const txt='Entre no Caderno da Fazenda ('+fazNome()+'): toque em Criar conta usando o e-mail em que eu te convidei.';
     try{ if(navigator.share){ await navigator.share({title:'Caderno da Fazenda',text:txt,url:linkApp()}); return; } }catch(x){ return; }
@@ -1871,6 +1897,7 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
   if(f.id==='pesF'||f.id==='lembF') return salvaCfgItem(f);
+  if(f.id==='contaF') return salvaConta(f);
   if(f.id==='convF'){ const em=f.email.value.trim().toLowerCase(); if(!/^[^@s]+@[^@s]+.[^@s]+$/.test(em)) return toast('Digite um e-mail válido.');
     if(S.membros.some(m=>(m.email||'')===em)) return toast('Essa pessoa já é sócia da fazenda.');
     const {error}=await sb.from('convites').insert({fazenda_id:FID,email:em});

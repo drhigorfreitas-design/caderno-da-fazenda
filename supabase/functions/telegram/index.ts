@@ -7,6 +7,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
+import { zipSync } from "npm:fflate@0.8.2";
 
 /* ---------- tipos de custo: os mesmos do app (chave, nome, grupo do benchmark) ---------- */
 const ITENS: [string, string, string][] = [
@@ -43,7 +44,7 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "resposta"],
+  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "contas", "pagou", "resposta"],
   properties: {
     tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
     custos: {
@@ -114,6 +115,21 @@ const SCHEMA = {
         },
       },
     },
+    contas: {
+      type: "array", description: "contas a pagar que ainda NÃO foram pagas (boleto, parcela, fatura com vencimento); vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false, required: ["descricao", "valor", "vencimento", "item", "onde", "retiro"],
+        properties: {
+          descricao: { type: "string", description: "curta: o que é e de quem, ex.: 'Boleto sal mineral · Agropecuária X'" },
+          valor: { type: "number", description: "valor em reais" },
+          vencimento: { type: "string", description: "AAAA-MM-DD; se só disser o dia, é o próximo dia com esse número a partir de hoje" },
+          item: { type: "string", enum: ITENS.map((i) => i[0]) },
+          onde: { type: "string", enum: Object.keys(ONDE) },
+          retiro: { type: "string", description: "nome do retiro se a mensagem disser; vazio = Sede" },
+        },
+      },
+    },
+    pagou: { type: "array", items: { type: "integer" }, description: "números das contas da lista 'Contas a pagar marcadas' que a mensagem diz que foram pagas; vazio se nenhuma" },
     resposta: { type: "string", description: "quando tipo = nao_entendi: uma frase curta pedindo o que falta" },
   },
 };
@@ -131,6 +147,8 @@ anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinaçã
 lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 15/11", "me lembra de pagar o boleto do sal dia 20", "boleto do sal vence dia 20"). data = o dia citado; se só disser o número do dia, é o próximo dia com esse número a partir de hoje; "amanhã" = hoje + 1. Lembrete sem dia não entra: peça o dia em "resposta". O que vai para lembretes não vai também para anotacao.
 alertas: pedidos de aviso do preço da arroba do boi gordo ("me avisa quando o boi passar de 320" = acima 320; "quando a arroba cair abaixo de 300" = abaixo 300).
 pesagens: pesagem de animais ("pesei o lote da recria, média 280 kg", "pesei 40 garrotes do lote 3, deu 312 kg"). Um item por lote pesado, com o peso médio por cabeça (se disser o peso total e as cabeças, divida). Pesagem não é movimento nem anotação.
+contas: boleto, parcela ou fatura que ainda vai ser paga, com vencimento ("boleto do sal 4.500 vence dia 20", "parcela do trator 3.200 vence 10/12"). Não vai para custos: o custo entra quando pagar. Sem valor ou sem vencimento, não entra: peça em "resposta".
+pagou: quando a mensagem disser que pagou uma conta da lista "Contas a pagar marcadas" (que vem junto), ponha o número dela e NÃO lance esse pagamento também em custos. Pagamento que não está na lista vai para custos, como sempre.
 resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por falta de informação, diga em uma frase o que faltou.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
@@ -143,7 +161,7 @@ export type Custo = { retiro?: string; data: string; valor: number; item: string
 export type Lembrete = { data: string; texto: string };
 export type Alerta = { direcao: string; valor: number };
 export type Pesagem = { retiro?: string; data: string; lote: string; cab: number; peso_medio: number };
-export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; resposta?: string };
+export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; contas?: any[]; pagou?: number[]; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -158,6 +176,8 @@ export type Deps = {
   transcreve?: (bytes: Uint8Array, nome: string) => Promise<string | null>; // áudio → texto (OpenAI); ausente se não houver a chave
   envia?: (chat: number, nome: string, bytes: Uint8Array, legenda: string, tipo?: string) => Promise<any>; // manda um arquivo (backup, planilha)
   planilha?: (abas: Aba[]) => Uint8Array; // monta o arquivo Excel
+  baixaNota?: (caminho: string) => Promise<Uint8Array | null>; // foto da nota guardada no Storage
+  zip?: (arquivos: Record<string, Uint8Array>) => Uint8Array; // junta as fotos num .zip
   cotacao?: () => Promise<{ data: string; spot: number } | null>; // arroba do boi gordo (cotacoes.json do app)
   db: any; // cliente supabase com a chave de serviço
 };
@@ -190,7 +210,7 @@ const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret 
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n🧾 <b>Contas a pagar:</b> <i>boleto do sal 4.500 vence dia 20</i>. Aviso na véspera e no dia, com o botão Paguei. Mande <b>contas</b> para ver todas.\n📎 Para o contador: <b>planilha</b> (do mês), <b>notas</b> (fotos das notas do mês), <b>planilha do ano</b> (Imposto de Renda).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -397,8 +417,30 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     txt.push(linha);
   }
 
+  // contas a pagar: marca as novas; as pagas viram custo agora (no lugar de um custo comum)
+  const novas: any[] = [], pagas: any[] = [], lista = abertas(cfgD);
+  for (const c of L.contas || []) {
+    const valor = Math.round((Number(c.valor) || 0) * 100) / 100;
+    if (valor <= 0 || !okData(c.vencimento)) { avisos.push(`A conta "${c.descricao || "?"}" ficou de fora: falta o valor ou o vencimento.`); continue; }
+    const item = ITN[c.item] ? c.item : "outros", r = rid(c);
+    novas.push({ id: `${base}-b${novas.length + 1}`, descricao: String(c.descricao || ITN[item]).trim(), valor, venc: c.vencimento, item, centro: ONDE[c.onde] ? c.onde : "geral",
+      ...RT(r), porId: conta.user_id, por: quem, criadoEm });
+    txt.push(`🧾 <b>Conta a pagar</b> · ${linhaConta(novas[novas.length - 1], rets)}`);
+  }
+  if (novas.length) avisos.push("Aviso na véspera e no dia do vencimento, com o botão Paguei.");
+  for (const n of [...new Set(L.pagou || [])]) {
+    const c = lista[n - 1];
+    if (!c) continue;
+    const id = `${base}-c${custos.length + 1}`, item = ITN[c.item] ? c.item : "outros", centro = ONDE[c.centro] ? c.centro : "geral";
+    custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data: hoje, valor: c.valor, item, grupo: ITG[item], centro, lote_id: null, tipo: "custeio",
+      dados: { data: hoje, valor: c.valor, item, grupo: ITG[item], tipo: "custeio", descricao: `Conta paga: ${c.descricao}`, centro, loteId: "", contaId: c.id, ...RT(c.retiro || ""), ...autor } });
+    usados.add(rets.some((r) => r.id === c.retiro) ? c.retiro : "");
+    pagas.push(c.id);
+    txt.push(`✅ <b>Conta paga</b> · ${esc(c.descricao)} · <b>${brl(c.valor)}</b> · lancei como custo de hoje${tagRet(rets, c.retiro || "")}`);
+  }
+
   const temNota = !!String(L.anotacao || "").trim();
-  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !temNota)
+  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !novas.length && !temNota)
     return responde(d, chat, esc([...avisos, L.resposta || ""].filter(Boolean).join(" ") || "Não entendi o que lançar. Escreva o valor e o que foi comprado, ou quantas cabeças e o que aconteceu."));
 
   // grava: se uma parte falhar, desfaz o que já entrou para não ficar pela metade
@@ -414,8 +456,9 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
     }
   }
-  if (lembs.length || alts.length || pes.length) {
+  if (lembs.length || alts.length || pes.length || novas.length || pagas.length) {
     const ok = await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D,
+      ...(novas.length || pagas.length ? { contas: [...(D.contas || []).map((x: any) => (pagas.includes(x.id) ? { ...x, paga: { data: hoje, base, por: quem } } : x)), ...novas] } : {}),
       ...(lembs.length ? { lembretes: [...(D.lembretes || []), ...lembs] } : {}),
       ...(alts.length ? { alertas: [...(D.alertas || []), ...alts] } : {}),
       ...(pes.length ? { pesagens: [...(D.pesagens || []), ...pes] } : {}) }));
@@ -431,7 +474,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
   }
 
-  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
+  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length + novas.length, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
   const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
     (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
     (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
@@ -612,17 +655,24 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
     if (!blocos.length) blocos.push(`🐄 <b>Rebanho no mês:</b> nenhum movimento lançado\n💸 <b>Custos: ${brl(0)}</b>\n`);
     if (!fechs.some((f) => f.mes === mes) && !faltaFech.length) faltaFech.push("");
     const totM = somaV(gastos), vendM = somaV(doMes.filter((x) => x.tipo === "venda")), compM = somaV(doMes.filter((x) => x.tipo === "compra"));
+    const contasMes = abertas(D).filter((c: any) => c.venc.slice(0, 7) <= hoje.slice(0, 7))
+      .map((c: any) => `   • ${dBR(c.venc).slice(0, 5)} · ${esc(c.descricao)} · ${brl(c.valor)}${c.venc < hoje ? " ⚠️ vencida" : ""}`);
     const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
       .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
     const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
       blocos.join("\n") +
       `\n📊 <b>Total da fazenda:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${RT ? ` · ${nfBR(RT.total)} cabeças hoje` : ""}\n` +
+      (contasMes.length ? `\n🧾 <b>Contas a pagar em ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${contasMes.join("\n")}\n` : "") +
       (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
       (faltaFech.length ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app${faltaFech[0] ? ` (${esc(faltaFech.join(" e "))})` : ""}: contar o gado e o peso de cada categoria. Com ele saem produção, GMD e lotação do mês.\n` : "") +
       `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
     for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
     // no dia 1º vai junto a planilha do mês para o contador
-    if (!so) { try { await mandaPlanilha(d, faz, chats, mes, fz?.nome || ""); } catch (e) { console.error("planilha do mês", e); } }
+    if (!so) {
+      try { await mandaPlanilha(d, faz, chats, mes, fz?.nome || ""); } catch (e) { console.error("planilha do mês", e); }
+      try { await mandaNotas(d, faz, chats, mes, fz?.nome || ""); } catch (e) { console.error("fotos das notas", e); }
+      if (mes.endsWith("-12")) { try { await mandaPlanilhaAno(d, faz, chats, mes.slice(0, 4), fz?.nome || ""); } catch (e) { console.error("planilha do ano", e); } }
+    }
   }
   return `relatório mensal enviado para ${n} conversa(s)`;
 }
@@ -718,6 +768,143 @@ export function mesPedido(cmd: string, hoje: string) {
   return `${ano}-${String(m + 1).padStart(2, "0")}`;
 }
 
+const porDataG = (a: any, b: any) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0);
+const slugF = (s: string) => (s || "fazenda").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "fazenda";
+
+/* ---------- fotos das notas do mês num zip, uma pasta por parte (para o contador) ---------- */
+export async function mandaNotas(d: Deps, faz: string, chats: number[], mes: string, nomeFaz = "", avisaVazio = false) {
+  if (!d.baixaNota || !d.zip || !d.envia || !chats.length) return 0;
+  const ini = mes + "-01", fim = fimMes(mes), nomeMes = `${MESF[+mes.slice(5, 7) - 1]} de ${mes.slice(0, 4)}`;
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const G = grupos(retirosDe(cfg?.dados));
+  const gastos = (await todos(d, "desembolsos", faz, ini)).filter((x) => x.data <= fim && x.nota).sort(porDataG);
+  if (!gastos.length) {
+    if (avisaVazio) for (const chat of chats) await d.tg("sendMessage", { chat_id: chat, parse_mode: "HTML", text: `Nenhuma foto de nota guardada em ${nomeMes}. As fotos entram quando a nota é mandada pelo Telegram ou anexada no app.` });
+    return 0;
+  }
+  const arquivos: Record<string, Uint8Array> = {}, usados = new Set<string>();
+  let falhou = 0;
+  for (const x of gastos) {
+    const b = await d.baixaNota(x.nota).catch(() => null);
+    if (!b) { falhou++; continue; }
+    const pasta = (G.find((g) => g.f(x)) || {} as Grupo).nome || "Fazenda", ext = String(x.nota).match(/\.(\w+)$/)?.[1] || "jpg";
+    const nome = `${pasta}/${x.data} ${ITN[x.item] || "Outros gastos"} R$ ${(Number(x.valor) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`.replace(/[\\:*?"<>|]/g, "");
+    let k = nome, i = 2;
+    while (usados.has(k)) k = `${nome} (${i++})`;
+    usados.add(k);
+    arquivos[`${k}.${ext}`] = b;
+  }
+  if (!Object.keys(arquivos).length) {
+    if (avisaVazio) for (const chat of chats) await d.tg("sendMessage", { chat_id: chat, text: "Não consegui pegar as fotos das notas agora. Tente de novo em instantes." });
+    return 0;
+  }
+  // o Telegram aceita arquivos de até 50 MB: divide em partes de uns 45 MB
+  const partes: Record<string, Uint8Array>[] = [{}];
+  let tam = 0;
+  for (const [n, b] of Object.entries(arquivos)) {
+    if (tam + b.length > 45e6 && Object.keys(partes[partes.length - 1]).length) { partes.push({}); tam = 0; }
+    partes[partes.length - 1][n] = b; tam += b.length;
+  }
+  let env = 0;
+  for (let p = 0; p < partes.length; p++) {
+    const bytes = d.zip(partes[p]), nomeZip = `notas-${slugF(nomeFaz)}-${mes}${partes.length > 1 ? `-${p + 1}` : ""}.zip`;
+    const leg = `🧾 <b>Fotos das notas de ${nomeMes}</b>${partes.length > 1 ? ` (arquivo ${p + 1} de ${partes.length})` : ""}\n` +
+      `${nfBR(Object.keys(partes[p]).length)} fotos, numa pasta para cada parte. O nome de cada foto tem a data, o tipo de custo e o valor.` +
+      (falhou && p === 0 ? `\n⚠️ ${falhou} foto(s) não foram encontradas.` : "") + `\nÉ só encaminhar ao contador junto com a planilha.`;
+    for (const chat of chats) { const r = await d.envia(chat, nomeZip, bytes, leg, "application/zip"); if (r?.ok !== false) env++; }
+  }
+  return env;
+}
+
+/* ---------- planilha do ano para o Imposto de Renda (o contador faz a classificação) ---------- */
+export async function planilhaAno(d: Deps, faz: string, ano: string, nomeFaz = "") {
+  const ini = `${ano}-01-01`, fim = `${ano}-12-31`;
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const G = grupos(retirosDe(cfg?.dados)), nomeG = (g: Grupo) => g.nome || "Fazenda";
+  const gastos = (await todos(d, "desembolsos", faz, ini)).filter((x) => x.data <= fim).sort(porDataG);
+  const gado = (await todos(d, "movimentos", faz, ini)).filter((x) => x.data <= fim && (x.tipo === "venda" || x.tipo === "compra")).sort(porDataG);
+  const soma = (a: any[]) => a.reduce((s, x) => s + (Number(x.valor) || 0), 0), inv = (x: any) => x.tipo === "investimento";
+  const contas = (gs: any[], gd: any[]) => {
+    const v = soma(gd.filter((x) => x.tipo === "venda")), cp = soma(gd.filter((x) => x.tipo === "compra")), cu = soma(gs.filter((x) => !inv(x))), iv = soma(gs.filter(inv));
+    return [v, cp, cu, iv, v - cp - cu - iv].map(R$);
+  };
+  const titulo = `${nomeFaz || "Fazenda"} · ano de ${ano}`;
+  const cab = ["Vendas de gado", "Compras de gado", "Custeio", "Investimento", "Saldo (vendas − compras − custeio − investimento)"];
+  const resumo: any[][] = [[`Caderno da Fazenda · ${titulo}`],
+    ["Totais do ano de cada parte da fazenda. A classificação para o Imposto de Renda (receita, despesa, investimento) é feita pelo contador."], [], ["Parte", ...cab]];
+  G.forEach((g) => resumo.push([nomeG(g), ...contas(gastos.filter(g.f), gado.filter(g.f))]));
+  if (G.length > 1) resumo.push(["Fazenda toda", ...contas(gastos, gado)]);
+  const abas: Aba[] = [{ nome: "Resumo do ano", linhas: resumo, larguras: [22, 16, 16, 16, 16, 24] }];
+  const detalhe = (nome: string, f: (x: any) => boolean): Aba => {
+    const gs = gastos.filter(f), gd = gado.filter(f);
+    const L: any[][] = [[`${nome} · ${titulo}`], [], ["MÊS A MÊS"], ["Mês", ...cab]];
+    for (let m = 1; m <= 12; m++) {
+      const mm = `${ano}-${String(m).padStart(2, "0")}`;
+      L.push([MESF[m - 1], ...contas(gs.filter((x) => x.data.startsWith(mm)), gd.filter((x) => x.data.startsWith(mm)))]);
+    }
+    L.push(["Total do ano", ...contas(gs, gd)], [], ["CUSTOS POR TIPO NO ANO"], ["Tipo de custo", "Custeio", "Investimento", "Total"]);
+    const its = [...new Set(gs.map((x) => (ITN[x.item] ? x.item : "outros")))].map((it) => ({ it, a: gs.filter((x) => (ITN[x.item] ? x.item : "outros") === it) }))
+      .sort((p, q) => soma(q.a) - soma(p.a));
+    its.forEach(({ it, a }) => L.push([ITN[it], R$(soma(a.filter((x) => !inv(x)))), R$(soma(a.filter(inv))), R$(soma(a))]));
+    if (!its.length) L.push(["nenhum custo lançado no ano"]);
+    L.push([], ["INVESTIMENTOS"], ["Data", "Tipo", "Descrição", "Valor (R$)", "Lançado por"]);
+    const ivs = gs.filter(inv);
+    ivs.forEach((x) => L.push([dBR4(x.data), ITN[x.item] || "Outros gastos", x.descricao || "", R$(x.valor), x.por || ""]));
+    if (!ivs.length) L.push(["nenhum investimento lançado no ano"]);
+    L.push([], ["VENDAS E COMPRAS DE GADO"], ["Data", "Tipo", "Categoria", "Cabeças", "Peso médio (kg)", "Valor (R$)", "Observação"]);
+    gd.forEach((x) => L.push([dBR4(x.data), TIPOS_MOV[x.tipo], CATS[x.categoria] || "", Number(x.cab) || 0, Number(x.pesoMedio) || "", R$(x.valor), x.obs || ""]));
+    if (!gd.length) L.push(["nenhuma venda ou compra de gado no ano"]);
+    return { nome: nome.slice(0, 31), linhas: L, larguras: [22, 16, 16, 16, 16, 24, 20] };
+  };
+  if (G.length > 1) abas.push(detalhe("Fazenda toda", () => true));
+  G.forEach((g) => abas.push(detalhe(nomeG(g), g.f)));
+  return { abas, nCustos: gastos.length, nGado: gado.length, partes: G.map(nomeG) };
+}
+export async function mandaPlanilhaAno(d: Deps, faz: string, chats: number[], ano: string, nomeFaz = "") {
+  if (!d.planilha || !d.envia || !chats.length) return 0;
+  const P = await planilhaAno(d, faz, ano, nomeFaz), bytes = d.planilha(P.abas), parcial = ano === hojeMT().slice(0, 4);
+  const legenda = `📅 <b>Planilha do ano de ${ano} para o Imposto de Renda</b>${parcial ? " (até hoje)" : ""}\n` +
+    `${nfBR(P.nCustos)} custos e ${nfBR(P.nGado)} vendas/compras de gado.\n` +
+    `Abas: Resumo do ano${P.partes.length > 1 ? `, Fazenda toda e uma para cada parte (${esc(P.partes.join(", "))})` : ""}, com o mês a mês, os custos por tipo, os investimentos e o gado.\n` +
+    `Encaminhe ao contador: a classificação para a declaração é com ele.`;
+  let n = 0;
+  for (const chat of chats) { const r = await d.envia(chat, `imposto-de-renda-${slugF(nomeFaz)}-${ano}.xlsx`, bytes, legenda, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); if (r?.ok !== false) n++; }
+  return n;
+}
+// "planilha do ano", "planilha 2025", "imposto de renda": sem dizer o ano, até maio é o ano passado (época da declaração)
+export function anoPedido(cmd: string, hoje: string) {
+  const m = cmd.match(/\b(20\d\d)\b/);
+  return m ? m[1] : String(+hoje.slice(0, 4) - (+hoje.slice(5, 7) <= 5 ? 1 : 0));
+}
+
+/* ---------- contas a pagar (config.dados.contas): aviso na véspera e no dia, botão "Paguei" lança o custo ---------- */
+export const abertas = (D: any) => (D?.contas || []).filter((c: any) => !c.paga).sort((a: any, b: any) => (a.venc < b.venc ? -1 : a.venc > b.venc ? 1 : 0));
+const linhaConta = (c: any, rets: Retiro[]) => `${esc(c.descricao)} · <b>${brl(c.valor)}</b> · vence ${dBR(c.venc)}${tagRet(rets, c.retiro || "")}`;
+// lança a conta como custo (id {base}-c1, para o Desfazer) e marca como paga; devolve a conta ou o motivo
+export async function pagaConta(d: Deps, conta: any, contaId: string, quem: string) {
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+  const c = (cfg?.dados?.contas || []).find((x: any) => x.id === contaId);
+  if (!c) return { erro: "Essa conta não existe mais." };
+  if (c.paga) return { erro: `Essa conta já foi paga em ${dBR(c.paga.data)}.` };
+  const hoje = hojeMT(), base = crypto.randomUUID(), id = `${base}-c1`, item = ITN[c.item] ? c.item : "outros", centro = ONDE[c.centro] ? c.centro : "geral";
+  const dados = { data: hoje, valor: c.valor, item, grupo: ITG[item], tipo: "custeio", descricao: `Conta paga: ${c.descricao}`, centro, loteId: "", contaId,
+    ...(c.retiro ? { retiro: c.retiro } : {}), criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: "telegram" };
+  const { error } = await d.db.from("desembolsos").insert({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data: hoje, valor: c.valor, item, grupo: ITG[item], centro, lote_id: null, tipo: "custeio", dados });
+  if (error) { console.error("pagar conta", error); return { erro: "Não consegui lançar agora. Tente de novo." }; }
+  await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D, contas: (D.contas || []).map((x: any) => (x.id === contaId ? { ...x, paga: { data: hoje, custo: id, base, por: quem } } : x)) }));
+  return { c, base, rets: retirosDe(cfg?.dados) };
+}
+// "contas": lista as contas a pagar, com botões Paguei e Cancelar
+async function listaContas(d: Deps, faz: string) {
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const A = abertas(cfg?.dados), rets = retirosDe(cfg?.dados), hoje = hojeMT();
+  if (!A.length) return { text: "Nenhuma conta a pagar marcada.\n\nPara marcar, mande por exemplo:\n• <i>boleto do sal R$ 4.500 vence dia 20</i>\n• <i>despesa Santa Helena: parcela do trator 3.200 vence 10/12</i>", extra: {} };
+  const linhas = ["🧾 <b>Contas a pagar</b>", ...A.map((c: any, i: number) => `${i + 1}. ${linhaConta(c, rets)}${c.venc < hoje ? " ⚠️ <b>vencida</b>" : c.venc === hoje ? " ⚠️ <b>vence hoje</b>" : ""}`),
+    `\nTotal: <b>${brl(A.reduce((s: number, c: any) => s + (Number(c.valor) || 0), 0))}</b>`, "Toque em ✅ quando pagar (o custo já é lançado) ou em ❌ para cancelar."];
+  const kb = A.map((c: any, i: number) => [{ text: `✅ ${i + 1} paguei`, callback_data: `pago:${c.id}` }, { text: `❌ ${i + 1}`, callback_data: `canc:${c.id}` }]);
+  return { text: linhas.join("\n"), extra: { reply_markup: { inline_keyboard: kb } } };
+}
+
 /* ---------- backup: todos os dados da fazenda num arquivo, pelo Telegram ---------- */
 const TAB_BACKUP = ["config", "fechamentos", "movimentos", "desembolsos", "estacoes", "engorda", "insumos", "estoque_movs", "formulacoes", "adaptacoes"];
 export async function geraBackup(d: Deps, faz: string) {
@@ -764,7 +951,9 @@ export async function avisosDiarios(d: Deps) {
     const lem = (D.lembretes || []).filter((x: any) => !x.enviado && x.data <= hoje);
     const alt = cot ? (D.alertas || []).filter((a: any) => (a.direcao === "abaixo" ? cot!.spot <= a.valor : cot!.spot >= a.valor)) : [];
     const velhos = (D.lembretes || []).some((x: any) => x.enviado && dias(x.enviado, hoje) > LIMPA_ENVIADOS);
-    if (!lem.length && !alt.length && !velhos) continue;
+    const amanha = somaDias(hoje, 1), rets = retirosDe(D);
+    const cv = abertas(D).filter((c: any) => (c.venc === amanha && !c.avisos?.v) || (c.venc <= hoje && !c.avisos?.d));
+    if (!lem.length && !alt.length && !velhos && !cv.length) continue;
     const daFaz = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
     // vai para quem pediu; se ele não tiver mais o Telegram ligado, vai para os outros sócios
     const para = (uid: string) => { const s = daFaz.filter((x: any) => x.user_id === uid); return (s.length ? s : daFaz).map((x: any) => x.chat_id); };
@@ -781,7 +970,17 @@ export async function avisosDiarios(d: Deps) {
       for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
       if (cs.length) enviados.add(a.id);
     }
+    const avisadas: Record<string, string> = {};
+    for (const k of cv) {
+      const qd = k.venc === amanha ? "vence amanhã" : k.venc === hoje ? "vence hoje" : `venceu em ${dBR(k.venc)}`;
+      const t = `🧾 <b>Conta ${qd}</b>\n${linhaConta(k, rets)}` + (k.por ? `\n<i>marcada por ${esc(k.por)}</i>` : "") + "\nQuando pagar, toque em Paguei: o custo já entra no app.";
+      const cs = para(k.porId);
+      for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "✅ Paguei", callback_data: `pago:${k.id}` }]] } }); n++; }
+      if (cs.length) avisadas[k.id] = k.venc === amanha ? "v" : "d";
+    }
     await mudaCfg(d, c.fazenda_id, (X) => ({ ...X,
+      contas: (X.contas || []).map((x: any) => (avisadas[x.id] ? { ...x, avisos: { ...(x.avisos || {}), [avisadas[x.id]]: hoje } } : x))
+        .filter((x: any) => !(x.paga && dias(x.paga.data, hoje) > 120)),
       lembretes: (X.lembretes || []).map((x: any) => (enviados.has(x.id) ? { ...x, enviado: hoje } : x))
         .filter((x: any) => !(x.enviado && dias(x.enviado, hoje) > LIMPA_ENVIADOS)),
       alertas: (X.alertas || []).filter((a: any) => !enviados.has(a.id)) }));
@@ -869,15 +1068,19 @@ async function botao(d: Deps, q: any) {
     const tirouNota = i >= 0 ? await desanota(d, conta, t.slice(i + MSG_ANOTA.length).split("\n")[0].trim()) : false;
     const tirou: Record<string, number> = {};
     await mudaCfg(d, conta.fazenda_id, (D) => {
-      for (const k of ["lembretes", "alertas", "pesagens"]) {
+      for (const k of ["lembretes", "alertas", "pesagens", "contas"]) {
         const a = D[k] || [], b = a.filter((x: any) => !String(x.id || "").startsWith(id + "-"));
         tirou[k] = a.length - b.length; if (tirou[k]) D[k] = b;
       }
+      // conta paga por esta mensagem volta a ficar em aberto
+      let volta = 0;
+      D.contas = (D.contas || []).map((x: any) => (x.paga?.base === id ? (volta++, (({ paga, ...r }) => r)(x)) : x));
+      tirou.reabertas = volta;
       return Object.values(tirou).some(Boolean) ? D : null;
     });
     const nc = cs?.length || 0, nm = ms?.length || 0, pl = (n: number, um: string, v: string) => n && (n === 1 ? "1 " + um : n + " " + v);
     const partes = [pl(nc, "custo", "custos"), pl(nm, "movimento do rebanho", "movimentos do rebanho"), pl(tirou.lembretes, "lembrete", "lembretes"),
-      pl(tirou.alertas, "aviso da arroba", "avisos da arroba"), pl(tirou.pesagens, "pesagem", "pesagens"), tirouNota && "a anotação"].filter(Boolean) as string[];
+      pl(tirou.alertas, "aviso da arroba", "avisos da arroba"), pl(tirou.pesagens, "pesagem", "pesagens"), pl(tirou.contas, "conta a pagar", "contas a pagar"), pl(tirou.reabertas, "pagamento de conta (ela voltou a ficar em aberto)", "pagamentos de contas (voltaram a ficar em aberto)"), tirouNota && "a anotação"].filter(Boolean) as string[];
     if (!partes.length) return fim("Esse lançamento já não existe.");
     const lista = partes.length > 1 ? partes.slice(0, -1).join(", ") + " e " + partes.at(-1) : partes[0];
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: `↩ Desfeito: tirei do app ${lista}.` });
@@ -904,16 +1107,30 @@ async function botao(d: Deps, q: any) {
       reply_markup: { inline_keyboard: marca(q.message.reply_markup, `ret:${id}:`, `ret:${id}:${r.id || "geral"}`) } });
     return fim(r.id ? "Agora no retiro " + r.nome : "Agora na Sede");
   }
-  if (acao === "canc" && /^[0-9a-f-]{36}-[la]\d+$/.test(id)) {
+  if (acao === "pago" && /^[0-9a-f-]{36}-b\d+$/.test(id)) {
+    const { data: m } = await d.db.from("membros").select("nome,email").eq("fazenda_id", conta.fazenda_id).eq("user_id", conta.user_id).maybeSingle();
+    const r: any = await pagaConta(d, conta, id, m?.nome || String(m?.email || "").split("@")[0] || "sócio");
+    if (r.erro) return fim(r.erro);
+    const t = String(q.message?.text || "");
+    if (t.startsWith("🧾 Contas a pagar")) {
+      const L = await listaContas(d, conta.fazenda_id);
+      await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: L.text, parse_mode: "HTML", ...L.extra });
+    } else {
+      await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, parse_mode: "HTML",
+        text: `✅ <b>Conta paga</b> · ${esc(r.c.descricao)} · <b>${brl(r.c.valor)}</b>${tagRet(r.rets, r.c.retiro || "")}\nLancei como custo de hoje no app.`, ...botoes(r.base) });
+    }
+    return fim("Pago e lançado como custo");
+  }
+  if (acao === "canc" && /^[0-9a-f-]{36}-[lab]\d+$/.test(id)) {
     let achou = false;
     await mudaCfg(d, conta.fazenda_id, (D) => {
-      for (const k of ["lembretes", "alertas"]) {
+      for (const k of ["lembretes", "alertas", "contas"]) {
         const a = D[k] || [], b = a.filter((x: any) => x.id !== id);
         if (b.length !== a.length) { D[k] = b; achou = true; }
       }
       return achou ? D : null;
     });
-    const L = await listaLembretes(d, conta.fazenda_id);
+    const L = /-b\d+$/.test(id) ? await listaContas(d, conta.fazenda_id) : await listaLembretes(d, conta.fazenda_id);
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: L.text, parse_mode: "HTML", ...L.extra });
     return fim(achou ? "Cancelado" : "Já não estava marcado.");
   }
@@ -986,6 +1203,24 @@ export async function trata(d: Deps, up: any) {
     await relatorioMensal(d, { faz: conta.fazenda_id, chat });
     return;
   }
+  if (!msg.photo && !msg.document && /^\/?(minhas |ver as |ver )?contas( a pagar)?$/.test(cmd)) {
+    const L = await listaContas(d, conta.fazenda_id);
+    return responde(d, chat, L.text, L.extra);
+  }
+  if (!msg.photo && !msg.document && cmd.length < 50 && (/^\/?(manda a |mandar a |quero a )?planilha (do ano|anual|de 20\d\d|20\d\d)/.test(cmd) || /^\/?(planilha (do |para o )?)?imposto de renda/.test(cmd))) {
+    if (!d.planilha || !d.envia) return responde(d, chat, "A planilha ainda não está ligada.");
+    await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", conta.fazenda_id).maybeSingle();
+    const n = await mandaPlanilhaAno(d, conta.fazenda_id, [chat], anoPedido(cmd, hojeMT()), fz?.nome || "");
+    return n ? undefined : responde(d, chat, "Não consegui gerar a planilha agora. Tente de novo em instantes.");
+  }
+  if (!msg.photo && !msg.document && cmd.length < 50 && /^\/?(manda as |mandar as |quero as )?(fotos d[aeo]s? )?notas( fiscais)?\b/.test(cmd)) {
+    if (!d.zip || !d.envia) return responde(d, chat, "As fotos das notas ainda não estão ligadas.");
+    await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", conta.fazenda_id).maybeSingle();
+    await mandaNotas(d, conta.fazenda_id, [chat], mesPedido(cmd, hojeMT()), fz?.nome || "", true);
+    return;
+  }
   if (!msg.photo && !msg.document && /^\/?(manda a |mandar a |quero a )?planilha\b/.test(cmd) && cmd.length < 50) {
     if (!d.planilha || !d.envia) return responde(d, chat, "A planilha ainda não está ligada.");
     await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
@@ -1026,7 +1261,9 @@ export async function trata(d: Deps, up: any) {
   }
   const { data: cfgT } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
   const retsT = retirosDe(cfgT?.dados);
+  const abT = abertas(cfgT?.dados);
   conteudo.push({ type: "text", text: `Hoje é ${hojeMT()}.` + (retsT.length ? `\nPartes da fazenda: ${[...retsT.map((r) => r.nome), GERAL].join(", ")}.` : "") +
+    (abT.length ? `\nContas a pagar marcadas: ${abT.map((c: any, i: number) => `${i + 1}) ${c.descricao} · R$ ${c.valor} · vence ${c.venc}`).join("; ")}.` : "") +
     (texto ? `\nMensagem: ${texto}` : "\n(só a imagem)") });
   await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
   const L = await d.le(conteudo);
@@ -1147,7 +1384,14 @@ if (typeof Deno !== "undefined") {
     }
     return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
   };
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha };
+  const baixaNota = async (caminho: string) => {
+    const { data, error } = await db.storage.from("notas").download(caminho);
+    if (error || !data) { console.error("baixar nota", caminho, error); return null; }
+    return new Uint8Array(await data.arrayBuffer());
+  };
+  // fotos já são comprimidas: guarda sem comprimir de novo (mais rápido)
+  const zip = (arquivos: Record<string, Uint8Array>) => zipSync(Object.fromEntries(Object.entries(arquivos).map(([n, b]) => [n, [b, { level: 0 }]])) as any);
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
