@@ -96,6 +96,9 @@ export type Deps = {
   baixa: (caminho: string) => Promise<Uint8Array>;
   le: (conteudo: any[]) => Promise<Leitura | null>;
   pensa: (sistema: string, texto: string) => Promise<string | null>; // responde perguntas com os dados
+  guarda?: (caminho: string, bytes: Uint8Array, tipo: string) => Promise<boolean>; // foto da nota no Storage (pasta "notas")
+  link?: (caminho: string) => Promise<string | null>; // link temporário para ver a foto
+  usuario?: (token: string) => Promise<string | null>; // id de quem está logado no app
   db: any; // cliente supabase com a chave de serviço
 };
 
@@ -121,18 +124,59 @@ async function liga(d: Deps, chat: number, codigo: string, nome: string) {
   return responde(d, chat, `Pronto, ${esc(m?.nome || nome)}! Seu Telegram está ligado ao Caderno da Fazenda.\n\n${AJUDA}`);
 }
 
+/* ---------- foto da nota (comprovante) ---------- */
+const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf" };
+async function guardaNota(d: Deps, fazenda: string, bytes: Uint8Array, tipo: string) {
+  if (!d.guarda || !EXT[tipo]) return "";
+  const caminho = `${fazenda}/${hojeMT().slice(0, 7)}/${crypto.randomUUID()}.${EXT[tipo]}`;
+  return (await d.guarda(caminho, bytes, tipo)) ? caminho : "";
+}
+const b64 = (bytes: Uint8Array) => { let s = ""; for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(s); };
+
+/* ---------- app: ler / ver a foto da nota (POST ?nota=ler ou ?nota=ver, com o login do app) ---------- */
+export async function notaApp(d: Deps, acao: string, token: string, corpo: any): Promise<{ status: number; json: any }> {
+  const uid = token && d.usuario ? await d.usuario(token) : null;
+  if (!uid) return { status: 401, json: { erro: "Entre de novo no app." } };
+  const fazenda = String(corpo?.fazenda || "");
+  const { data: m } = await d.db.from("membros").select("user_id").eq("fazenda_id", fazenda).eq("user_id", uid).maybeSingle();
+  if (!m) return { status: 403, json: { erro: "Você não é sócio desta fazenda." } };
+  if (acao === "ver") {
+    const caminho = String(corpo?.caminho || "");
+    if (!caminho.startsWith(fazenda + "/") || caminho.includes("..")) return { status: 400, json: { erro: "Nota inválida." } };
+    const url = d.link ? await d.link(caminho) : null;
+    return url ? { status: 200, json: { url } } : { status: 404, json: { erro: "Não achei a foto." } };
+  }
+  if (acao !== "ler") return { status: 400, json: { erro: "?" } };
+  const tipo = String(corpo?.tipo || "image/jpeg"), dados = String(corpo?.imagem || "");
+  if (!EXT[tipo] || !dados || dados.length > 12_000_000) return { status: 400, json: { erro: "Foto inválida ou grande demais." } };
+  const bytes = Uint8Array.from(atob(dados), (c) => c.charCodeAt(0));
+  const caminho = await guardaNota(d, fazenda, bytes, tipo);
+  if (!corpo?.ler) return caminho ? { status: 200, json: { caminho } } : { status: 500, json: { erro: "Não consegui guardar a foto." } };
+  const L = await d.le([
+    tipo === "application/pdf" ? { type: "document", source: { type: "base64", media_type: tipo, data: dados } }
+      : { type: "image", source: { type: "base64", media_type: tipo, data: dados } },
+    { type: "text", text: `Hoje é ${hojeMT()}.\n(foto de nota tirada no app: é um custo)` },
+  ]);
+  const leitura = L && L.tipo === "custo" && L.valor > 0 ? {
+    data: okData(L.data) && L.data <= hojeMT() ? L.data : "", valor: Math.round(L.valor * 100) / 100,
+    item: ITN[L.item] ? L.item : "outros", onde: ONDE[L.onde] ? L.onde : "geral", descricao: L.descricao || "",
+  } : null;
+  return { status: 200, json: { caminho, leitura, aviso: leitura ? "" : (L?.resposta || "Não consegui ler a nota. Preencha à mão.") } };
+}
+
 /* ---------- lançar ---------- */
-async function lancaCusto(d: Deps, chat: number, conta: any, quem: string, L: Leitura) {
+async function lancaCusto(d: Deps, chat: number, conta: any, quem: string, L: Leitura, nota = "") {
   const item = ITN[L.item] ? L.item : "outros", onde = ONDE[L.onde] ? L.onde : "geral";
   const data = okData(L.data) && L.data <= hojeMT() ? L.data : hojeMT();
   const id = crypto.randomUUID(), valor = Math.round(L.valor * 100) / 100;
   const dados = { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: L.descricao || "", centro: onde, loteId: "",
-    criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: "telegram" };
+    criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: "telegram", ...(nota ? { nota } : {}) };
   const { error } = await d.db.from("desembolsos").insert({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, valor, item, grupo: ITG[item],
     centro: onde, lote_id: null, tipo: "custeio", dados });
   if (error) { console.error("insert desembolsos", error); return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes."); }
   return responde(d, chat, `✅ Lancei: <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}` +
     (L.descricao ? `\n${esc(L.descricao)}` : "") + (okData(L.data) ? "" : "\n<i>A nota não tinha data: usei hoje.</i>") +
+    (nota ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
     "\nSe o setor estiver errado, toque nele abaixo.", botoesCusto(id, onde));
 }
 const nfBR = (v: number, c = 0) => v.toLocaleString("pt-BR", { maximumFractionDigits: c });
@@ -340,13 +384,15 @@ export async function trata(d: Deps, up: any) {
   const conteudo: any[] = [];
   const foto = msg.photo?.length ? msg.photo[msg.photo.length - 1] : null;
   const doc = msg.document && /^(image\/(jpeg|png|webp|gif)|application\/pdf)$/.test(msg.document.mime_type || "") ? msg.document : null;
+  let arquivo: Uint8Array | null = null, tipoArq = "";
   if (foto || doc) {
     const f = await d.tg("getFile", { file_id: (foto || doc).file_id });
     if (!f?.ok) return responde(d, chat, "Não consegui baixar o arquivo. Tente mandar de novo.");
-    const b64 = btoa(Array.from(await d.baixa(f.result.file_path), (b) => String.fromCharCode(b)).join(""));
-    const tipo = doc ? doc.mime_type : "image/jpeg";
-    conteudo.push(tipo === "application/pdf" ? { type: "document", source: { type: "base64", media_type: tipo, data: b64 } }
-      : { type: "image", source: { type: "base64", media_type: tipo, data: b64 } });
+    arquivo = await d.baixa(f.result.file_path);
+    tipoArq = doc ? doc.mime_type : "image/jpeg";
+    const dados = b64(arquivo);
+    conteudo.push(tipoArq === "application/pdf" ? { type: "document", source: { type: "base64", media_type: tipoArq, data: dados } }
+      : { type: "image", source: { type: "base64", media_type: tipoArq, data: dados } });
   } else if (msg.voice || msg.audio) {
     return responde(d, chat, "Ainda não entendo áudio. Mande por escrito ou a foto da nota.");
   } else if (!texto) {
@@ -359,7 +405,7 @@ export async function trata(d: Deps, up: any) {
   if (L.tipo === "pergunta" && texto) return respondePergunta(d, chat, conta, texto);
   if (L.tipo === "rebanho" && L.movimentos?.length) return lancaRebanho(d, chat, conta, quem, L.movimentos);
   if (L.tipo === "anotacao" && L.anotacao.trim()) return lancaNota(d, chat, conta, quem, L.anotacao);
-  if (L.tipo === "custo" && L.valor > 0) return lancaCusto(d, chat, conta, quem, L);
+  if (L.tipo === "custo" && L.valor > 0) return lancaCusto(d, chat, conta, quem, L, arquivo ? await guardaNota(d, conta.fazenda_id, arquivo, tipoArq) : "");
   return responde(d, chat, esc(L.resposta || "Não entendi. Mande a foto da nota ou escreva o valor e o que foi comprado."));
 }
 
@@ -415,7 +461,25 @@ if (typeof Deno !== "undefined") {
       return null;
     }
   };
-  const deps: Deps = { token, tg, baixa, le, pensa, db };
+  // fotos das notas: pasta privada "notas" do Storage (criada na primeira vez); só a função lê e grava
+  const guarda = async (caminho: string, bytes: Uint8Array, tipo: string) => {
+    const sobe = () => db.storage.from("notas").upload(caminho, bytes, { contentType: tipo, upsert: false });
+    let { error } = await sobe();
+    if (error && /not.?found/i.test(error.message)) {
+      await db.storage.createBucket("notas", { public: false, fileSizeLimit: 10 * 1024 * 1024 });
+      ({ error } = await sobe());
+    }
+    if (error) console.error("guardar nota", error);
+    return !error;
+  };
+  const link = async (caminho: string) => {
+    const { data, error } = await db.storage.from("notas").createSignedUrl(caminho, 3600);
+    if (error) console.error("link nota", error);
+    return data?.signedUrl || null;
+  };
+  const usuario = async (jwt: string) => { const { data } = await db.auth.getUser(jwt); return data?.user?.id || null; };
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario };
+  const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
     const url = new URL(req.url), segredo = await segredoWebhook(token);
@@ -426,6 +490,16 @@ if (typeof Deno !== "undefined") {
       const r = await tg("setWebhook", { url: alvo, secret_token: segredo, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
       const eu = await tg("getMe", {});
       return new Response(r.ok ? `Robô @${eu.result?.username} ligado. Pode fechar esta página.` : "Erro: " + JSON.stringify(r), { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    if (url.searchParams.has("nota")) {
+      // chamado pelo app (formulário de custo): guarda a foto e, se pedido, lê a nota
+      if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+      let r = { status: 500, json: { erro: "Erro no servidor. Tente de novo." } as any };
+      try {
+        const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+        r = await notaApp(deps, url.searchParams.get("nota") || "", jwt, await req.json());
+      } catch (e) { console.error("nota", e); }
+      return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
     }
     if (url.searchParams.has("resumo")) {
       // chamado toda segunda pelo GitHub Actions; manda no máximo uma vez por semana

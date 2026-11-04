@@ -1286,7 +1286,7 @@ function renderFin(){
   </div>
 
   <div class="row-head"><h2>Lançamentos</h2></div>
-  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}${porTxt(x)}</span><span class="act"><button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
+  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}${porTxt(x)}</span><span class="act">${x.nota?`<button class="btn link" type="button" data-ver-nota="${esc(x.nota)}">📎 Nota</button> `:''}<button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
   <p class="note">Custeio é o gasto que se consome em menos de 12 meses. Investimento dura mais de 12 meses e vira patrimônio. Compra de boi não entra aqui: registre como compra no Rebanho, ela vai para a reposição.</p>
 
   <div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
@@ -1452,7 +1452,10 @@ const FORMS={
     <div data-show="compra" hidden>${fld('Valor total pago (R$), com frete e comissão','valorC','number','step="0.01" min="0"')}</div>
     ${fld('Observação','obs','text','placeholder="Comprador, causa da morte…"')}`},
   desembolso:{t:'Custo',d:'Um gasto da fazenda',html:o=>{const x=S.desemb.find(d=>d.id===o.edit)||{item:'peao',tipo:'custeio'}; const it=itemOf(x);
-    return `<div class="grid2">${fld('Data','data','date','required',x.data||today())}${fld('Valor (R$)','valor','number','step="0.01" min="0.01" required',x.valor)}</div>
+    return `${FID?`<div class="notafoto"><input type="file" id="notaArq" accept="image/*,application/pdf" hidden><input type="hidden" name="nota" value="${esc(x.nota||'')}">
+      <div class="btns"><button class="btn" type="button" data-nota-foto="ler">📷 Ler foto da nota</button><button class="btn link" type="button" data-nota-foto="anexar">📎 Só anexar a foto</button></div>
+      <p class="note" id="notaSt">${x.nota?`📎 Esta nota tem foto. <button class="btn link" type="button" data-ver-nota="${esc(x.nota)}">Ver foto</button>`:'"Ler" preenche o custo sozinho (uns 15 centavos de real, precisa de internet). "Só anexar" guarda a foto de graça.'}</p></div>`:''}
+    <div class="grid2">${fld('Data','data','date','required',x.data||today())}${fld('Valor (R$)','valor','number','step="0.01" min="0.01" required',x.valor)}</div>
     ${sel('Tipo de custo','item',ITENS.map(i=>[i[0],i[1]]),it)}
     ${sel('Onde entra','onde',ondeOpts(),o.edit?ondeVal(x):ondePadrao(it))}
     <div class="grid2">${sel('Tipo','tipo',[['custeio','Custeio (até 12 meses)'],['investimento','Investimento (mais de 12 meses)']],x.tipo)}${fld('Descrição','descricao','text','placeholder="Ex.: salário outubro"',x.descricao)}</div>
@@ -1609,7 +1612,8 @@ function wireForm(k,o,inline){
   if(k==='fornecimento'){ const upd=()=>{const i=S.insumos.find(x=>x.id===f.insumoId.value), c=fornCalc({insumoId:f.insumoId.value,qtd:f.qtd.value,cab:f.cab.value,dias:f.dias.value,peso:f.peso.value}); if(!ok(c.g)) return; const ms=metaSt(i,c);
       $('#calc').innerHTML=`${nf(c.kg)} kg · <b>${nf(c.g)} g/cab/dia</b>${ok(c.pv)?' · '+pct(c.pv,2)+' do peso vivo':''}${ok(c.rcd)?' · '+brl(c.rcd,2)+'/cab/dia':''}${ms?' · '+ST_TXT[ms]+' ('+metaTxt(i)+')':''}`;};
     f.addEventListener('input',upd); f.fase.addEventListener('change',()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===f.fase.value); if(last&&fCab(last,cs)){f.cab.value=fCab(last,cs); f.peso.value=Math.round(fKg(last,cs)/fCab(last,cs));} upd();}); }
-  if(k==='desembolso'){ const upd=()=>{$('#grpNote').textContent='Grupo do benchmark: '+(GN[ITG[f.item.value]]||'Outros');}; f.item.addEventListener('change',()=>{ if(!o.edit) f.onde.value=ondePadrao(f.item.value); upd();}); upd(); }
+  if(k==='desembolso'){ const upd=()=>{$('#grpNote').textContent='Grupo do benchmark: '+(GN[ITG[f.item.value]]||'Outros');}; f.item.addEventListener('change',()=>{ if(!o.edit) f.onde.value=ondePadrao(f.item.value); upd();}); upd();
+    const arq=f.querySelector('#notaArq'); if(arq) arq.addEventListener('change',()=>leFotoNota(f,arq)); }
   if(k==='custosMes') f.addEventListener('input',()=>{let t=0; ITENS.forEach(([k2])=>t+=Number(f['v_'+k2].value)||0); $('#calc').innerHTML='Total do mês: <b>'+brl(t,2)+'</b>';});
   if(k==='formulacao') f.tipo.addEventListener('change',()=>{$('#adaptPrev').innerHTML=adaptTabela(f.tipo.value);});
   if(k==='suplemento') f.tipo.addEventListener('change',()=>{const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
@@ -1629,7 +1633,7 @@ async function submitForm(f){
     if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
     if(v.tipo==='venda'){ d.precoArroba=N(v.precoArroba)||0; d.valor=N(v.valorV)||0; }
     if(v.tipo==='compra') d.valor=N(v.valorC)||0; await add(COL.movs,d); }
-  if(k==='desembolso'){ const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde)}; lembraOnde(v.item,v.onde);
+  if(k==='desembolso'){ const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde),...(v.nota?{nota:v.nota}:{})}; lembraOnde(v.item,v.onde);
     if(ed) await db.doc(COL.desemb+'/'+ed).update(d); else await add(COL.desemb,d); }
   if(k==='custosMes'){ const m=v.mes; if(!m) throw {code:'form'}; const dt=m===ym(today())?today():mEnd(m); let n=0;
     for(const [it] of ITENS){ const val=N(v['v_'+it]); lembraOnde(it,v['o_'+it]); if(val>0){ await add(COL.desemb,{data:dt,valor:val,item:it,grupo:ITG[it],tipo:'custeio',descricao:'',...parseOnde(v['o_'+it])}); n++; } }
@@ -1655,6 +1659,30 @@ async function submitForm(f){
 
 /* ---------- eventos ---------- */
 let toastT; function toast(m){clearTimeout(toastT);$('#toastRoot').innerHTML=`<div class="toast" role="status">${esc(m)}</div>`;toastT=setTimeout(()=>$('#toastRoot').innerHTML='',2800);}
+/* ---------- foto da nota: o servidor (função "telegram") guarda a foto e, se pedido, o Claude lê ---------- */
+const paraB64=b=>new Promise((ok,er)=>{const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=er; r.readAsDataURL(b);});
+async function fotoMenor(a){ /* foto de celular tem 3 a 5 MB: reduz para no máximo 1600 px (fica uns 300 KB e ainda dá para ler) */
+  if(a.type==='application/pdf') return {tipo:a.type,b64:await paraB64(a)};
+  try{ const img=await createImageBitmap(a), k=Math.min(1,1600/Math.max(img.width,img.height)), c=document.createElement('canvas');
+    c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',0.82)); if(bl) return {tipo:'image/jpeg',b64:await paraB64(bl)}; }catch(e){}
+  return {tipo:a.type||'image/jpeg',b64:await paraB64(a)}; }
+async function notaApi(acao,corpo){
+  const {data}=await sb.auth.getSession(), t=data&&data.session&&data.session.access_token; if(!t) throw new Error('Entre de novo no app.');
+  let r; try{ r=await fetch(SB_URL+'/functions/v1/telegram?nota='+acao,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fazenda:FID,...corpo})}); }
+  catch(e){ throw new Error('Sem internet. Tente de novo com sinal.'); }
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.erro||'Não deu certo. Tente de novo.'); return j; }
+async function leFotoNota(f,arq){
+  const a=arq.files&&arq.files[0]; if(!a) return; const ler=arq.dataset.modo==='ler', st=$('#notaSt'), bts=f.querySelectorAll('[data-nota-foto]');
+  DIRTY=true; /* não redesenha o formulário enquanto lê */ bts.forEach(x=>x.disabled=true); st.textContent=ler?'Lendo a nota… leva uns segundos.':'Guardando a foto…';
+  try{ const {tipo,b64}=await fotoMenor(a), j=await notaApi('ler',{imagem:b64,tipo,ler}); if(j.caminho) f.nota.value=j.caminho;
+    const ver=j.caminho?` <button class="btn link" type="button" data-ver-nota="${esc(j.caminho)}">Ver foto</button>`:'';
+    if(j.leitura){ const L=j.leitura; if(L.data) f.data.value=L.data; f.valor.value=L.valor; f.item.value=L.item; f.item.dispatchEvent(new Event('change'));
+      if(L.onde!=='geral') f.onde.value=L.onde; if(L.descricao) f.descricao.value=L.descricao;
+      st.innerHTML='✅ Preenchido pela foto'+(L.data?'':' (a nota não tinha data: confira)')+'. <b>Confira e toque em Salvar.</b>'+ver; }
+    else st.innerHTML=(ler?esc(j.aviso||'Não consegui ler.')+' ':'')+'📎 Foto anexada. Preencha e toque em Salvar.'+ver; }
+  catch(e){ st.textContent='Não deu certo: '+e.message; }
+  finally{ bts.forEach(x=>x.disabled=false); } }
 function dbErr(e){ if(e?.code==='form') return toast(e.msg||'Confira os campos do formulário.'); if(e?.code==='invalid_argument'){writable=false;setStatus();toast('Você não tem permissão para salvar aqui.');} else if(e?.code==='quota_exceeded') toast('Limite de registros atingido. Apague registros antigos.'); else toast('Não foi possível salvar. Tente de novo.'); }
 document.addEventListener('click',async e=>{
   const b=e.target.closest('button,[data-close]'); if(!b) return; if(b.matches('.sheet-bg')&&e.target!==b) return;
@@ -1667,6 +1695,10 @@ document.addEventListener('click',async e=>{
   if(b.hasAttribute('data-instalar')){ closeSheet(); if(PEDE_INST){ PEDE_INST.prompt(); PEDE_INST=null; } return; }
   if(b.hasAttribute('data-exportar')){ closeSheet(); return exportaExcel(); }
   if(b.hasAttribute('data-repete')) return repeteMes();
+  if(b.dataset.notaFoto){ if(!navigator.onLine) return toast('Sem internet: lance à mão e anexe a foto depois, em Editar.'); const inp=$('#notaArq'); if(!inp) return; inp.dataset.modo=b.dataset.notaFoto; inp.value=''; inp.click(); return; }
+  if(b.dataset.verNota){ const w=window.open('','_blank');
+    try{ const j=await notaApi('ver',{caminho:b.dataset.verNota}); if(w) w.location.href=j.url; else location.href=j.url; }
+    catch(x){ if(w) w.close(); toast(navigator.onLine?x.message:'Sem internet para abrir a foto.'); } return; }
   if(b.hasAttribute('data-ajustes')){ showTab('painel'); setTimeout(()=>document.getElementById('ajustes')?.scrollIntoView({block:'start'}),50); return; }
   if(b.dataset.simFill) return simFill(b.dataset.simFill);
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
