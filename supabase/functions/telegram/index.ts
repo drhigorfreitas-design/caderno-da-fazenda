@@ -42,8 +42,9 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "resposta"],
+  required: ["tipo", "retiro", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "resposta"],
   properties: {
+    retiro: { type: "string", description: "nome do retiro se a mensagem disser de qual é (ex.: 'Santa Helena'); senão vazio" },
     tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
     custos: {
       type: "array", description: "um item por gasto; vazio se não houver",
@@ -131,6 +132,7 @@ resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por 
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
 "onde": cria, recria ou engorda só se a mensagem disser claramente o setor; senão "geral" (fazenda toda).
+retiro: a fazenda é dividida em retiros (os nomes vêm junto da mensagem), cada um com seu gado e suas contas. Preencha só se a mensagem disser de qual retiro é; senão deixe vazio (o sistema usa o retiro de quem mandou).
 Responda só com o JSON pedido.`;
 
 export type Mov = { mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
@@ -138,7 +140,7 @@ export type Custo = { data: string; valor: number; item: string; onde: string; d
 export type Lembrete = { data: string; texto: string };
 export type Alerta = { direcao: string; valor: number };
 export type Pesagem = { data: string; lote: string; cab: number; peso_medio: number };
-export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; resposta?: string };
+export type Leitura = { tipo: string; retiro?: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -160,10 +162,24 @@ export type Deps = {
 const responde = (d: Deps, chat: number, texto: string, extra: Record<string, unknown> = {}) =>
   d.tg("sendMessage", { chat_id: chat, text: texto, parse_mode: "HTML", ...extra });
 const esc = (s: string) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
-// botões: trocar o setor (só quando a mensagem lançou um custo só) e desfazer tudo o que a mensagem lançou
-const botoes = (base: string, custoId = "", onde = "") => ({
+/* ---------- retiros: cada um tem o seu gado e as suas contas (config.dados.retiros; os mesmos padrões do app) ---------- */
+export type Retiro = { id: string; nome: string; donos?: string[] };
+const RET_PADRAO: Retiro[] = [{ id: "sh", nome: "Santa Helena", donos: [] }, { id: "sf", nome: "Santa Faustina", donos: [] }];
+export const retirosDe = (D: any): Retiro[] => (Array.isArray(D?.retiros) ? D.retiros : RET_PADRAO);
+const semAcento = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+// retiro citado na mensagem ou, se não citou, o do dono que mandou
+export function qualRetiro(rets: Retiro[], citado: string, uid: string) {
+  const c = semAcento(citado).replace(/^retiro\s+/, "");
+  if (c) { const r = rets.find((r) => semAcento(r.nome) === c || semAcento(r.nome).includes(c) || c.includes(semAcento(r.nome))); if (r) return r.id; }
+  return (rets.find((r) => (r.donos || []).includes(uid)) || {} as Retiro).id || "";
+}
+const LINHA_RET = "🏠 Retiro: ";
+const linhaRet = (rets: Retiro[], ret: string) => ret ? `${LINHA_RET}<b>${esc(rets.find((r) => r.id === ret)?.nome || "?")}</b>` : `${LINHA_RET}<b>sem retiro</b> ⚠️ toque no retiro abaixo`;
+// botões: trocar o setor (só quando a mensagem lançou um custo só), trocar o retiro e desfazer tudo o que a mensagem lançou
+const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret = "") => ({
   reply_markup: { inline_keyboard: [
     ...(custoId ? [Object.keys(ONDE).map((k) => ({ text: (k === onde ? "• " : "") + ONDE[k], callback_data: `onde:${custoId}:${k}` }))] : []),
+    ...(rets.length ? [rets.map((r) => ({ text: (r.id === ret ? "• " : "") + r.nome, callback_data: `ret:${base}:${r.id}` }))] : []),
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
@@ -261,8 +277,9 @@ async function mudaCfg(d: Deps, faz: string, fn: (dados: any) => any) {
 export const loteK = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
   .replace(/^(o|a)\s+/, "").replace(/^lote\s+(da|do|de|das|dos)\s+/, "").replace(/\s+/g, " ").trim();
 // pesagem anterior do mesmo lote (antes da data)
-const anterior = (lista: any[], lote: string, data: string) =>
-  lista.filter((p) => loteK(p.lote) === loteK(lote) && p.data < data).sort((a, b) => (a.data < b.data ? -1 : 1)).pop() || null;
+// (com retiro: só as pesagens do mesmo retiro, porque o mesmo nome de lote pode existir nos dois)
+const anterior = (lista: any[], lote: string, data: string, retiro?: string) =>
+  lista.filter((p) => loteK(p.lote) === loteK(lote) && p.data < data && (retiro === undefined || (p.retiro || "") === (retiro || ""))).sort((a, b) => (a.data < b.data ? -1 : 1)).pop() || null;
 const dias = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
 const LIMPA_ENVIADOS = 60; // dias que um lembrete já avisado fica guardado
 
@@ -275,6 +292,10 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   const hoje = hojeMT(), base = crypto.randomUUID(), criadoEm = new Date().toISOString();
   const autor = { criadoEm, porId: conta.user_id, por: quem, origem: "telegram" };
   const txt: string[] = [], avisos: string[] = [];
+  const cfgD = (await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle()).data?.dados || {};
+  const kgA = Number(cfgD.kgArroba) || 30;
+  // retiro: o citado na mensagem ou o de quem mandou; sem nenhum, lança e pede para tocar no retiro
+  const rets = retirosDe(cfgD), ret = rets.length ? qualRetiro(rets, L.retiro || "", conta.user_id) : "", RT = ret ? { retiro: ret } : {};
 
   // custos
   const custos: any[] = [];
@@ -286,15 +307,12 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!okData(c.data) && nota) avisos.push("A nota não tinha data: usei hoje.");
     const id = `${base}-c${custos.length + 1}`;
     custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, valor, item, grupo: ITG[item], centro: onde, lote_id: null, tipo: "custeio",
-      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
+      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...RT, ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
     txt.push(`💸 <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}${c.descricao ? `\n   <i>${esc(c.descricao)}</i>` : ""}`);
   }
 
   // movimentos do rebanho
   const movs: any[] = [];
-  const precisaCfg = !!(L.movimentos?.length || L.pesagens?.length);
-  const cfgD = precisaCfg ? (await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle()).data?.dados || {} : {};
-  const kgA = Number(cfgD.kgArroba) || 30;
   if (L.movimentos?.length) {
     for (const m of L.movimentos) {
       const cab = Math.round(Number(m.cab) || 0);
@@ -313,7 +331,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       if (m.mov === "compra") valor = Number(m.valor) > 0 ? +m.valor : 0;
       if (valor != null) x.valor = Math.round(valor * 100) / 100;
       movs.push({ id: `${base}-m${movs.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab,
-        valor: valor == null ? null : x.valor, dados: { ...x, ...autor } });
+        valor: valor == null ? null : x.valor, dados: { ...x, ...RT, ...autor } });
       txt.push(`🐄 <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
         ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
     }
@@ -352,16 +370,16 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     const peso = Math.round((Number(p.peso_medio) || 0) * 10) / 10, lote = String(p.lote || "").trim().toLowerCase();
     if (peso <= 0 || !lote) continue;
     const data = okData(p.data) && p.data <= hoje ? p.data : hoje, cab = Math.max(0, Math.round(Number(p.cab) || 0));
-    const novo = { id: `${base}-p${pes.length + 1}`, data, lote, cab, peso, porId: conta.user_id, por: quem, criadoEm };
+    const novo = { id: `${base}-p${pes.length + 1}`, data, lote, cab, peso, ...RT, porId: conta.user_id, por: quem, criadoEm };
     let linha = `⚖️ <b>Pesagem</b> · ${esc(lote)} · ${cab ? nfBR(cab) + " cab. · " : ""}${nfBR(peso, 1)} kg · ${dBR(data)}`;
-    const ant = anterior([...(cfgD.pesagens || []), ...pes], lote, data);
+    const ant = anterior([...(cfgD.pesagens || []), ...pes], lote, data, rets.length ? ret : undefined);
     if (ant) {
       const n = dias(ant.data, data), gmd = (peso - ant.peso) / n;
       linha += `\n   GMD <b>${gmd.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg/dia</b> em ${n} dias (eram ${nfBR(ant.peso, 1)} kg em ${dBR(ant.data)})`;
       const setor = loteK(lote), nc = cab || ant.cab;
       if (ONDE[setor] && setor !== "geral" && gmd > 0 && nc) {
         const gasto = (await todos(d, "desembolsos", conta.fazenda_id, somaDias(ant.data, 1)))
-          .filter((x) => x.data <= data && x.centro === setor && x.tipo !== "investimento").reduce((s, x) => s + (Number(x.valor) || 0), 0);
+          .filter((x) => x.data <= data && x.centro === setor && x.tipo !== "investimento" && (!rets.length || (x.retiro || "") === ret)).reduce((s, x) => s + (Number(x.valor) || 0), 0);
         const arr = nc * (peso - ant.peso) / kgA;
         if (gasto > 0) linha += `\n   Custo da @ produzida: <b>${brl(gasto / arr)}</b> (${brl(gasto)} lançados na ${ONDE[setor]} ÷ ${nfBR(arr, 1)} @)`;
       }
@@ -404,14 +422,14 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
   }
 
-  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length;
-  const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
+  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0;
+  const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${temRet ? linhaRet(rets, ret) + "\n" : ""}${txt.join("\n")}` : "") +
     (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
     (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
     (avisos.length ? `\n<i>${esc([...new Set(avisos)].join(" "))}</i>` : "") +
     (L.resposta ? `\n⚠️ ${esc(L.resposta)}` : "") +
     (custos.length === 1 && tot === 1 ? "\nSe o setor estiver errado, toque nele abaixo." : "");
-  return responde(d, chat, msg, botoes(base, custos.length === 1 && tot === 1 ? custos[0].id : "", custos[0]?.centro));
+  return responde(d, chat, msg, botoes(base, custos.length === 1 && tot === 1 ? custos[0].id : "", custos[0]?.centro, temRet ? rets : [], ret));
 }
 
 /* ---------- dados da fazenda (para o resumo e as perguntas) ---------- */
@@ -444,6 +462,35 @@ function rebanhoHoje(fechs: any[], movs: any[]) {
   return { mes: base.mes, cats, total: Object.values(cats).reduce((a, b) => a + b, 0) };
 }
 
+/* ---------- grupos dos resumos: um por retiro (e "sem retiro" para lançamentos de antes da divisão) ---------- */
+type Grupo = { nome: string; sem?: boolean; f: (x: any) => boolean };
+function grupos(rets: Retiro[], ...listas: any[][]): Grupo[] {
+  if (!rets.length) return [{ nome: "", f: () => true }];
+  const ids = new Set(rets.map((r) => r.id));
+  const G: Grupo[] = rets.map((r) => ({ nome: r.nome, f: (x: any) => x.retiro === r.id }));
+  if (listas.some((l) => l.some((x) => !ids.has(x.retiro)))) G.push({ nome: "Sem retiro (lançamentos antigos)", sem: true, f: (x: any) => !ids.has(x.retiro) });
+  return G;
+}
+const tituloG = (g: Grupo) => (g.nome ? `🏠 <b>${esc(g.sem ? g.nome : "Retiro " + g.nome)}</b>\n` : "");
+const somaV = (a: any[]) => a.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+// "5 nascimentos · 1 morte · 20 vendidos (R$ ...)"
+function rebTxt(movs: any[], comValor: boolean) {
+  const cab = (t: string) => movs.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.cab) || 0), 0);
+  const val = (t: string) => somaV(movs.filter((x) => x.tipo === t));
+  return [
+    cab("nascimento") && `${nfBR(cab("nascimento"))} ${cab("nascimento") === 1 ? "nascimento" : "nascimentos"}`,
+    cab("morte") && `${nfBR(cab("morte"))} ${cab("morte") === 1 ? "morte" : "mortes"}`,
+    cab("venda") && `${nfBR(cab("venda"))} vendidos${comValor && val("venda") ? ` (${brl(val("venda"))})` : ""}`,
+    cab("compra") && `${nfBR(cab("compra"))} comprados${comValor && val("compra") ? ` (${brl(val("compra"))})` : ""}`,
+    cab("transferencia") && `${nfBR(cab("transferencia"))} mudaram de categoria`,
+  ].filter(Boolean).join(" · ");
+}
+const topItens = (gastos: any[], n: number) => {
+  const p: Record<string, number> = {};
+  gastos.forEach((x) => (p[x.item] = (p[x.item] || 0) + (Number(x.valor) || 0)));
+  return Object.entries(p).sort((a, b) => b[1] - a[1]).slice(0, n);
+};
+
 /* ---------- resumo semanal (GitHub Actions chama ?resumo=1 toda segunda) ---------- */
 export async function resumoSemanal(d: Deps) {
   const hoje = hojeMT(), dow = new Date(hoje + "T12:00:00Z").getUTCDay();
@@ -458,31 +505,100 @@ export async function resumoSemanal(d: Deps) {
   let n = 0;
   for (const [faz, chats] of Object.entries(porFaz)) {
     const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", faz).maybeSingle();
+    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
     const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz);
     const semana = movs.filter((x) => x.data >= ini && x.data <= fim);
     const gastos = (await todos(d, "desembolsos", faz, ini)).filter((x) => x.data <= fim);
-    const cab = (t: string) => semana.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.cab) || 0), 0);
-    const val = (t: string) => semana.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.valor) || 0), 0);
-    const reb = [
-      cab("nascimento") && `${nfBR(cab("nascimento"))} ${cab("nascimento") === 1 ? "nascimento" : "nascimentos"}`,
-      cab("morte") && `${nfBR(cab("morte"))} ${cab("morte") === 1 ? "morte" : "mortes"}`,
-      cab("venda") && `${nfBR(cab("venda"))} vendidos${val("venda") ? ` (${brl(val("venda"))})` : ""}`,
-      cab("compra") && `${nfBR(cab("compra"))} comprados${val("compra") ? ` (${brl(val("compra"))})` : ""}`,
-      cab("transferencia") && `${nfBR(cab("transferencia"))} mudaram de categoria`,
-    ].filter(Boolean);
-    const tot = gastos.reduce((a, x) => a + (Number(x.valor) || 0), 0), porItem: Record<string, number> = {};
-    gastos.forEach((x) => (porItem[x.item] = (porItem[x.item] || 0) + (Number(x.valor) || 0)));
-    const top = Object.entries(porItem).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${ITN[k] || "Outros"} ${brl(v)}`);
-    const R = rebanhoHoje(fechs, movs);
+    const blocos: string[] = [];
+    let cabHoje = 0, temReb = false;
+    for (const g of grupos(retirosDe(cfg?.dados), semana, gastos, fechs, movs)) {
+      const sm = semana.filter(g.f), gs = gastos.filter(g.f), R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+      if (R) { cabHoje += R.total; temReb = true; }
+      if (g.nome && !sm.length && !gs.length && !R) continue; // retiro sem nada lançado ainda
+      const tot = somaV(gs), top = topItens(gs, 3).map(([k, v]) => `${ITN[k] || "Outros"} ${brl(v)}`), reb = rebTxt(sm, true);
+      blocos.push(tituloG(g) +
+        `🐄 <b>Rebanho:</b> ${reb || "nenhum movimento lançado"}\n` +
+        `💸 <b>Custos:</b> ${tot ? brl(tot) + (top.length ? `\n   ${esc(top.join(" · "))}` : "") : "nenhum custo lançado"}` +
+        (R ? `\n🐮 <b>Rebanho hoje:</b> ${nfBR(R.total)} cabeças` : ""));
+    }
+    if (!blocos.length) blocos.push("🐄 <b>Rebanho:</b> nenhum movimento lançado\n💸 <b>Custos:</b> nenhum custo lançado");
     const txt = `📊 <b>Resumo da semana</b> · ${dBR(ini).slice(0, 5)} a ${dBR(fim)}${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
-      `🐄 <b>Rebanho:</b> ${reb.length ? reb.join(" · ") : "nenhum movimento lançado"}\n` +
-      `💸 <b>Custos:</b> ${tot ? brl(tot) + (top.length ? `\n   ${esc(top.join(" · "))}` : "") : "nenhum custo lançado"}\n` +
-      (R ? `\n<b>Rebanho hoje:</b> ${nfBR(R.total)} cabeças\n<i>Fechamento de ${MESF[+R.mes.slice(5) - 1]} + movimentos lançados depois.</i>` : "") +
+      blocos.join("\n\n") +
+      (blocos.length > 1 ? `\n\n📊 <b>Fazenda toda:</b> custos ${brl(somaV(gastos))}${temReb ? ` · ${nfBR(cabHoje)} cabeças hoje` : ""}` : "") +
+      (temReb ? `\n<i>Rebanho hoje = último fechamento do mês + movimentos lançados depois.</i>` : "") +
       `\n\nPergunte o que quiser, ex.: <i>quantas vacas eu tenho?</i>`;
     for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
     try { await mandaBackup(d, faz, chats, fz?.nome || ""); } catch (e) { console.error("backup semanal", e); }
   }
   return `enviado para ${n} conversa(s)`;
+}
+
+/* ---------- relatório mensal: todo dia 1º, sobre o mês que acabou (vem junto da chamada ?avisos=1 das 7h) ---------- */
+const pctTxt = (a: number, b: number) => { if (!b) return ""; const p = (a / b - 1) * 100; return `${p >= 0 ? "+" : ""}${p.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`; };
+const gmdTxt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+// so: manda só para uma conversa, na hora (comando "relatório"), sem esperar o dia 1º
+export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number }) {
+  const hoje = hojeMT(), forcar = !!so;
+  if (hoje.slice(8) !== "01" && !forcar) return "só no dia 1º";
+  const ini = somaDias(hoje.slice(0, 7) + "-01", -1).slice(0, 7) + "-01", mes = ini.slice(0, 7), fim = somaDias(hoje.slice(0, 7) + "-01", -1);
+  const iniAnt = somaDias(ini, -1).slice(0, 7) + "-01", nomeMes = MESF[+mes.slice(5) - 1], nomeAnt = MESF[+iniAnt.slice(5, 7) - 1];
+  // uma vez por mês: se alguém chamar de novo, não manda repetido
+  if (!forcar) { const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -Number(mes.replace("-", "")) }); if (ja) return "já enviado"; }
+  const porFaz: Record<string, number[]> = {};
+  if (so) porFaz[so.faz] = [so.chat];
+  else ((await d.db.from("telegram_contas").select("chat_id,fazenda_id")).data || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
+  let n = 0;
+  for (const [faz, chats] of Object.entries(porFaz)) {
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", faz).maybeSingle();
+    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+    const D = cfg?.dados || {}, rets = retirosDe(D);
+    const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz);
+    const doMes = movs.filter((x) => x.data >= ini && x.data <= fim);
+    const gastosT = (await todos(d, "desembolsos", faz, iniAnt)).filter((x) => x.data <= fim);
+    const gastos = gastosT.filter((x) => x.data >= ini), gastosAnt = gastosT.filter((x) => x.data < ini);
+    const P = D.pesagens || [], Pm = P.filter((p: any) => p.data >= ini && p.data <= fim);
+    const blocos: string[] = [], faltaFech: string[] = [];
+    let cabHoje = 0, temReb = false;
+    for (const g of grupos(rets, doMes, gastosT, fechs, movs, Pm)) {
+      const dm = doMes.filter(g.f), gs = gastos.filter(g.f), ga = gastosAnt.filter(g.f), R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+      const pg = Pm.filter(g.f).sort((a: any, b: any) => (a.data < b.data ? -1 : 1));
+      if (R) { cabHoje += R.total; temReb = true; }
+      if (!g.sem && !fechs.some((f) => f.mes === mes && g.f(f))) faltaFech.push(g.nome);
+      if (g.nome && !dm.length && !gs.length && !R && !pg.length) continue; // retiro sem nada lançado ainda
+      const tot = somaV(gs), totAnt = somaV(ga), invest = somaV(gs.filter((x) => x.tipo === "investimento"));
+      const porSetor: Record<string, number> = {};
+      gs.forEach((x) => { const s = ONDE[x.centro] ? x.centro : "geral"; porSetor[s] = (porSetor[s] || 0) + (Number(x.valor) || 0); });
+      const top = topItens(gs, 5).map(([k, v]) => `   • ${esc(ITN[k] || "Outros")}: ${brl(v)} (${(v / tot * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%)`);
+      const setores = Object.keys(ONDE).filter((k) => porSetor[k]).map((k) => `${ONDE[k]} ${brl(porSetor[k])}`);
+      const vendas = somaV(dm.filter((x) => x.tipo === "venda")), compras = somaV(dm.filter((x) => x.tipo === "compra")), saldo = vendas - compras - tot;
+      const pes = pg.map((p: any) => {
+        const a = anterior(P, p.lote, p.data, rets.length ? p.retiro || "" : undefined), nd = a ? dias(a.data, p.data) : 0;
+        return `   • ${esc(p.lote)}: ${nfBR(p.peso, 1)} kg em ${dBR(p.data).slice(0, 5)}` + (a && nd ? ` · GMD ${gmdTxt((p.peso - a.peso) / nd)} kg/dia` : "");
+      });
+      blocos.push(tituloG(g) +
+        `🐄 <b>Rebanho no mês:</b> ${rebTxt(dm, false) || "nenhum movimento lançado"}\n` +
+        (R ? `   Hoje: <b>${nfBR(R.total)} cabeças</b>\n` : "") +
+        `💸 <b>Custos: ${brl(tot)}</b>` + (totAnt ? ` (${pctTxt(tot, totAnt)} sobre ${nomeAnt})` : "") + "\n" +
+        (top.length ? top.join("\n") + "\n" : "") +
+        (setores.length > 1 || (setores.length === 1 && !porSetor.geral) ? `   Por setor: ${setores.join(" · ")}\n` : "") +
+        (invest ? `   Desse total, ${brl(invest)} foram investimento.\n` : "") +
+        (vendas || compras ? `💰 <b>Gado:</b>${vendas ? ` vendas ${brl(vendas)}` : ""}${vendas && compras ? " ·" : ""}${compras ? ` compras ${brl(compras)}` : ""}\n` +
+          `   Vendas − compras − custos: <b>${brl(saldo)}</b>\n` : "") +
+        (pes.length ? `⚖️ <b>Pesagens</b>\n${pes.join("\n")}\n` : ""));
+    }
+    if (!blocos.length) blocos.push(`🐄 <b>Rebanho no mês:</b> nenhum movimento lançado\n💸 <b>Custos: ${brl(0)}</b>\n`);
+    const totM = somaV(gastos), vendM = somaV(doMes.filter((x) => x.tipo === "venda")), compM = somaV(doMes.filter((x) => x.tipo === "compra"));
+    const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
+      .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
+    const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
+      blocos.join("\n") +
+      (blocos.length > 1 ? `\n📊 <b>Fazenda toda:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${temReb ? ` · ${nfBR(cabHoje)} cabeças hoje` : ""}\n` : "") +
+      (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
+      (faltaFech.length ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app${faltaFech[0] ? ` (${esc(faltaFech.join(" e "))})` : ""}: contar o gado e o peso de cada categoria. Com ele saem produção, GMD e lotação do mês.\n` : "") +
+      `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
+    for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
+  }
+  return `relatório mensal enviado para ${n} conversa(s)`;
 }
 
 /* ---------- backup: todos os dados da fazenda num arquivo, pelo Telegram ---------- */
@@ -514,72 +630,6 @@ async function mandaBackup(d: Deps, faz: string, chats: number[], nomeFaz: strin
   let n = 0;
   for (const chat of chats) { const r = await d.envia(chat, `backup-${slug}-${hoje}.json`, bytes, legenda); if (r?.ok !== false) n++; }
   return n;
-}
-
-/* ---------- relatório mensal: todo dia 1º, sobre o mês que acabou (vem junto da chamada ?avisos=1 das 7h) ---------- */
-const pctTxt = (a: number, b: number) => { if (!b) return ""; const p = (a / b - 1) * 100; return `${p >= 0 ? "+" : ""}${p.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`; };
-// so: manda só para uma conversa, na hora (comando "relatório"), sem esperar o dia 1º
-export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number }) {
-  const hoje = hojeMT(), forcar = !!so;
-  if (hoje.slice(8) !== "01" && !forcar) return "só no dia 1º";
-  const ini = somaDias(hoje.slice(0, 7) + "-01", -1).slice(0, 7) + "-01", mes = ini.slice(0, 7), fim = somaDias(hoje.slice(0, 7) + "-01", -1);
-  const iniAnt = somaDias(ini, -1).slice(0, 7) + "-01", nomeMes = MESF[+mes.slice(5) - 1], nomeAnt = MESF[+iniAnt.slice(5, 7) - 1];
-  // uma vez por mês: se alguém chamar de novo, não manda repetido
-  if (!forcar) { const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -Number(mes.replace("-", "")) }); if (ja) return "já enviado"; }
-  const porFaz: Record<string, number[]> = {};
-  if (so) porFaz[so.faz] = [so.chat];
-  else ((await d.db.from("telegram_contas").select("chat_id,fazenda_id")).data || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
-  let n = 0;
-  for (const [faz, chats] of Object.entries(porFaz)) {
-    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", faz).maybeSingle();
-    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
-    const D = cfg?.dados || {};
-    const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz);
-    const doMes = movs.filter((x) => x.data >= ini && x.data <= fim);
-    const gastosT = (await todos(d, "desembolsos", faz, iniAnt)).filter((x) => x.data <= fim);
-    const gastos = gastosT.filter((x) => x.data >= ini), gastosAnt = gastosT.filter((x) => x.data < ini);
-    const soma = (a: any[]) => a.reduce((s, x) => s + (Number(x.valor) || 0), 0);
-    const cab = (t: string) => doMes.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.cab) || 0), 0);
-    const val = (t: string) => soma(doMes.filter((x) => x.tipo === t));
-    const reb = [
-      cab("nascimento") && `${nfBR(cab("nascimento"))} ${cab("nascimento") === 1 ? "nascimento" : "nascimentos"}`,
-      cab("morte") && `${nfBR(cab("morte"))} ${cab("morte") === 1 ? "morte" : "mortes"}`,
-      cab("venda") && `${nfBR(cab("venda"))} vendidos`,
-      cab("compra") && `${nfBR(cab("compra"))} comprados`,
-      cab("transferencia") && `${nfBR(cab("transferencia"))} mudaram de categoria`,
-    ].filter(Boolean);
-    const tot = soma(gastos), totAnt = soma(gastosAnt), invest = soma(gastos.filter((x) => x.tipo === "investimento"));
-    const porItem: Record<string, number> = {}, porSetor: Record<string, number> = {};
-    gastos.forEach((x) => { porItem[x.item] = (porItem[x.item] || 0) + (Number(x.valor) || 0); const s = ONDE[x.centro] ? x.centro : "geral"; porSetor[s] = (porSetor[s] || 0) + (Number(x.valor) || 0); });
-    const top = Object.entries(porItem).sort((a, b) => b[1] - a[1]).slice(0, 5)
-      .map(([k, v]) => `   • ${esc(ITN[k] || "Outros")}: ${brl(v)} (${(v / tot * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%)`);
-    const setores = Object.keys(ONDE).filter((k) => porSetor[k]).map((k) => `${ONDE[k]} ${brl(porSetor[k])}`);
-    const vendas = val("venda"), compras = val("compra"), saldo = vendas - compras - tot;
-    // pesagens do mês, com o ganho desde a anterior do mesmo lote
-    const P = D.pesagens || [];
-    const pes = P.filter((p: any) => p.data >= ini && p.data <= fim).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)).map((p: any) => {
-      const a = anterior(P, p.lote, p.data), nd = a ? dias(a.data, p.data) : 0;
-      return `   • ${esc(p.lote)}: ${nfBR(p.peso, 1)} kg em ${dBR(p.data).slice(0, 5)}` + (a && nd ? ` · GMD ${((p.peso - a.peso) / nd).toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg/dia` : "");
-    });
-    const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
-      .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
-    const R = rebanhoHoje(fechs, movs), temFech = fechs.some((f) => f.mes === mes);
-    const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
-      `🐄 <b>Rebanho no mês:</b> ${reb.length ? reb.join(" · ") : "nenhum movimento lançado"}\n` +
-      (R ? `   Hoje: <b>${nfBR(R.total)} cabeças</b>\n` : "") +
-      `\n💸 <b>Custos: ${brl(tot)}</b>` + (totAnt ? ` (${pctTxt(tot, totAnt)} sobre ${nomeAnt})` : "") + "\n" +
-      (top.length ? top.join("\n") + "\n" : "") +
-      (setores.length > 1 || (setores.length === 1 && !porSetor.geral) ? `   Por setor: ${setores.join(" · ")}\n` : "") +
-      (invest ? `   Desse total, ${brl(invest)} foram investimento.\n` : "") +
-      (vendas || compras ? `\n💰 <b>Gado:</b>${vendas ? ` vendas ${brl(vendas)}` : ""}${vendas && compras ? " ·" : ""}${compras ? ` compras ${brl(compras)}` : ""}\n` +
-        `   Vendas − compras − custos: <b>${brl(saldo)}</b>\n` : "") +
-      (pes.length ? `\n⚖️ <b>Pesagens</b>\n${pes.join("\n")}\n` : "") +
-      (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
-      (!temFech ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app (contar o gado e o peso de cada categoria). Com ele saem produção, GMD e lotação do mês.\n` : "") +
-      `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
-    for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
-  }
-  return `relatório mensal enviado para ${n} conversa(s)`;
 }
 
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
@@ -643,25 +693,35 @@ export async function contexto(d: Deps, faz: string) {
   const hoje = hojeMT(), desde = somaDias(hoje, -730);
   const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz), gastos = await todos(d, "desembolsos", faz, desde);
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
-  const R = rebanhoHoje(fechs, movs), notas = cfg?.dados?.notas || {};
+  const notas = cfg?.dados?.notas || {}, rets = retirosDe(cfg?.dados);
   const CN = (k: string) => CATS[k] || k || "";
+  // retiro de cada lançamento (a fazenda é dividida em retiros com donos e contas separados)
+  const RN = (x: any) => (rets.length ? rets.find((r) => r.id === x.retiro)?.nome || "sem retiro" : "");
+  const G = grupos(rets, fechs, movs);
+  const reb = G.map((g) => {
+    const R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+    const nome = g.nome ? `${g.sem ? "sem retiro" : "retiro " + g.nome}: ` : "";
+    return R ? `${nome}total ${R.total} cabeças (fechamento de ${R.mes} + movimentos depois); ` +
+      Object.entries(R.cats).filter(([, v]) => v).map(([k, v]) => `${CN(k)} ${v}`).join("; ") : `${nome}nenhum fechamento de mês lançado ainda`;
+  });
   const linhas = [
     `Hoje: ${hoje}. 1 @ = ${Number(cfg?.dados?.kgArroba) || 30} kg de peso vivo.`,
-    R ? `REBANHO HOJE (fechamento de ${R.mes} + movimentos depois): total ${R.total} cabeças; ` +
-      Object.entries(R.cats).filter(([, v]) => v).map(([k, v]) => `${CN(k)} ${v}`).join("; ") : "REBANHO HOJE: nenhum fechamento de mês lançado ainda.",
-    "FECHAMENTOS DO MÊS (mês: categoria cabeças/peso médio kg):",
-    ...[...fechs].sort((a, b) => (a.mes < b.mes ? -1 : 1)).slice(-13).map((f) => `${f.mes}: ` +
+    ...(rets.length ? [`RETIROS: a fazenda é dividida em ${rets.map((r) => r.nome).join(" e ")}, cada um com seu gado e suas contas (donos diferentes). Quando a pergunta não disser o retiro, responda separado por retiro e o total da fazenda.`] : []),
+    "REBANHO HOJE (somar os retiros para o total da fazenda):",
+    ...reb,
+    `FECHAMENTOS DO MÊS (${rets.length ? "retiro; " : ""}mês: categoria cabeças/peso médio kg):`,
+    ...[...fechs].sort((a, b) => (a.mes < b.mes ? -1 : 1)).slice(-26).map((f) => (rets.length ? RN(f) + "; " : "") + `${f.mes}: ` +
       Object.entries(f.cats || {}).map(([k, v]: any) => `${CN(k)} ${v.cab}/${v.peso || "?"}kg`).join("; ")),
-    "MOVIMENTOS (data;tipo;categoria;para;cabeças;peso médio kg;valor R$;obs;quem):",
+    "MOVIMENTOS (data;tipo;categoria;para;cabeças;peso médio kg;valor R$;obs;quem;retiro):",
     ...movs.filter((x) => x.data >= desde).sort((a, b) => (a.data < b.data ? -1 : 1)).map((x) =>
-      [x.data, TIPOS_MOV[x.tipo] || x.tipo, CN(x.categoria), x.para ? CN(x.para) : "", x.cab, x.pesoMedio || "", x.valor || "", x.obs || "", x.por || ""].join(";")),
-    "CUSTOS, últimos 2 anos (data;tipo de custo;setor;valor R$;descrição;custeio ou investimento):",
+      [x.data, TIPOS_MOV[x.tipo] || x.tipo, CN(x.categoria), x.para ? CN(x.para) : "", x.cab, x.pesoMedio || "", x.valor || "", x.obs || "", x.por || "", RN(x)].join(";")),
+    "CUSTOS, últimos 2 anos (data;tipo de custo;setor;valor R$;descrição;custeio ou investimento;retiro):",
     ...gastos.sort((a, b) => (a.data < b.data ? -1 : 1)).map((x) =>
-      [x.data, ITN[x.item] || x.item || "", ONDE[x.centro] || "Fazenda toda", x.valor, x.descricao || "", x.tipo || "custeio"].join(";")),
+      [x.data, ITN[x.item] || x.item || "", ONDE[x.centro] || "Fazenda toda", x.valor, x.descricao || "", x.tipo || "custeio", RN(x)].join(";")),
     "BLOCO DE NOTAS (mês: texto):",
     ...Object.keys(notas).sort().slice(-12).map((m) => `${m}: ${String(notas[m]).replace(/\s*\n\s*/g, " | ")}`),
-    "PESAGENS (data;lote;cabeças;peso médio kg) — GMD = diferença de peso ÷ dias entre pesagens do mesmo lote:",
-    ...[...(cfg?.dados?.pesagens || [])].filter((p: any) => p.data >= desde).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)).map((p: any) => [p.data, p.lote, p.cab || "", p.peso].join(";")),
+    "PESAGENS (data;lote;cabeças;peso médio kg;retiro) — GMD = diferença de peso ÷ dias entre pesagens do mesmo lote e retiro:",
+    ...[...(cfg?.dados?.pesagens || [])].filter((p: any) => p.data >= desde).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)).map((p: any) => [p.data, p.lote, p.cab || "", p.peso, RN(p)].join(";")),
     "LEMBRETES MARCADOS (dia;texto):",
     ...(cfg?.dados?.lembretes || []).filter((x: any) => !x.enviado).map((x: any) => `${x.data};${x.texto}`),
   ];
@@ -676,7 +736,10 @@ async function respondePergunta(d: Deps, chat: number, conta: any, pergunta: str
   return responde(d, chat, r ? esc(r.trim()) : "Não consegui responder agora. Tente de novo em instantes.");
 }
 
-/* ---------- botões (Desfazer / trocar setor) ---------- */
+/* ---------- botões (Desfazer / trocar setor / trocar retiro) ---------- */
+// marca com "• " o botão escolhido de uma fileira (setor ou retiro), mantendo os outros botões da mensagem
+const marca = (markup: any, prefixo: string, escolhido: string) => (markup?.inline_keyboard || []).map((fila: any[]) => fila.map((b: any) =>
+  String(b.callback_data || "").startsWith(prefixo) ? { ...b, text: (b.callback_data === escolhido ? "• " : "") + String(b.text).replace(/^• /, "") } : b));
 async function botao(d: Deps, q: any) {
   const chat = q.message?.chat?.id, [acao, id, onde] = String(q.data || "").split(":");
   const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
@@ -702,6 +765,26 @@ async function botao(d: Deps, q: any) {
     const lista = partes.length > 1 ? partes.slice(0, -1).join(", ") + " e " + partes.at(-1) : partes[0];
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: `↩ Desfeito: tirei do app ${lista}.` });
     return fim("Desfeito");
+  }
+  if (acao === "ret" && /^[0-9a-f-]{36}$/.test(id) && /^[\w-]{1,20}$/.test(onde)) {
+    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+    const r = retirosDe(cfg?.dados).find((x) => x.id === onde);
+    if (!r) return fim("Esse retiro não existe mais.");
+    let n = 0;
+    for (const tab of ["desembolsos", "movimentos"]) {
+      const { data: rows } = await d.db.from(tab).select("id,dados").eq("fazenda_id", conta.fazenda_id).like("id", id + "-%");
+      for (const x of rows || []) { await d.db.from(tab).update({ dados: { ...x.dados, retiro: r.id } }).eq("fazenda_id", conta.fazenda_id).eq("id", x.id); n++; }
+    }
+    await mudaCfg(d, conta.fazenda_id, (D) => {
+      let m = 0;
+      const p = (D.pesagens || []).map((x: any) => (String(x.id || "").startsWith(id + "-") ? (m++, { ...x, retiro: r.id }) : x));
+      n += m; return m ? { ...D, pesagens: p } : null;
+    });
+    if (!n) return fim("Esse lançamento já não existe.");
+    const t = String(q.message?.text || "").split("\n").map((l) => (l.startsWith(LINHA_RET) ? LINHA_RET + r.nome : l)).join("\n");
+    await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: t,
+      reply_markup: { inline_keyboard: marca(q.message.reply_markup, `ret:${id}:`, `ret:${id}:${r.id}`) } });
+    return fim("Agora no retiro " + r.nome);
   }
   if (acao === "canc" && /^[0-9a-f-]{36}-[la]\d+$/.test(id)) {
     let achou = false;
@@ -733,10 +816,7 @@ async function botao(d: Deps, q: any) {
   if (acao === "onde" && ONDE[onde]) {
     await d.db.from("desembolsos").update({ centro: onde, dados: { ...x.dados, centro: onde } }).eq("fazenda_id", conta.fazenda_id).eq("id", id);
     const t = String(q.message.text || "").replace(/· (Fazenda toda|Cria|Recria|Engorda)\b/, "· " + ONDE[onde]);
-    const base = id.replace(/-c\d+$/, "");
-    const kb = base !== id ? botoes(base, id, onde) : { reply_markup: { inline_keyboard: [
-      Object.keys(ONDE).map((k) => ({ text: (k === onde ? "• " : "") + ONDE[k], callback_data: `onde:${id}:${k}` })),
-      [{ text: "↩ Desfazer", callback_data: `apagar:${id}` }]] } };
+    const kb = { reply_markup: { inline_keyboard: marca(q.message.reply_markup, `onde:${id}:`, `onde:${id}:${onde}`) } };
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: t, ...kb });
     return fim("Agora em: " + ONDE[onde]);
   }
@@ -819,7 +899,10 @@ export async function trata(d: Deps, up: any) {
   } else if (!texto) {
     return responde(d, chat, AJUDA);
   }
-  conteudo.push({ type: "text", text: `Hoje é ${hojeMT()}.` + (texto ? `\nMensagem: ${texto}` : "\n(só a imagem)") });
+  const { data: cfgT } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+  const retsT = retirosDe(cfgT?.dados);
+  conteudo.push({ type: "text", text: `Hoje é ${hojeMT()}.` + (retsT.length ? `\nRetiros da fazenda: ${retsT.map((r) => r.nome).join(", ")}.` : "") +
+    (texto ? `\nMensagem: ${texto}` : "\n(só a imagem)") });
   await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
   const L = await d.le(conteudo);
   if (!L) return responde(d, chat, "Não consegui ler agora. Tente de novo em instantes ou lance pelo app.");

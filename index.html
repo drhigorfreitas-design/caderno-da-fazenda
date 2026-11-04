@@ -55,6 +55,9 @@ body{color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;
 .band .chip.good,.band .chip.bad,.band .chip.warn{color:var(--gold-ink)}
 .band .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:#6b5a2c}
 .band .chip.good::before{background:#1f7a3f} .band .chip.bad::before{background:#b23a2a} .band .chip.warn::before{background:#8f600c}
+.retbar{margin-top:10px}
+.retbar .seg button{font-size:14px;padding:9px 10px}
+.retbar .seg button[aria-pressed="true"]{color:var(--accent,var(--ink))}
 .band.slim{padding:12px 18px;border-radius:16px}
 .band.slim .band-sub,.band.slim .band-btns,.band.slim .ring{display:none}
 .band.slim h1{font-size:16px}
@@ -367,6 +370,7 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
       <div class="band-btns"><button class="bbtn" type="button" data-go="rebanho:fechamento">Fazer fechamento</button><button class="bbtn" type="button" data-go="custos:desembolso">Lançar custo</button></div></div>
     <div class="band-right"><span class="chip" id="status">Conectando…</span><div class="ring" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8c0-2 1-3 3-3M20 8c0-2-1-3-3-3M6 8h12l-1 7a5 5 0 0 1-10 0z"/><path d="M10 13h.01M14 13h.01M10 17h4"/></svg></div></div>
   </header>
+  <div class="retbar" id="retbar" role="group" aria-label="Qual retiro mostrar" hidden></div>
   <section class="view" id="v-inicio"></section>
   <section class="view" id="v-calc" hidden></section>
   <section class="view" id="v-painel" hidden></section>
@@ -459,11 +463,31 @@ const lembraOnde=(item,v)=>{try{localStorage.setItem('onde_'+item,v);}catch(e){}
 const ondePadrao=item=>{try{return localStorage.getItem('onde_'+item)||'geral';}catch(e){return 'geral';}};
 const FAZ='Fazenda Recanto do Boqueirão';
 const fazNome=()=>{const n=(S.config.nome||'').trim(); return !n||n==='Minha Fazenda'?FAZ:n;};
-const CFG0={nome:FAZ,usuario:'Dr. Higor',kgArroba:30,area:0,safraMes:7,selic:15,precos:PRECO_PADRAO,fases:FASE_PADRAO,areaFase:{cria:0,recria:0,engorda:0}};
+/* retiros da fazenda: cada um tem o seu gado e as suas contas (ids curtos: vão nos botões do Telegram) */
+const RET0=[{id:'sh',nome:'Santa Helena',donos:[],area:0,areaFase:{}},{id:'sf',nome:'Santa Faustina',donos:[],area:0,areaFase:{}}];
+const CFG0={nome:FAZ,usuario:'Dr. Higor',kgArroba:30,area:0,safraMes:7,selic:15,precos:PRECO_PADRAO,fases:FASE_PADRAO,areaFase:{cria:0,recria:0,engorda:0},retiros:RET0};
 const S={fech:[],movs:[],desemb:[],estacoes:[],engorda:[],insumos:[],emovs:[],form:[],adapt:[],config:{...CFG0},membros:[],convites:[]};
 /* fazenda compartilhada: FID = fazenda aberta (null = banco antigo, um dono por registro); MEMB = fazendas de quem está logado */
 let FID=null, MEMB=[], MEU_EMAIL='';
-const UI={tab:'inicio',per:'safra',fase:'total',entry:{},eo:{},relFase:'total',notaMes:''};
+const UI={tab:'inicio',per:'safra',fase:'total',entry:{},eo:{},relFase:'total',notaMes:'',ret:(()=>{try{return localStorage.getItem('retiro')||'';}catch(e){return '';}})()};
+/* ---------- retiros: a tela mostra um retiro (UI.ret) ou a fazenda toda (UI.ret='') ----------
+   RAW guarda tudo o que veio do banco; S guarda só o que a tela mostra. Cada lançamento leva "retiro" nos dados. */
+const RAW={};
+const RET_COLS=new Set(['fech','movs','desemb','emovs','engorda','estacoes','adapt']);
+const retiros=()=>Array.isArray(S.config.retiros)?S.config.retiros:[];
+const retAtual=()=>retiros().find(r=>r.id===UI.ret)||null;
+const retNome=id=>(retiros().find(r=>r.id===id)||{}).nome||'';
+/* fazenda toda: os fechamentos dos retiros no mesmo mês viram um só (soma as cabeças, peso médio ponderado) */
+function juntaFech(a){ const por={}; a.forEach(f=>(por[f.mes]=por[f.mes]||[]).push(f));
+  return Object.values(por).map(fs=>{ if(fs.length===1) return fs[0]; const cats={};
+    fs.forEach(f=>Object.entries(f.cats||{}).forEach(([c,v])=>{ const o=cats[c]||(cats[c]={cab:0,kg:0}); o.cab+=+v.cab||0; o.kg+=(+v.cab||0)*(+v.peso||0); }));
+    Object.values(cats).forEach(o=>{ o.peso=o.cab?Math.round(o.kg/o.cab*10)/10:0; delete o.kg; });
+    return {id:fs[0].id,mes:fs[0].mes,cats,_junto:fs.length}; }); }
+function filtraCol(k){ const a=RAW[k]||[]; if(!RET_COLS.has(k)||!retiros().length) return a;
+  if(UI.ret) return a.filter(x=>x.retiro===UI.ret);
+  return k==='fech'?juntaFech(a):a; }
+function aplicaRetiro(){ if(UI.ret&&!retAtual()) UI.ret=''; Object.keys(COL).forEach(k=>{ if(RAW[k]) S[k]=filtraCol(k); }); }
+const retTxt=x=>!UI.ret&&retiros().length?' · '+(x.retiro?esc(retNome(x.retiro)||'retiro removido'):'<b>sem retiro</b>'):'';
 const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao','notas'];
 let DIRTY=false;
 let db=null, writable=true;
@@ -484,7 +508,8 @@ const mLabel=m=>m?MES[+m.slice(5,7)-1]+'/'+m.slice(2,4):'';
 const dBR=s=>s?s.slice(8,10)+'/'+s.slice(5,7)+'/'+s.slice(2,4):'';
 const days=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
 const kgA=()=>Number(S.config.kgArroba)||30;
-const area=()=>Number(S.config.area)||0;
+const area=()=>{ const r=retAtual(); return r?Number(r.area)||0:Number(S.config.area)||0; };
+const areaFase=f=>{ const r=retAtual(); return +((r?r.areaFase:S.config.areaFase)||{})[f]||0; };
 const preco=c=>Number((S.config.precos||{})[c])||PRECO_PADRAO[c]||0;
 const sum=(a,f)=>a.reduce((s,x)=>s+(Number(f(x))||0),0);
 const cabOf=(f,c)=>Number(f?.cats?.[c]?.cab)||0, pesoOf=(f,c)=>Number(f?.cats?.[c]?.peso)||0;
@@ -541,7 +566,7 @@ function calc(per=UI.per,fase=null){
   R.porGrupo={}; de.forEach(x=>R.porGrupo[x.grupo]=(R.porGrupo[x.grupo]||0)+(+x.valor||0)*x.w);
   R.var=dv(de.filter(x=>GVAR.has(x.grupo))); R.fix=R.despesas-R.var;
   R.insPas=dv(de.filter(x=>INS_PAS.has(x.grupo))); R.invest=dv(de.filter(x=>x.tipo==='investimento'));
-  const A=fase?(+(S.config.areaFase||{})[fase]||0):area(); R.area=A;
+  const A=fase?areaFase(fase):area(); R.area=A;
   if(J.ok){
     R.prodKg=fKg(J.ef,cats)-fKg(J.ei,cats)-R.comprasKg+R.vendasKg; R.prodArr=R.prodKg/kgA();
     R.gmd=R.prodKg/R.rebMed/J.dias; R.arrHa=R.prodArr/A*R.anual;
@@ -887,7 +912,7 @@ let TG_COD=null;
 const telegramHTML=()=>{ if(!TG_BOT) return `<h3 style="margin-top:16px">Robô do Telegram</h3><p class="note">O robô ainda está sendo configurado.</p>`;
   const minhas=S.telegram||[];
   return `<h3 style="margin-top:16px">Robô do Telegram</h3>
-  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), lançar pesagens ("pesei a recria, média 280 kg"), marcar lembretes ("lembrar: vacina dia 15/11") e pedir aviso da arroba ("me avisa quando o boi passar de 320"). Toda segunda de manhã o robô manda o resumo da semana e o backup com todos os dados. Cada sócio conecta o próprio Telegram.</p>
+  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), lançar pesagens ("pesei a recria, média 280 kg"), marcar lembretes ("lembrar: vacina dia 15/11") e pedir aviso da arroba ("me avisa quando o boi passar de 320"). Toda segunda de manhã o robô manda o resumo da semana e o backup com todos os dados. Cada sócio conecta o próprio Telegram. O que cada um manda vai para o retiro de que ele é dono (marque em Ajustes, em cada retiro); se for do outro retiro, é só dizer o nome ("no Santa Faustina") ou tocar no botão do retiro na resposta do robô.</p>
   ${minhas.length?`<div class="list">${minhas.map(t=>`<div class="item"><span class="t">Telegram conectado${t.nome_telegram?' · '+esc(t.nome_telegram):''}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(t.chat_id))}">Desconectar</button></span></div>`).join('')}</div>`:''}
   ${TG_COD?`<div class="calc" style="margin-top:8px">Seu código: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_COD)}</b> · vale 30 minutos<br><a class="btn primary" style="margin-top:8px;display:inline-flex" href="https://t.me/${esc(TG_BOT)}?start=${esc(TG_COD)}" target="_blank" rel="noopener">Abrir o robô no Telegram</a><br><span class="small">No Telegram, toque em <b>Iniciar</b>. Se não abrir, procure @${esc(TG_BOT)} e mande o código.</span></div>`
     :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}`; };
@@ -921,6 +946,12 @@ function renderAjustes(){
     </div>
     <fieldset><legend>Área por fase (opcional)</legend><div class="grid2">${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-a-${k}" name="a_${k}" type="number" step="0.1" min="0" value="${esc(af[k]||'')}"></label>`).join('')}</div>
       <p class="note">Com a área de cada fase, o app mostra @/ha, lotação e resultado por hectare da cria, da recria e da engorda.</p></fieldset>
+    ${retiros().map(r=>`<fieldset><legend>Retiro ${esc(r.nome)}</legend><div class="grid2">
+      <label class="fl">Nome do retiro<input id="cfg-rn-${esc(r.id)}" name="rn_${esc(r.id)}" value="${esc(r.nome)}" required maxlength="40"></label>
+      <label class="fl">Área produtiva (ha)<input id="cfg-ra-${esc(r.id)}" name="ra_${esc(r.id)}" type="number" step="0.1" min="0" value="${esc(r.area||'')}"></label>
+      ${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-rf-${esc(r.id)}-${k}" name="rf_${esc(r.id)}_${k}" type="number" step="0.1" min="0" value="${esc((r.areaFase||{})[k]||'')}"></label>`).join('')}</div>
+      ${S.membros.length?`<p class="small muted" style="margin:8px 0 4px">Dono(s): o robô do Telegram lança neste retiro o que eles mandarem</p><div class="btns">${S.membros.map(m=>`<label class="ck"><input type="checkbox" name="rd_${esc(r.id)}" value="${esc(m.user_id)}" ${(r.donos||[]).includes(m.user_id)?'checked':''}> ${esc(nomeM(m))}</label>`).join('')}</div>`:''}
+      </fieldset>`).join('')}
     <p class="note">30 kg vivo por @ equivale a 50% de rendimento de carcaça. A área produtiva é a área de pasto usada no ano.</p>
     <details><summary>Fase de cada categoria</summary>
       <p class="note" style="margin:8px 0">Define em qual fase cada categoria conta. Ex.: se as vacas de descarte são vendidas magras, coloque-as na cria.</p>
@@ -931,28 +962,36 @@ function renderAjustes(){
       <div class="grid2">${CATS.map(([k,n])=>`<label class="fl">${n} (R$/@)<input id="cfg-p-${k}" name="p_${k}" type="number" step="0.01" min="0" value="${esc(preco(k))}"></label>`).join('')}</div>
     </details>
     <div class="btns"><button class="btn primary" type="submit">Salvar ajustes</button></div>
-  </form></div>`;
+  </form>${semRetiroHTML()}</div>`;
 }
+/* lançamentos de antes dos retiros: passar todos de uma vez para um retiro */
+const semRetiro=()=>[...[...RET_COLS].flatMap(k=>(RAW[k]||[]).filter(x=>!x.retiro).map(x=>({k,id:x.id}))),...(S.config.pesagens||[]).filter(p=>!p.retiro).map(p=>({k:'pesagens',id:p.id}))];
+function semRetiroHTML(){ const n=retiros().length?semRetiro().length:0; if(!n) return '';
+  return `<div class="calc" style="margin-top:14px"><b>${nf(n)} ${n===1?'lançamento':'lançamentos'} sem retiro</b> (feitos antes de existir a divisão). Eles só aparecem na Fazenda toda.
+    <label class="fl" style="margin-top:8px">Passar todos para<select id="migraRet">${retiros().map(r=>`<option value="${esc(r.id)}">${esc(r.nome)}</option>`).join('')}</select></label>
+    <div class="btns"><button class="btn" type="button" data-migra>Passar para o retiro</button></div>
+    <p class="note">Se uma parte for do outro retiro, depois é só abrir o lançamento em Editar e trocar o retiro.</p></div>`; }
 
 /* ---------- Pesagens e lembretes: guardados no config (pesagens, lembretes, alertas); o robô do Telegram também lança e avisa ---------- */
 const loteK=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/^(o|a)\s+/,'').replace(/^lote\s+(da|do|de|das|dos)\s+/,'').replace(/\s+/g,' ').trim();
 function pesagensHTML(){
-  const P=[...(S.config.pesagens||[])].sort((a,b)=>a.data<b.data?-1:1), lotes={};
-  P.forEach(p=>(lotes[loteK(p.lote)]=lotes[loteK(p.lote)]||[]).push(p));
+  const P=[...(S.config.pesagens||[])].filter(p=>!UI.ret||p.retiro===UI.ret).sort((a,b)=>a.data<b.data?-1:1), lotes={};
+  /* o mesmo nome de lote em retiros diferentes são lotes diferentes */
+  P.forEach(p=>{ const k=(p.retiro||'')+'|'+loteK(p.lote); (lotes[k]=lotes[k]||[]).push(p); });
   const L=Object.values(lotes).map(ps=>{ const u=ps[ps.length-1], a=ps[ps.length-2], n=a?Math.round((Date.parse(u.data)-Date.parse(a.data))/864e5):0; return {u,n,g:a&&n?(u.peso-a.peso)/n:null}; }).sort((x,y)=>x.u.data<y.u.data?1:-1);
   const hist=[...P].reverse().slice(0,30);
   return `<div class="row-head" id="pesagens"><h2>Pesagens</h2></div>
   <div class="panel">
-    ${L.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lote</th><th>Última</th><th>Peso kg</th><th>GMD kg/dia</th></tr></thead><tbody>${L.map(x=>`<tr><td>${esc(x.u.lote)}</td><td>${dBR(x.u.data)}</td><td>${nf(x.u.peso)}</td><td>${x.g!=null?nf(x.g,3)+` <span class="small muted">em ${x.n} dias</span>`:'<span class="small muted">1ª pesagem</span>'}</td></tr>`).join('')}</tbody></table></div>`
+    ${L.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lote</th><th>Última</th><th>Peso kg</th><th>GMD kg/dia</th></tr></thead><tbody>${L.map(x=>`<tr><td>${esc(x.u.lote)}${!UI.ret&&x.u.retiro?`<br><span class="small muted">${esc(retNome(x.u.retiro))}</span>`:''}</td><td>${dBR(x.u.data)}</td><td>${nf(x.u.peso)}</td><td>${x.g!=null?nf(x.g,3)+` <span class="small muted">em ${x.n} dias</span>`:'<span class="small muted">1ª pesagem</span>'}</td></tr>`).join('')}</tbody></table></div>`
       :'<p class="empty">Lance a pesagem de cada lote. Da segunda pesagem do mesmo lote em diante, o app mostra o ganho de peso por dia (GMD).</p>'}
-    <form class="f" id="pesF" style="margin-top:12px"><div class="grid2">
+    <form class="f" id="pesF" style="margin-top:12px">${retFld('lote',{},'pes-retiro')}<div class="grid2">
       <label class="fl">Data<input id="pes-data" name="data" type="date" required value="${today()}" max="${today()}"></label>
       <label class="fl">Lote<input id="pes-lote" name="lote" required list="pes-lotes" autocomplete="off" maxlength="60" placeholder="ex.: recria, lote 3"></label>
       <label class="fl">Cabeças pesadas (opcional)<input id="pes-cab" name="cab" type="number" min="0" step="1" inputmode="numeric"></label>
       <label class="fl">Peso médio (kg)<input id="pes-peso" name="peso" type="number" required min="1" step="0.1" inputmode="decimal"></label></div>
       <datalist id="pes-lotes">${L.map(x=>`<option value="${esc(x.u.lote)}">`).join('')}</datalist>
       <div class="btns"><button class="btn primary" type="submit">Lançar pesagem</button></div></form>
-    ${hist.length?`<details style="margin-top:8px"><summary>Todas as pesagens</summary><div class="list">${hist.map(p=>`<div class="item"><span class="t">${esc(p.lote)}</span><span class="amt">${nf(p.peso)} kg</span><span class="meta">${dBR(p.data)}${p.cab?' · '+nf(p.cab)+' cab.':''}${porTxt(p)}</span><span class="act"><button class="btn del" type="button" data-rm-cfg="pesagens:${esc(p.id)}">Excluir</button></span></div>`).join('')}</div></details>`:''}
+    ${hist.length?`<details style="margin-top:8px"><summary>Todas as pesagens</summary><div class="list">${hist.map(p=>`<div class="item"><span class="t">${esc(p.lote)}</span><span class="amt">${nf(p.peso)} kg</span><span class="meta">${dBR(p.data)}${p.cab?' · '+nf(p.cab)+' cab.':''}${retTxt(p)}${porTxt(p)}</span><span class="act"><button class="btn del" type="button" data-rm-cfg="pesagens:${esc(p.id)}">Excluir</button></span></div>`).join('')}</div></details>`:''}
     <p class="note">Use sempre o mesmo nome para o mesmo lote. Pelo Telegram: <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>. Se o lote tiver o nome de um setor (cria, recria ou engorda), o robô mostra também o custo da @ produzida.</p>
   </div>`;
 }
@@ -976,7 +1015,8 @@ async function salvaCfgItem(f){
   if(pes){ const peso=Math.round(Number(f.peso.value)*10)/10, lote=f.lote.value.trim().toLowerCase(), data=f.data.value;
     if(!(peso>0)||!lote||!data) return toast('Preencha data, lote e peso.');
     if(data>today()) return toast('A data da pesagem não pode ser no futuro.');
-    k='pesagens'; x={...base,data,lote,cab:Math.max(0,Math.round(Number(f.cab.value)||0)),peso}; }
+    if(f.retiro&&!f.retiro.value) return toast('Escolha o retiro.');
+    k='pesagens'; x={...base,data,lote,cab:Math.max(0,Math.round(Number(f.cab.value)||0)),peso,...(f.retiro&&f.retiro.value?{retiro:f.retiro.value}:{})}; }
   else { const data=f.data.value, texto=f.texto.value.trim();
     if(!data||!texto) return toast('Preencha o dia e do que lembrar.');
     if(data<today()) return toast('Escolha hoje ou um dia que ainda vai chegar.');
@@ -984,6 +1024,9 @@ async function salvaCfgItem(f){
   try{ await db.configMod(b=>({...b,[k]:[...(b[k]||[]),x]})); toast(pes?'Pesagem lançada':'Lembrete marcado'); }catch(e){ dbErr(e); }
 }
 
+/* fazenda toda: avisa quando o último mês só tem o fechamento de parte dos retiros */
+function fechFalta(last){ if(UI.ret||!last||!retiros().length) return ''; const tem=new Set((RAW.fech||[]).filter(f=>f.mes===last.mes).map(f=>f.retiro));
+  const falta=retiros().filter(r=>!tem.has(r.id)); return falta.length?`<p class="note" style="margin:4px 0 8px">⚠️ Em ${mLabel(last.mes)} falta o fechamento de ${esc(falta.map(r=>r.nome).join(' e '))}: os números da fazenda toda ficam incompletos. Escolha o retiro no topo e faça o fechamento.</p>`:''; }
 /* ---------- Rebanho ---------- */
 function renderRebanho(){
   const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1], R=calc(), J=R.J;
@@ -995,14 +1038,14 @@ function renderRebanho(){
   const movs=[...S.movs].sort((a,b)=>a.data<b.data?1:-1).slice(0,25);
   $('#v-rebanho').innerHTML=`
   ${entryHTML('rebanho')}
-  <div class="row-head"><h2>Estoque por categoria</h2></div>
+  <div class="row-head"><h2>Estoque por categoria</h2></div>${fechFalta(last)}
   <div class="panel">${last?`<p class="note" style="margin-bottom:6px">Fechamento de ${mLabel(last.mes)}</p>${tabela}`:`<p class="empty">Faça o primeiro fechamento: conte as cabeças e informe o peso médio de cada categoria. É o estoque inicial de onde saem a produção, o GMD e a lotação.</p>`}</div>
   ${F.length>1?`<div class="panel"><h2>Rebanho mês a mês</h2>${chartRebanho(F.slice(-13))}<p class="note">O rebanho médio é a média desses fechamentos, não (inicial + final) ÷ 2.</p></div>`:''}
   <div class="panel"><div class="row-head"><h2>Mortalidade por categoria</h2><span class="small muted">${esc(J.nome)}</span></div>
     ${mortCat.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Mortes</th><th>Reb. médio</th><th>%</th></tr></thead><tbody>${mortCat.map(x=>`<tr><td>${x.n}</td><td>${nf(x.m)}</td><td>${nf(x.med)}</td><td>${pct(x.p,2)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma morte registrada no período.</p>'}</div>
   <div class="row-head"><h2>Movimentações</h2><button class="btn" type="button" data-open="movimento">Registrar</button></div>
-  <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
-  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA</span><span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span></div>`).join('')}</div></details>`:''}
+  <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}${retTxt(x)}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
+  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA${f._junto?` · soma de ${f._junto} retiros`:retTxt(f)}</span>${!UI.ret&&retiros().length?'':`<span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span>`}</div>`).join('')}</div></details>`:''}
   ${pesagensHTML()}`;
 }
 function chartRebanho(F){
@@ -1300,6 +1343,18 @@ function renderSupl(){
 
 /* ---------- Financeiro ---------- */
 const saldo=i=>sum(S.emovs.filter(m=>m.insumoId===i.id),m=>(m.tipo==='entrada'?1:-1)*m.qtd);
+/* fazenda toda: as contas de cada retiro lado a lado (para a contabilidade de cada dono) */
+function porRetiroHTML(J){ if(UI.ret||!retiros().length) return '';
+  const dentro=x=>!!x.data&&ym(x.data)>=J.s&&ym(x.data)<=J.e, de=(RAW.desemb||[]).filter(dentro), mv=(RAW.movs||[]).filter(dentro);
+  const linha=(nome,f)=>{ const c=sum(de.filter(f),x=>x.valor), inv=sum(de.filter(x=>f(x)&&x.tipo==='investimento'),x=>x.valor), v=sum(mv.filter(x=>f(x)&&x.tipo==='venda'),x=>x.valor), cp=sum(mv.filter(x=>f(x)&&x.tipo==='compra'),x=>x.valor);
+    return {nome,c,inv,v,cp,s:v-cp-c}; };
+  const L=retiros().map(r=>linha(r.nome,x=>x.retiro===r.id)), sem=linha('Sem retiro',x=>!x.retiro||!retNome(x.retiro));
+  if(sem.c||sem.v||sem.cp) L.push(sem);
+  const T={nome:'Fazenda toda',c:sum(L,x=>x.c),inv:sum(L,x=>x.inv),v:sum(L,x=>x.v),cp:sum(L,x=>x.cp)}; T.s=T.v-T.cp-T.c;
+  const tr=(x,b)=>`<tr${b?' class="sub"':''}><td>${esc(x.nome)}</td><td>${brl(x.c)}${x.inv?`<br><span class="small muted">${brl(x.inv)} invest.</span>`:''}</td><td>${brl(x.v)}</td><td>${brl(x.cp)}</td><td class="${x.s>=0?'pos':'neg'}">${brl(x.s)}</td></tr>`;
+  return `<div class="panel"><div class="row-head"><h2>Por retiro</h2><span class="small muted">${esc(J.nome)}</span></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Retiro</th><th>Custos</th><th>Vendas de gado</th><th>Compras de gado</th><th>Saldo</th></tr></thead><tbody>${L.map(x=>tr(x)).join('')}</tbody><tfoot>${tr(T)}</tfoot></table></div>
+    <p class="note">Saldo = vendas − compras de gado − custos, no caixa do período. Para ver os indicadores e a planilha de um retiro só, toque nele no topo da tela.${sem.c||sem.v||sem.cp?' Há lançamentos sem retiro: passe-os em Ajustes.':''}</p></div>`; }
 function renderFin(){
   const R=calc(), J=R.J, de=S.desemb.filter(x=>J.inR(x.data)).sort((a,b)=>a.data<b.data?1:-1), tot=R.despesas||0;
   const RF=Object.fromEntries(FASES.map(([k])=>[k,calc(UI.per,k)])), meses=Math.max(1,J.meses||1);
@@ -1311,6 +1366,7 @@ function renderFin(){
   <div class="page-title"><h2>Custos</h2></div>
   ${entryHTML('custos')}
   ${segPer()}${janelaTxt(J)}
+  ${porRetiroHTML(J)}
   <div class="hero">
     ${kp('Gasto total',brl(tot),de.length+' lançamentos')}
     ${kp('Por mês',brl(tot/meses),'média do período')}
@@ -1338,7 +1394,7 @@ function renderFin(){
   </div>
 
   <div class="row-head"><h2>Lançamentos</h2></div>
-  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}${porTxt(x)}</span><span class="act">${x.nota?`<button class="btn link" type="button" data-ver-nota="${esc(x.nota)}">📎 Nota</button> `:''}<button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
+  <div class="panel"><div class="list">${de.length?de.slice(0,80).map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}${x.descricao?' · '+esc(x.descricao):''}${x.tipo==='investimento'?' · investimento':''}${retTxt(x)}${porTxt(x)}</span><span class="act">${x.nota?`<button class="btn link" type="button" data-ver-nota="${esc(x.nota)}">📎 Nota</button> `:''}<button class="btn link" type="button" data-open="desembolso" data-edit="${x.id}">Editar</button> <button class="btn del" type="button" data-del="${COL.desemb}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Nenhum custo neste período.</p>'}</div></div>
   <p class="note">Custeio é o gasto que se consome em menos de 12 meses. Investimento dura mais de 12 meses e vira patrimônio. Compra de boi não entra aqui: registre como compra no Rebanho, ela vai para a reposição.</p>
 
   <div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
@@ -1372,8 +1428,9 @@ function saudacao(){ const h=new Date().getHours(), n=meuNome(); return (h<12?'B
 function bandInfo(){
   const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0, painel=UI.tab==='inicio'||UI.tab==='painel';
   document.body.dataset.tab=UI.tab; $('#band').classList.toggle('slim',!painel);
-  $('#welcome').textContent=painel?saudacao():(fazNome());
-  $('#bandSub').innerHTML='<b>'+esc(fazNome())+'</b>'+(last?' · '+nf(cab)+' cab. em '+nf(ua)+' UA'+(A?' em '+nf(A)+' ha':''):' · comece pelo fechamento do rebanho');
+  const rt=retAtual(), nomeVista=fazNome()+(rt?' · Retiro '+rt.nome:'');
+  $('#welcome').textContent=painel?saudacao():nomeVista;
+  $('#bandSub').innerHTML='<b>'+esc(nomeVista)+'</b>'+(last?' · '+nf(cab)+' cab. em '+nf(ua)+' UA'+(A?' em '+nf(A)+' ha':''):' · comece pelo fechamento do rebanho');
   const nm=meuNome()||'Sócio'; $('#who').innerHTML=`<span class="av">${esc(nm.replace(/^(dr|dra)\.?\s+/i,'').charAt(0).toUpperCase()||'F')}</span><div><b>${esc(nm)}</b><small>${esc(fazNome())}</small></div><button class="out" type="button" data-logout>Sair</button>`;
 }
 function statRow(){
@@ -1402,7 +1459,7 @@ function renderSide(){
   adaptAtivas().slice(0,3).forEach(({a,r,d,fim})=>A.push({ic:'caixa',t:'Adaptação: '+esc(a.nome||'Lote'),s:r.nome+' · dia '+d+' de '+(fim-1),attr:'data-tab="suplementacao"'}));
   if(!area()) A.push({ic:'ha',t:'Informar a área produtiva',s:'Para lotação e @/ha',attr:'data-ajustes'});
   const ev=[...S.movs.map(x=>({d:x.data,t:TIPOS_MOV[x.tipo]+' · '+esc(CN[x.categoria]||''),s:nf(x.cab)+' cab.'+(x.valor?' · '+brl(x.valor):'')})),
-    ...S.desemb.map(x=>({d:x.data,t:esc(ITN[itemOf(x)]||'Custo'),s:brl(x.valor)+' · '+esc(ondeTxt(x))+porTxt(x)}))].filter(x=>x.d).sort((a,b)=>a.d<b.d?1:-1).slice(0,6);
+    ...S.desemb.map(x=>({d:x.data,t:esc(ITN[itemOf(x)]||'Custo'),s:brl(x.valor)+' · '+esc(ondeTxt(x))+retTxt(x)+porTxt(x)}))].filter(x=>x.d).sort((a,b)=>a.d<b.d?1:-1).slice(0,6);
   const lotes=S.engorda.filter(l=>!l.dataSaida).slice(0,3);
   el.innerHTML=`<h2>Atividade</h2>
    <div class="sd-sec"><div class="sd-head"><h3>Atenção</h3></div>${A.length?A.map(card).join(''):'<p class="sd-empty">Tudo em dia por aqui.</p>'}</div>
@@ -1420,16 +1477,16 @@ async function exportaExcel(){
   let X; try{ toast('Preparando a planilha…'); X=await carregaXLSX(); }catch(e){ return toast('Não consegui baixar o gerador de planilhas. Confira a internet.'); }
   const n=v=>ok(+v)?+v:(v==null||v===''?'':v), ord=(a,k)=>[...a].sort((x,y)=>(x[k]||'')<(y[k]||'')?-1:1), insN=id=>(S.insumos.find(i=>i.id===id)||{}).nome||'';
   const abas=[
-   ['Fechamentos',ord(S.fech,'mes').flatMap(f=>CATS.filter(([c])=>cabOf(f,c)>0).map(([c,cn])=>({'Mês':f.mes,'Categoria':cn,'Fase':FN[faseOf(c)],'Cabeças':cabOf(f,c),'Peso médio (kg)':pesoOf(f,c),'@ total':Math.round(cabOf(f,c)*pesoOf(f,c)/kgA()*10)/10})))],
-   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Preço da @':n(x.precoArroba),'Valor (R$)':n(x.valor),'Observação':x.obs||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
-   ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
+   ['Fechamentos',ord(S.fech,'mes').flatMap(f=>CATS.filter(([c])=>cabOf(f,c)>0).map(([c,cn])=>({'Mês':f.mes,...(retiros().length?{'Retiro':f._junto?'Fazenda toda':retNome(f.retiro)}:{}),'Categoria':cn,'Fase':FN[faseOf(c)],'Cabeças':cabOf(f,c),'Peso médio (kg)':pesoOf(f,c),'@ total':Math.round(cabOf(f,c)*pesoOf(f,c)/kgA()*10)/10})))],
+   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,...(retiros().length?{'Retiro':retNome(x.retiro)}:{}),'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Preço da @':n(x.precoArroba),'Valor (R$)':n(x.valor),'Observação':x.obs||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
+   ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,...(retiros().length?{'Retiro':retNome(x.retiro)}:{}),'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
    ['Lotes engorda',ord(S.engorda,'dataEntrada').map(l=>({'Lote':l.nome,'Sistema':l.sistema,'Cabeças':n(l.cab),'Entrada':l.dataEntrada,'Peso entrada (kg)':n(l.pesoEntrada),'Valor entrada/cab (R$)':n(l.aquisicao),'Nutrição R$/dia':n(l.nutricaoDia),'Operacional R$/dia':n(l.operacionalDia),'Saída':l.dataSaida||'','Peso saída (kg)':n(l.pesoSaida),'Carcaça (kg)':n(l.carcaca),'Preço da @ venda':n(l.precoVenda)}))],
    ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
    ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
    ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
    ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
-   ['Pesagens',ord(S.config.pesagens||[],'data').map(p=>({'Data':p.data,'Lote':p.lote||'','Cabeças':n(p.cab),'Peso médio (kg)':n(p.peso),'Lançado por':nomeDe(p.porId)||p.por||''}))],
+   ['Pesagens',ord((S.config.pesagens||[]).filter(p=>!UI.ret||p.retiro===UI.ret),'data').map(p=>({'Data':p.data,...(retiros().length?{'Retiro':retNome(p.retiro)}:{}),'Lote':p.lote||'','Cabeças':n(p.cab),'Peso médio (kg)':n(p.peso),'Lançado por':nomeDe(p.porId)||p.por||''}))],
    ['Lembretes',ord(S.config.lembretes||[],'data').map(x=>({'Dia':x.data,'Lembrar de':x.texto||'','Avisado em':x.enviado||'','Marcado por':nomeDe(x.porId)||x.por||''}))],
    ['Adaptações',S.adapt.map(a=>({'Lote':a.nome,'Suplemento':(SUP_REF[a.tipo]||{}).nome||a.tipo,'Início':a.inicio,'Fase':FN[a.fase]||'','Cabeças':n(a.cab),'Peso (kg)':n(a.peso)}))],
    ['Ajustes',[['Fazenda',fazNome()],['Área produtiva (ha)',area()],['Kg por @',kgA()],['Mês de início da safra',S.config.safraMes],['Selic (%)',S.config.selic],...FASES.map(([k,nm])=>['Área '+nm+' (ha)',(S.config.areaFase||{})[k]||0]),...CATS.map(([c,cn])=>['Preço da @ · '+cn,preco(c)])].map(([a,b])=>({'Item':a,'Valor':b}))]];
@@ -1437,7 +1494,7 @@ async function exportaExcel(){
   abas.forEach(([nome,linhas])=>{ const ws=linhas.length?X.utils.json_to_sheet(linhas):X.utils.aoa_to_sheet([['Sem dados']]);
     if(linhas.length) ws['!cols']=Object.keys(linhas[0]).map(k=>({wch:Math.min(40,Math.max(10,k.length+2,...linhas.slice(0,50).map(r=>String(r[k]??'').length+1)))}));
     X.utils.book_append_sheet(wb,ws,nome); });
-  X.writeFile(wb,'fazenda-recanto-do-boqueirao-'+today()+'.xlsx'); toast('Planilha baixada.');
+  const rx=retAtual(); X.writeFile(wb,'fazenda-recanto-do-boqueirao-'+(rx?'retiro-'+rx.nome.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-':'')+today()+'.xlsx'); toast('Planilha baixada'+(rx?' (só o retiro '+rx.nome+')':' (fazenda toda)')+'.');
 }
 /* instalar na tela inicial (Android/Chrome avisa quando dá para instalar) */
 let PEDE_INST=null; window.addEventListener('beforeinstallprompt',e=>{e.preventDefault(); PEDE_INST=e;}); window.addEventListener('appinstalled',()=>{PEDE_INST=null; toast('App instalado na tela inicial.');});
@@ -1483,7 +1540,9 @@ function renderFase(k){
   ${detalhe(R,false)}
   ${movsFaseHTML(k)}`;
 }
-function render(){ setStatus(); bandInfo(); renderSide();
+function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.hidden=!R.length||!db; if(el.hidden) return;
+  el.innerHTML=`<div class="seg">${R.map(r=>`<button type="button" data-ret="${esc(r.id)}" aria-pressed="${UI.ret===r.id}">${esc(r.nome)}</button>`).join('')}<button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`; }
+function render(){ setStatus(); bandInfo(); retBar(); renderSide();
   const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF,#convF'))) return;
   ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
@@ -1570,12 +1629,20 @@ function repeteMes(){ const f=$('#frm'); if(!f||f.dataset.kind!=='custosMes') re
 function entryHTML(tab){const ks=ENTRY[tab]; if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab], ed=!!(UI.eo&&UI.eo.edit);
   return `<div class="panel entry${ed?' editando':''}" id="entry"><div class="row-head"><h2>${ed?'Editar':'Lançar'}</h2><span class="small muted">${esc(FORMS[cur].d)}</span></div>
   <div class="seg" role="group" aria-label="O que lançar">${ks.map(k=>`<button type="button" data-entry="${k}" aria-pressed="${k===cur}">${ENTRY_T[k]}</button>`).join('')}</div><div id="entrySlot"></div></div>`;}
+/* retiro de cada lançamento: na tela de um retiro já vem escolhido; na fazenda toda tem que escolher (não há gasto comum) */
+const RET_KINDS=new Set(['movimento','desembolso','custosMes','entrada','saida','fornecimento','lote','estacao','adaptacao']);
+const RET_COL_OF={desembolso:'desemb',lote:'engorda',estacao:'estacoes',adaptacao:'adapt'};
+function retFld(k,o,idc='f-retiro'){ if(!RET_KINDS.has(k)||!retiros().length) return '';
+  const ex=o&&o.edit&&RET_COL_OF[k]?((RAW[RET_COL_OF[k]]||[]).find(x=>x.id===o.edit)||{}).retiro:'', v=ex||UI.ret||'';
+  return `<label class="fl">Retiro<select id="${idc}" name="retiro" required>${v?'':'<option value="">Escolha o retiro…</option>'}${retiros().map(r=>`<option value="${esc(r.id)}" ${r.id===v?'selected':''}>${esc(r.nome)}</option>`).join('')}</select></label>`; }
+const fechSemRet=k=>k==='fechamento'&&retiros().length&&!UI.ret?'O fechamento é de cada retiro. Escolha o retiro no topo da tela ('+retiros().map(r=>r.nome).join(' ou ')+') e faça o fechamento dele.':'';
 function mountEntry(){const slot=$('#entrySlot'); if(!slot||$('#sheetRoot').firstChild) return; const k=UI.entry[UI.tab], F=FORMS[k];
+  if(fechSemRet(k)){ slot.innerHTML=`<p class="note">${esc(fechSemRet(k))}</p>`; return; }
   const okN=F.need?F.need():true;
   if(okN!==true){ slot.innerHTML=`<p class="note">${esc(okN)}</p>${k==='fornecimento'?'<button class="btn" type="button" data-open="suplemento">Cadastrar suplemento</button>':'<button class="btn" type="button" data-open="insumo">Cadastrar insumo</button>'}`; return; }
   if(!db||!writable){ slot.innerHTML='<p class="note">Entre na sua conta para salvar lançamentos.</p>'; return; }
   const o=UI.eo||{};
-  slot.innerHTML=`<form class="f" id="frm" data-kind="${k}" data-edit="${esc(o.edit||'')}" data-inline="1">${F.html(o)}<div class="btns"><button class="btn primary" type="submit">${o.edit?'Salvar alterações':'Salvar'}</button>${o.edit||o.mes?'<button class="btn" type="button" data-cancel-edit>Cancelar</button>':''}</div></form>`;
+  slot.innerHTML=`<form class="f" id="frm" data-kind="${k}" data-edit="${esc(o.edit||'')}" data-inline="1">${retFld(k,o)}${F.html(o)}<div class="btns"><button class="btn primary" type="submit">${o.edit?'Salvar alterações':'Salvar'}</button>${o.edit||o.mes?'<button class="btn" type="button" data-cancel-edit>Cancelar</button>':''}</div></form>`;
   wireForm(k,o,true); }
 function toolCard(ic,t,d,go){return `<button type="button" class="tool" data-go="${go}"><span class="tic">${svgI(ic)}</span><b>${t}</b><span class="d">${d}</span></button>`;}
 
@@ -1656,9 +1723,10 @@ function closeSheet(){$('#sheetRoot').innerHTML=''; if($('#entrySlot')&&!$('#ent
 function openPicker(){$('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Registrar"><div class="row-head"><h2>O que você quer registrar?</h2><button class="btn link" type="button" data-close>Fechar</button></div><div class="types">${['custosMes','desembolso','movimento','fechamento','fornecimento','adaptacao','entrada','saida','lote','estacao','insumo'].map(k=>`<button type="button" data-open="${k}">${FORMS[k].t}<span>${FORMS[k].d}</span></button>`).join('')}</div></div></div>`;}
 function openForm(k,o={}){
   const F=FORMS[k], okN=F.need?F.need():true; if(okN!==true) return toast(okN);
+  if(fechSemRet(k)) return toast(fechSemRet(k));
   if(!db||!writable) return toast(!db?'Entre com seu e-mail para salvar.':'Você só tem acesso de leitura.');
   const sl=$('#entrySlot'); if(sl) sl.innerHTML='';
-  $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="${F.t}"><div class="row-head"><h2>${o.edit?'Editar':''} ${F.t}</h2><button class="btn link" type="button" data-close>Cancelar</button></div><form class="f" id="frm" data-kind="${k}" data-edit="${o.edit||''}">${F.html(o)}<div class="btns"><button class="btn primary" type="submit">Salvar</button></div></form></div></div>`;
+  $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="${F.t}"><div class="row-head"><h2>${o.edit?'Editar':''} ${F.t}</h2><button class="btn link" type="button" data-close>Cancelar</button></div><form class="f" id="frm" data-kind="${k}" data-edit="${o.edit||''}">${retFld(k,o)}${F.html(o)}<div class="btns"><button class="btn primary" type="submit">Salvar</button></div></form></div></div>`;
   wireForm(k,o,false);
 }
 function wireForm(k,o,inline){
@@ -1681,14 +1749,18 @@ function wireForm(k,o,inline){
 }
 async function submitForm(f){
   const k=f.dataset.kind, v=Object.fromEntries(new FormData(f)), N=x=>x===''||x==null?null:Number(x), ed=f.dataset.edit;
-  const add=(col,d)=>db.collection(col).add({...d,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
-  if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};}); await db.doc(COL.fech+'/'+v.mes).set({mes:v.mes,cats}); }
+  const rv=v.retiro?{retiro:v.retiro}:{};
+  const add=(col,d)=>db.collection(col).add({...d,...rv,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
+  if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};}); 
+    /* um fechamento por retiro e mês (os antigos, de antes dos retiros, têm o mês como id) */
+    const ret=UI.ret||'', ex=(RAW.fech||[]).find(x=>x.mes===v.mes&&(x.retiro||'')===ret);
+    await db.doc(COL.fech+'/'+(ex?ex.id:ret?ret+'_'+v.mes:v.mes)).set({mes:v.mes,cats,...(ret?{retiro:ret}:{})}); }
   if(k==='movimento'){ const d={tipo:v.tipo,data:v.data,categoria:v.categoria,cab:N(v.cab),pesoMedio:N(v.pesoMedio)||0,obs:v.obs||''};
     if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
     if(v.tipo==='venda'){ d.precoArroba=N(v.precoArroba)||0; d.valor=N(v.valorV)||0; }
     if(v.tipo==='compra') d.valor=N(v.valorC)||0; await add(COL.movs,d); }
   if(k==='desembolso'){ const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde),...(v.nota?{nota:v.nota}:{})}; lembraOnde(v.item,v.onde);
-    if(ed) await db.doc(COL.desemb+'/'+ed).update(d); else await add(COL.desemb,d); }
+    if(ed) await db.doc(COL.desemb+'/'+ed).update({...d,...rv}); else await add(COL.desemb,d); }
   if(k==='custosMes'){ const m=v.mes; if(!m) throw {code:'form'}; const dt=m===ym(today())?today():mEnd(m); let n=0;
     for(const [it] of ITENS){ const val=N(v['v_'+it]); lembraOnde(it,v['o_'+it]); if(val>0){ await add(COL.desemb,{data:dt,valor:val,item:it,grupo:ITG[it],tipo:'custeio',descricao:'',...parseOnde(v['o_'+it])}); n++; } }
     if(!n) throw {code:'form',msg:'Preencha o valor de pelo menos um custo.'}; }
@@ -1697,18 +1769,18 @@ async function submitForm(f){
     const i=S.insumos.find(x=>x.id===v.insumoId); if(v.lancar&&N(v.valor)>0) await add(COL.desemb,{data:v.data,valor:N(v.valor),grupo:i?.grupo||'nutricao',item:GRUPO_ITEM[i?.grupo||'nutricao']||'outros',tipo:'custeio',...parseOnde(v.onde),descricao:`${nf(N(v.qtd),1)} ${i?.unidade||''} de ${i?.nome||'insumo'}`}); }
   if(k==='fornecimento') await add(COL.emovs,{tipo:'saida',fornecimento:true,insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),dias:N(v.dias),fase:v.fase,lote:v.lote||'',cab:N(v.cab),peso:N(v.peso)||0,obs:''});
   if(k==='suplemento'){ const d={nome:v.nome,tipo:v.tipo,unidade:v.unidade,kgUn:N(v.kgUn)||1,minimo:N(v.minimo)||0,grupo:'nutricao',formulacaoId:v.formulacaoId||'',metaTipo:v.metaTipo,metaMin:N(v.metaMin)||0,metaMax:N(v.metaMax)||0};
-    if(ed) await db.doc(COL.insumos+'/'+ed).update(d); else await add(COL.insumos,d); }
+    if(ed) await db.doc(COL.insumos+'/'+ed).update({...d,...rv}); else await add(COL.insumos,d); }
   if(k==='formulacao'){ const ingredientes=[]; for(let n=0;n<6;n++){ if(v['in_'+n]||N(v['ip_'+n])) ingredientes.push({nome:v['in_'+n]||'',pct:N(v['ip_'+n])||0,preco:N(v['iv_'+n])||0}); }
     const d={nome:v.nome,ingredientes,tipo:v.tipo};
-    if(ed) await db.doc(COL.form+'/'+ed).update(d); else await add(COL.form,d); }
+    if(ed) await db.doc(COL.form+'/'+ed).update({...d,...rv}); else await add(COL.form,d); }
   if(k==='adaptacao'){ const d={nome:v.nome,tipo:v.tipo,formulacaoId:v.formulacaoId||'',inicio:v.inicio,fase:v.fase,cab:N(v.cab),peso:N(v.peso)};
-    if(ed) await db.doc(COL.adapt+'/'+ed).update(d); else await add(COL.adapt,d); }
+    if(ed) await db.doc(COL.adapt+'/'+ed).update({...d,...rv}); else await add(COL.adapt,d); }
   if(k==='saida') await add(COL.emovs,{tipo:'saida',insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),obs:v.obs||''});
   if(k==='lote'){ const d={}; ['nome','sistema','dataEntrada','dataSaida'].forEach(x=>d[x]=v[x]||''); ['cab','pesoEntrada','aquisicao','nutricaoDia','operacionalDia','pesoSaida','carcaca','precoVenda','idadeAbate','idadeDesmame'].forEach(x=>d[x]=N(v[x]));
-    if(ed) await db.doc(COL.engorda+'/'+ed).update(d); else await add(COL.engorda,d); }
+    if(ed) await db.doc(COL.engorda+'/'+ed).update({...d,...rv}); else await add(COL.engorda,d); }
   if(k==='estacao'){ const d={nome:v.nome,dataDG:v.dataDG||'',dataVendaVazias:v.dataVendaVazias||'',cats:{}}; RCATS.forEach(([c])=>d.cats[c]={expostas:N(v['exp_'+c])||0,prenhes:N(v['pre_'+c])||0});
     ['iatfExpostas','iatfPrenhes','doses','nascidosVivos','desmMachos','pesoDesmMachos','desmFemeas','pesoDesmFemeas','pesoVacas','desembBezerro'].forEach(x=>d[x]=N(v[x])||0);
-    if(ed) await db.doc(COL.estacoes+'/'+ed).update(d); else await add(COL.estacoes,d); }
+    if(ed) await db.doc(COL.estacoes+'/'+ed).update({...d,...rv}); else await add(COL.estacoes,d); }
 }
 
 /* ---------- eventos ---------- */
@@ -1741,6 +1813,7 @@ function dbErr(e){ if(e?.code==='form') return toast(e.msg||'Confira os campos d
 document.addEventListener('click',async e=>{
   const b=e.target.closest('button,[data-close]'); if(!b) return; if(b.matches('.sheet-bg')&&e.target!==b) return;
   if(b.dataset.tab) return showTab(b.dataset.tab);
+  if('ret' in b.dataset&&b.closest('#retbar')){ await salvaNotaPendente(); UI.ret=b.dataset.ret; try{localStorage.setItem('retiro',UI.ret);}catch(x){} closeSheet(); UI.eo={}; DIRTY=false; aplicaRetiro(); return render(); }
   if(b.dataset.per){UI.per=b.dataset.per;try{localStorage.setItem('per2',UI.per);}catch(x){} return render();}
   if(b.dataset.themeSet) return setTema(b.dataset.themeSet);
   if(b.hasAttribute('data-logout')) return sair();
@@ -1760,6 +1833,11 @@ document.addEventListener('click',async e=>{
   if(b.hasAttribute('data-close')) return closeSheet();
   if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if(b.hasAttribute('data-migra')){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const r=($('#migraRet')||{}).value; if(!r) return; if(arma(b)) return;
+    const L=semRetiro(); b.disabled=true; b.textContent='Passando…'; let n=0;
+    try{ for(const x of L.filter(x=>x.k!=='pesagens')){ await db.doc(COL[x.k]+'/'+x.id).update({retiro:r}); n++; }
+      if(L.some(x=>x.k==='pesagens')){ await db.configMod(c=>({...c,pesagens:(c.pesagens||[]).map(p=>p.retiro?p:{...p,retiro:r})})); n+=L.filter(x=>x.k==='pesagens').length; }
+      toast(n+' lançamentos passados para '+retNome(r)); }catch(e){ dbErr(e); } render(); return; }
   if(b.dataset.rmCfg){ if(arma(b)) return; if(!db||!writable) return toast('Entre na sua conta para salvar.'); const [k,id]=b.dataset.rmCfg.split(':');
     try{ await db.configMod(c=>({...c,[k]:(c[k]||[]).filter(x=>x.id!==id)})); toast(k==='pesagens'?'Pesagem excluída':'Cancelado'); }catch(e){ dbErr(e); } return; }
   if(b.dataset.rmConvite){ if(arma(b)) return; const {error}=await sb.from('convites').delete().eq('fazenda_id',FID).eq('email',b.dataset.rmConvite); if(error) return toast('Não foi possível cancelar.'); toast('Convite cancelado'); return carregaSocios(); }
@@ -1801,10 +1879,13 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
   if(f.id==='milhoF'){ MIL={data:f.mdata.value||MIL.data,v:MIL.v.map(([n,p,x],i)=>[n,Number(f['mp'+i].value)||p,x])}; try{localStorage.setItem('milho',JSON.stringify(MIL));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='bgiF'){ const v=BGI.v.map(([n,p,x],i)=>[n,Number(f['bp'+i].value)||p,x]); BGI={data:f.bdata.value||BGI.data,spot:Number(f.bspot.value)||BGI.spot,v}; try{localStorage.setItem('bgi',JSON.stringify(BGI));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
+    const retirosN=retiros().map(r=>({...r,nome:(f['rn_'+r.id]?.value||'').trim()||r.nome,area:Number(f['ra_'+r.id]?.value)||0,
+      areaFase:Object.fromEntries(CENTROS.map(k=>[k,Number(f['rf_'+r.id+'_'+k]?.value)||0])),
+      donos:S.membros.length?[...f.querySelectorAll('input[name="rd_'+r.id+'"]:checked')].map(i=>i.value):(r.donos||[])}));
     const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
     /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
-    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,retiros:retirosN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); if(f.dataset.inline){DIRTY=false; UI.eo={}; render();} else closeSheet(); toast(f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
 });
@@ -1946,9 +2027,9 @@ async function iniciar(session){
     if(!data||!data.length){ await db.doc('config/geral').set({...CFG0,nome:FAZ}); for(const f of FORM_PADRAO) await novaForm(f); }
     else { /* contas antigas: acrescenta as formulações reais da fazenda (DDG) uma única vez */
       for(const f of FORM_PADRAO.filter(f=>f[0].endsWith('-ddg'))){ const {data:fd}=await daFaz(sb.from('formulacoes').select('id').eq('id',f[0])); if(fd&&!fd.length) await novaForm(f); } } }catch(e){}
-  const sub=(key,col)=>db.collection(col).onSnapshot(s=>{S[key]=s.docs.map(d=>({id:d.id,...d.data()}));render();},()=>{});
+  const sub=(key,col)=>db.collection(col).onSnapshot(s=>{RAW[key]=s.docs.map(d=>({id:d.id,...d.data()})); S[key]=filtraCol(key); render();},()=>{});
   Object.entries(COL).forEach(([k,c])=>sub(k,c));
-  db.doc('config/geral').onSnapshot(s=>{S.config={...CFG0,...(s.exists?s.data():{})};S.config.precos={...PRECO_PADRAO,...(S.config.precos||{})};S.config.fases={...FASE_PADRAO,...(S.config.fases||{})};S.config.areaFase={...CFG0.areaFase,...(S.config.areaFase||{})};render();},()=>{});
+  db.doc('config/geral').onSnapshot(s=>{S.config={...CFG0,...(s.exists?s.data():{})};S.config.precos={...PRECO_PADRAO,...(S.config.precos||{})};S.config.fases={...FASE_PADRAO,...(S.config.fases||{})};S.config.areaFase={...CFG0.areaFase,...(S.config.areaFase||{})};aplicaRetiro();render();},()=>{});
   clearInterval(tick); tick=setInterval(()=>{ if(db&&!document.hidden){ db.refreshAll(); carregaSocios(); } },30000);
   carregaSocios(); render();
 }
@@ -1967,7 +2048,7 @@ async function carregaSocios(){ if(!FID||!sb||!UID) return;
     if(!m.error){ S.membros=m.data||[]; locPut('membros',S.membros); } if(!c.error) S.convites=c.data||[];
     if(TG_BOT){ const t=await sb.from('telegram_contas').select('chat_id,nome_telegram').eq('user_id',UID); if(!t.error){ const novo=(t.data||[]).length>(S.telegram||[]).length; S.telegram=t.data||[]; if(novo) TG_COD=null; } }
     render(); }catch(e){} }
-function encerrar(){ started=false; TG_COD=null; S.telegram=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>S[k]=[]); S.config={...CFG0}; render(); showAuth(true); }
+function encerrar(){ started=false; TG_COD=null; S.telegram=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>{S[k]=[]; delete RAW[k];}); S.config={...CFG0}; render(); showAuth(true); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&db) db.refreshAll(); });
 (async()=>{
   if(!sb){ showAuth(true); authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue a página.','bad'); render(); return; }
