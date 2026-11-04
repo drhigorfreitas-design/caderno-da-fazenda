@@ -1,0 +1,19 @@
+name: Resumo semanal no Telegram
+# Toda segunda, 7h de Cuiabá (11h UTC), pede ao robô do Telegram para mandar o resumo da semana
+# passada para os sócios. O robô manda no máximo uma vez por semana, então rodar de novo não repete.
+on:
+  schedule:
+    - cron: "0 11 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resumo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir o resumo
+        run: |
+          resp=$(curl -s -w '\n%{http_code}' "https://siolfbiubwjwvbeqekut.supabase.co/functions/v1/telegram?resumo=1")
+          code=$(echo "$resp" | tail -n1); corpo=$(echo "$resp" | head -n -1)
+          echo "HTTP $code: $corpo"
+          [ "$code" = "200" ] || exit 1

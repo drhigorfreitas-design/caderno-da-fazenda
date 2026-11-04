@@ -44,7 +44,7 @@ const SCHEMA = {
   additionalProperties: false,
   required: ["tipo", "data", "valor", "item", "onde", "descricao", "anotacao", "movimentos", "resposta"],
   properties: {
-    tipo: { type: "string", enum: ["custo", "rebanho", "anotacao", "nao_entendi"] },
+    tipo: { type: "string", enum: ["custo", "rebanho", "anotacao", "pergunta", "nao_entendi"] },
     data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
     valor: { type: "number", description: "valor total pago em reais; 0 se não for custo" },
     item: { type: "string", enum: ITENS.map((i) => i[0]) },
@@ -79,6 +79,7 @@ Classifique a mensagem:
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
   Nascimento é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
 - "anotacao": algo para lembrar e não é gasto nem movimento de animais (chuva, vacinação feita, observação do pasto, "anotar: ..."). Copie o texto em "anotacao", sem o "anotar:".
+- "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Os outros campos ficam vazios/0; a resposta vem depois.
 - "nao_entendi": não dá para saber o valor ou o que é. Em "resposta", peça em uma frase o que falta.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
@@ -94,6 +95,7 @@ export type Deps = {
   tg: (metodo: string, corpo: Record<string, unknown>) => Promise<any>;
   baixa: (caminho: string) => Promise<Uint8Array>;
   le: (conteudo: any[]) => Promise<Leitura | null>;
+  pensa: (sistema: string, texto: string) => Promise<string | null>; // responde perguntas com os dados
   db: any; // cliente supabase com a chave de serviço
 };
 
@@ -107,7 +109,7 @@ const botoesCusto = (id: string, onde: string) => ({
     [{ text: "↩ Desfazer", callback_data: `apagar:${id}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva, por exemplo:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva, por exemplo:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -178,6 +180,110 @@ async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto:
   return responde(d, chat, `📝 Anotei no bloco de notas de ${MESF[+mes.slice(5) - 1]}:\n<i>${esc(linha)}</i>`);
 }
 
+/* ---------- dados da fazenda (para o resumo e as perguntas) ---------- */
+const somaDias = (s: string, n: number) => { const t = new Date(s + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+async function todos(d: Deps, tabela: string, fazenda: string, desde = "") {
+  const out: any[] = [];
+  for (let i = 0; ; i += 1000) {
+    let q = d.db.from(tabela).select("dados").eq("fazenda_id", fazenda);
+    if (desde) q = q.gte("data", desde);
+    const { data, error } = await q.range(i, i + 999);
+    if (error) { console.error("ler " + tabela, error); break; }
+    out.push(...(data || []).map((r: any) => r.dados || {}));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+// mesmo cálculo do app: último fechamento + movimentos depois dele
+function rebanhoHoje(fechs: any[], movs: any[]) {
+  const base = [...fechs].filter((f) => f.mes && f.cats).sort((a, b) => (a.mes < b.mes ? -1 : 1)).pop();
+  if (!base) return null;
+  const cats: Record<string, number> = {};
+  Object.keys(CATS).forEach((c) => (cats[c] = Number(base.cats[c]?.cab) || 0));
+  movs.filter((x) => String(x.data || "").slice(0, 7) > base.mes).forEach((x) => {
+    const n = Number(x.cab) || 0;
+    if (x.tipo === "nascimento" || x.tipo === "compra") cats[x.categoria] = (cats[x.categoria] || 0) + n;
+    else if (x.tipo === "venda" || x.tipo === "morte") cats[x.categoria] = (cats[x.categoria] || 0) - n;
+    else if (x.tipo === "transferencia" && cats[x.para] != null) { cats[x.categoria] -= n; cats[x.para] += n; }
+  });
+  Object.keys(cats).forEach((c) => (cats[c] = Math.max(0, Math.round(cats[c]))));
+  return { mes: base.mes, cats, total: Object.values(cats).reduce((a, b) => a + b, 0) };
+}
+
+/* ---------- resumo semanal (GitHub Actions chama ?resumo=1 toda segunda) ---------- */
+export async function resumoSemanal(d: Deps) {
+  const hoje = hojeMT(), dow = new Date(hoje + "T12:00:00Z").getUTCDay();
+  if (dow !== 1) return "só às segundas";
+  const ini = somaDias(hoje, -7), fim = somaDias(hoje, -1); // segunda a domingo da semana passada
+  // uma vez por semana: se alguém chamar de novo, não manda repetido
+  const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -Number(ini.replace(/-/g, "")) });
+  if (ja) return "já enviado";
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const porFaz: Record<string, number[]> = {};
+  (contas || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
+  let n = 0;
+  for (const [faz, chats] of Object.entries(porFaz)) {
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", faz).maybeSingle();
+    const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz);
+    const semana = movs.filter((x) => x.data >= ini && x.data <= fim);
+    const gastos = (await todos(d, "desembolsos", faz, ini)).filter((x) => x.data <= fim);
+    const cab = (t: string) => semana.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.cab) || 0), 0);
+    const val = (t: string) => semana.filter((x) => x.tipo === t).reduce((a, x) => a + (Number(x.valor) || 0), 0);
+    const reb = [
+      cab("nascimento") && `${nfBR(cab("nascimento"))} ${cab("nascimento") === 1 ? "nascimento" : "nascimentos"}`,
+      cab("morte") && `${nfBR(cab("morte"))} ${cab("morte") === 1 ? "morte" : "mortes"}`,
+      cab("venda") && `${nfBR(cab("venda"))} vendidos${val("venda") ? ` (${brl(val("venda"))})` : ""}`,
+      cab("compra") && `${nfBR(cab("compra"))} comprados${val("compra") ? ` (${brl(val("compra"))})` : ""}`,
+      cab("transferencia") && `${nfBR(cab("transferencia"))} mudaram de categoria`,
+    ].filter(Boolean);
+    const tot = gastos.reduce((a, x) => a + (Number(x.valor) || 0), 0), porItem: Record<string, number> = {};
+    gastos.forEach((x) => (porItem[x.item] = (porItem[x.item] || 0) + (Number(x.valor) || 0)));
+    const top = Object.entries(porItem).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${ITN[k] || "Outros"} ${brl(v)}`);
+    const R = rebanhoHoje(fechs, movs);
+    const txt = `📊 <b>Resumo da semana</b> · ${dBR(ini).slice(0, 5)} a ${dBR(fim)}${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
+      `🐄 <b>Rebanho:</b> ${reb.length ? reb.join(" · ") : "nenhum movimento lançado"}\n` +
+      `💸 <b>Custos:</b> ${tot ? brl(tot) + (top.length ? `\n   ${esc(top.join(" · "))}` : "") : "nenhum custo lançado"}\n` +
+      (R ? `\n<b>Rebanho hoje:</b> ${nfBR(R.total)} cabeças\n<i>Fechamento de ${MESF[+R.mes.slice(5) - 1]} + movimentos lançados depois.</i>` : "") +
+      `\n\nPergunte o que quiser, ex.: <i>quantas vacas eu tenho?</i>`;
+    for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
+  }
+  return `enviado para ${n} conversa(s)`;
+}
+
+/* ---------- perguntas sobre os dados ---------- */
+export async function contexto(d: Deps, faz: string) {
+  const hoje = hojeMT(), desde = somaDias(hoje, -730);
+  const movs = await todos(d, "movimentos", faz), fechs = await todos(d, "fechamentos", faz), gastos = await todos(d, "desembolsos", faz, desde);
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const R = rebanhoHoje(fechs, movs), notas = cfg?.dados?.notas || {};
+  const CN = (k: string) => CATS[k] || k || "";
+  const linhas = [
+    `Hoje: ${hoje}. 1 @ = ${Number(cfg?.dados?.kgArroba) || 30} kg de peso vivo.`,
+    R ? `REBANHO HOJE (fechamento de ${R.mes} + movimentos depois): total ${R.total} cabeças; ` +
+      Object.entries(R.cats).filter(([, v]) => v).map(([k, v]) => `${CN(k)} ${v}`).join("; ") : "REBANHO HOJE: nenhum fechamento de mês lançado ainda.",
+    "FECHAMENTOS DO MÊS (mês: categoria cabeças/peso médio kg):",
+    ...[...fechs].sort((a, b) => (a.mes < b.mes ? -1 : 1)).slice(-13).map((f) => `${f.mes}: ` +
+      Object.entries(f.cats || {}).map(([k, v]: any) => `${CN(k)} ${v.cab}/${v.peso || "?"}kg`).join("; ")),
+    "MOVIMENTOS (data;tipo;categoria;para;cabeças;peso médio kg;valor R$;obs;quem):",
+    ...movs.filter((x) => x.data >= desde).sort((a, b) => (a.data < b.data ? -1 : 1)).map((x) =>
+      [x.data, TIPOS_MOV[x.tipo] || x.tipo, CN(x.categoria), x.para ? CN(x.para) : "", x.cab, x.pesoMedio || "", x.valor || "", x.obs || "", x.por || ""].join(";")),
+    "CUSTOS, últimos 2 anos (data;tipo de custo;setor;valor R$;descrição;custeio ou investimento):",
+    ...gastos.sort((a, b) => (a.data < b.data ? -1 : 1)).map((x) =>
+      [x.data, ITN[x.item] || x.item || "", ONDE[x.centro] || "Fazenda toda", x.valor, x.descricao || "", x.tipo || "custeio"].join(";")),
+    "BLOCO DE NOTAS (mês: texto):",
+    ...Object.keys(notas).sort().slice(-12).map((m) => `${m}: ${String(notas[m]).replace(/\s*\n\s*/g, " | ")}`),
+  ];
+  return linhas.join("\n");
+}
+const SISTEMA_PERGUNTA = `Você responde, pelo Telegram, perguntas de um pecuarista (cria, recria e engorda em Mato Grosso) sobre os dados do caderno da fazenda dele, que vêm abaixo.
+Use só esses dados. Faça as contas com cuidado (some, conte e filtre pelas datas certas). Se os dados não bastarem, diga em uma frase o que falta lançar no app.
+Responda curto, em português, em texto simples: sem markdown, sem asteriscos, sem tabelas. Pode usar quebras de linha e "•" para listas. Números no formato brasileiro (1.234,50; R$ 1.234,50).`;
+async function respondePergunta(d: Deps, chat: number, conta: any, pergunta: string) {
+  await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
+  const r = await d.pensa(SISTEMA_PERGUNTA, `DADOS DA FAZENDA\n${await contexto(d, conta.fazenda_id)}\n\nPERGUNTA: ${pergunta}`);
+  return responde(d, chat, r ? esc(r.trim()) : "Não consegui responder agora. Tente de novo em instantes.");
+}
+
 /* ---------- botões (Desfazer / trocar setor) ---------- */
 async function botao(d: Deps, q: any) {
   const chat = q.message?.chat?.id, [acao, id, onde] = String(q.data || "").split(":");
@@ -228,6 +334,9 @@ export async function trata(d: Deps, up: any) {
   const an = texto.match(/^(?:anotar|anota|nota)\s*[:\-]\s*([\s\S]+)/i);
   if (an && !msg.photo && !msg.document) return lancaNota(d, chat, conta, quem, an[1]);
 
+  // pergunta direta (termina com "?"): não precisa classificar antes
+  if (texto.endsWith("?") && !msg.photo && !msg.document) return respondePergunta(d, chat, conta, texto);
+
   const conteudo: any[] = [];
   const foto = msg.photo?.length ? msg.photo[msg.photo.length - 1] : null;
   const doc = msg.document && /^(image\/(jpeg|png|webp|gif)|application\/pdf)$/.test(msg.document.mime_type || "") ? msg.document : null;
@@ -247,6 +356,7 @@ export async function trata(d: Deps, up: any) {
   await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
   const L = await d.le(conteudo);
   if (!L) return responde(d, chat, "Não consegui ler agora. Tente de novo em instantes ou lance pelo app.");
+  if (L.tipo === "pergunta" && texto) return respondePergunta(d, chat, conta, texto);
   if (L.tipo === "rebanho" && L.movimentos?.length) return lancaRebanho(d, chat, conta, quem, L.movimentos);
   if (L.tipo === "anotacao" && L.anotacao.trim()) return lancaNota(d, chat, conta, quem, L.anotacao);
   if (L.tipo === "custo" && L.valor > 0) return lancaCusto(d, chat, conta, quem, L);
@@ -287,7 +397,25 @@ if (typeof Deno !== "undefined") {
       return null;
     }
   };
-  const deps: Deps = { token, tg, baixa, le, db };
+  const pensa = async (sistema: string, texto: string): Promise<string | null> => {
+    try {
+      const r = await anthropic.beta.messages.create({
+        model: "claude-opus-5-5",
+        max_tokens: 16000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        output_config: { effort: "medium" }, // contas com os dados: um pouco mais de cuidado
+        system: sistema,
+        messages: [{ role: "user", content: texto }],
+      } as any);
+      if (r.stop_reason === "refusal") { console.error("recusa", (r as any).stop_details); return null; }
+      return r.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || null;
+    } catch (e) {
+      console.error("erro ao responder pergunta", e instanceof Anthropic.APIError ? `${e.status} ${e.message}` : e);
+      return null;
+    }
+  };
+  const deps: Deps = { token, tg, baixa, le, pensa, db };
 
   Deno.serve(async (req) => {
     const url = new URL(req.url), segredo = await segredoWebhook(token);
@@ -298,6 +426,10 @@ if (typeof Deno !== "undefined") {
       const r = await tg("setWebhook", { url: alvo, secret_token: segredo, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
       const eu = await tg("getMe", {});
       return new Response(r.ok ? `Robô @${eu.result?.username} ligado. Pode fechar esta página.` : "Erro: " + JSON.stringify(r), { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    if (url.searchParams.has("resumo")) {
+      // chamado toda segunda pelo GitHub Actions; manda no máximo uma vez por semana
+      try { return new Response(await resumoSemanal(deps)); } catch (e) { console.error("resumo", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
