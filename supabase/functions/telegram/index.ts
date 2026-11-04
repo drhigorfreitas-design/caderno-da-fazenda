@@ -21,6 +21,11 @@ const ITENS: [string, string, string][] = [
 const ITN = Object.fromEntries(ITENS.map((i) => [i[0], i[1]]));
 const ITG = Object.fromEntries(ITENS.map((i) => [i[0], i[2]]));
 const ONDE: Record<string, string> = { geral: "Fazenda toda", cria: "Cria", recria: "Recria", engorda: "Engorda" };
+/* rebanho: as mesmas categorias e tipos de movimento do app */
+const CATS: Record<string, string> = { matrizes: "Matrizes", descarte: "Matrizes de descarte", bezerros: "Bezerros mamando", touros: "Touros",
+  f8_12: "Fêmeas 8 a 12 meses", f13_24: "Fêmeas 13 a 24 meses", f24: "Fêmeas > 24 meses",
+  m8_12: "Machos 8 a 12 meses", m13_24: "Machos 13 a 24 meses", m25_36: "Machos 25 a 36 meses", m36: "Machos > 36 meses", outras: "Outras categorias" };
+const TIPOS_MOV: Record<string, string> = { nascimento: "Nascimento", compra: "Compra", venda: "Venda", morte: "Morte", transferencia: "Mudança de categoria" };
 const MESF = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 /* ---------- utilidades ---------- */
@@ -37,29 +42,51 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "data", "valor", "item", "onde", "descricao", "anotacao", "resposta"],
+  required: ["tipo", "data", "valor", "item", "onde", "descricao", "anotacao", "movimentos", "resposta"],
   properties: {
-    tipo: { type: "string", enum: ["custo", "anotacao", "nao_entendi"] },
+    tipo: { type: "string", enum: ["custo", "rebanho", "anotacao", "nao_entendi"] },
     data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
     valor: { type: "number", description: "valor total pago em reais; 0 se não for custo" },
     item: { type: "string", enum: ITENS.map((i) => i[0]) },
     onde: { type: "string", enum: Object.keys(ONDE) },
     descricao: { type: "string", description: "curta: o que foi comprado e de quem, ex.: 'Diesel S10 300 L · Posto Trevo'" },
     anotacao: { type: "string", description: "texto da anotação quando tipo = anotacao; vazio nos outros casos" },
+    movimentos: {
+      type: "array", description: "quando tipo = rebanho: um item por movimento; vazio nos outros casos",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "preco_arroba", "valor", "obs"],
+        properties: {
+          mov: { type: "string", enum: Object.keys(TIPOS_MOV) },
+          data: { type: "string", description: "AAAA-MM-DD; vazio se a mensagem não disser (usa hoje)" },
+          categoria: { type: "string", enum: Object.keys(CATS), description: "categoria dos animais (na mudança de categoria: a de origem)" },
+          para: { type: "string", enum: ["", ...Object.keys(CATS)], description: "só na mudança de categoria: a de destino; senão vazio" },
+          cab: { type: "integer", description: "número de cabeças" },
+          peso_medio: { type: "number", description: "kg vivo por cabeça; 0 se não disser" },
+          preco_arroba: { type: "number", description: "só na venda: R$ por arroba; 0 se não disser" },
+          valor: { type: "number", description: "compra: total pago; venda: total recebido; 0 se não disser ou nos outros tipos" },
+          obs: { type: "string", description: "curta: sexo dos bezerros, causa da morte, comprador, vendedor… vazio se nada" },
+        },
+      },
+    },
     resposta: { type: "string", description: "quando tipo = nao_entendi: uma frase curta pedindo o que falta" },
   },
 };
 const SISTEMA = `Você lê o que um pecuarista manda pelo Telegram para o caderno da fazenda dele (cria, recria e engorda de gado de corte, em Mato Grosso).
 Classifique a mensagem:
 - "custo": nota fiscal, cupom, recibo, boleto pago ou frase dizendo que gastou/pagou algo. Preencha data (da nota; se não houver, deixe vazio), valor TOTAL pago em reais, o tipo de custo (item) que melhor descreve a maior parte do valor, e uma descrição curta.
-- "anotacao": algo para lembrar e não é gasto (chuva, vacinação feita, observação do pasto, "anotar: ..."). Copie o texto em "anotacao", sem o "anotar:".
+- "rebanho": nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Preencha "movimentos", um item por movimento (uma mensagem pode ter vários). Se a compra ou venda também disser o valor, lance só como rebanho (o valor vai no movimento, não como custo).
+  Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
+  Nascimento é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
+- "anotacao": algo para lembrar e não é gasto nem movimento de animais (chuva, vacinação feita, observação do pasto, "anotar: ..."). Copie o texto em "anotacao", sem o "anotar:".
 - "nao_entendi": não dá para saber o valor ou o que é. Em "resposta", peça em uma frase o que falta.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
 "onde": cria, recria ou engorda só se a mensagem disser claramente o setor; senão "geral" (fazenda toda).
 Responda só com o JSON pedido.`;
 
-export type Leitura = { tipo: string; data: string; valor: number; item: string; onde: string; descricao: string; anotacao: string; resposta: string };
+export type Mov = { mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
+export type Leitura = { tipo: string; data: string; valor: number; item: string; onde: string; descricao: string; anotacao: string; movimentos?: Mov[]; resposta: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -80,7 +107,7 @@ const botoesCusto = (id: string, onde: string) => ({
     [{ text: "↩ Desfazer", callback_data: `apagar:${id}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva, por exemplo:\n• <i>gastei 300 de vacina na recria</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva, por exemplo:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -106,6 +133,40 @@ async function lancaCusto(d: Deps, chat: number, conta: any, quem: string, L: Le
     (L.descricao ? `\n${esc(L.descricao)}` : "") + (okData(L.data) ? "" : "\n<i>A nota não tinha data: usei hoje.</i>") +
     "\nSe o setor estiver errado, toque nele abaixo.", botoesCusto(id, onde));
 }
+const nfBR = (v: number, c = 0) => v.toLocaleString("pt-BR", { maximumFractionDigits: c });
+async function lancaRebanho(d: Deps, chat: number, conta: any, quem: string, movs: Mov[]) {
+  const hoje = hojeMT(), base = crypto.randomUUID(), criadoEm = new Date().toISOString();
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+  const kgA = Number(cfg?.dados?.kgArroba) || 30;
+  const linhas: any[] = [], txt: string[] = [];
+  for (const m of movs) {
+    const cab = Math.round(Number(m.cab) || 0);
+    if (!TIPOS_MOV[m.mov] || cab <= 0) continue;
+    const categoria = m.mov === "nascimento" ? "bezerros" : CATS[m.categoria] ? m.categoria : "outras";
+    if (m.mov === "transferencia" && (!CATS[m.para] || m.para === categoria)) continue;
+    const data = okData(m.data) && m.data <= hoje ? m.data : hoje;
+    const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0;
+    const x: Record<string, unknown> = { tipo: m.mov, data, categoria, cab, pesoMedio: peso, obs: String(m.obs || "").trim() };
+    if (m.mov === "transferencia") x.para = m.para;
+    let valor: number | null = null;
+    if (m.mov === "venda") {
+      x.precoArroba = Number(m.preco_arroba) > 0 ? +m.preco_arroba : 0;
+      valor = Number(m.valor) > 0 ? +m.valor : (x.precoArroba as number) && peso ? cab * peso / kgA * (x.precoArroba as number) : 0;
+    }
+    if (m.mov === "compra") valor = Number(m.valor) > 0 ? +m.valor : 0;
+    if (valor != null) x.valor = Math.round(valor * 100) / 100;
+    const id = `${base}-${linhas.length + 1}`;
+    linhas.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab, valor: valor == null ? null : x.valor,
+      dados: { ...x, criadoEm, porId: conta.user_id, por: quem, origem: "telegram" } });
+    txt.push(`• <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
+      ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
+  }
+  if (!linhas.length) return responde(d, chat, "Não entendi o movimento. Diga quantas cabeças e o que aconteceu, por exemplo: <i>nasceram 5 bezerros machos</i>.");
+  const { error } = await d.db.from("movimentos").insert(linhas);
+  if (error) { console.error("insert movimentos", error); return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes."); }
+  return responde(d, chat, `✅ Lancei no rebanho:\n${txt.join("\n")}\nSe a categoria estiver errada, toque em Desfazer e mande de novo com mais detalhe.`,
+    { reply_markup: { inline_keyboard: [[{ text: "↩ Desfazer", callback_data: `apagarm:${base}` }]] } });
+}
 async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto: string) {
   const hoje = hojeMT(), mes = hoje.slice(0, 7);
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
@@ -123,6 +184,12 @@ async function botao(d: Deps, q: any) {
   const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
   const fim = (t: string) => d.tg("answerCallbackQuery", { callback_query_id: q.id, text: t });
   if (!conta) return fim("Telegram não está ligado ao app.");
+  if (acao === "apagarm" && /^[0-9a-f-]{36}$/.test(id)) {
+    const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
+    if (!ms?.length) return fim("Esse lançamento já não existe.");
+    await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: `↩ Desfeito: ${ms.length > 1 ? ms.length + " movimentos saíram" : "o movimento saiu"} do rebanho no app.` });
+    return fim("Lançamento apagado");
+  }
   const { data: x } = await d.db.from("desembolsos").select("dados").eq("fazenda_id", conta.fazenda_id).eq("id", id).maybeSingle();
   if (!x) return fim("Esse lançamento já não existe.");
   if (acao === "apagar") {
@@ -180,6 +247,7 @@ export async function trata(d: Deps, up: any) {
   await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
   const L = await d.le(conteudo);
   if (!L) return responde(d, chat, "Não consegui ler agora. Tente de novo em instantes ou lance pelo app.");
+  if (L.tipo === "rebanho" && L.movimentos?.length) return lancaRebanho(d, chat, conta, quem, L.movimentos);
   if (L.tipo === "anotacao" && L.anotacao.trim()) return lancaNota(d, chat, conta, quem, L.anotacao);
   if (L.tipo === "custo" && L.valor > 0) return lancaCusto(d, chat, conta, quem, L);
   return responde(d, chat, esc(L.resposta || "Não entendi. Mande a foto da nota ou escreva o valor e o que foi comprado."));
