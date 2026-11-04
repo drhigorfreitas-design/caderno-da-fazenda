@@ -1570,7 +1570,7 @@ function renderFase(k){
 function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.hidden=!R.length||!db; if(el.hidden) return;
   el.innerHTML=`<div class="seg">${partes().map(r=>`<button type="button" data-ret="${esc(r.id)}" aria-pressed="${UI.ret===r.id}">${esc(r.nome)}</button>`).join('')}<button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`; }
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#notaF,#convF,#contaF,#pesF,#lembF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#contaF,#pesF,#lembF'))) return;
   ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -1696,17 +1696,22 @@ function milhoHTML(){
   <div class="grid2">${MIL.v.map(([n,p],i)=>fld(n+' (R$/saca)','mp'+i,'number','step="0.01"',p)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
   <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/milho/milho-b3-prego-regular" target="_blank" rel="noopener">Notícias Agrícolas / B3</a>. Os valores ficam salvos neste aparelho; atualize quando quiser.</p></details></div>`;}
 
-/* ---------- reposição macho Nelore MT (Scot Consultoria) ---------- */
+/* ---------- reposição Nelore MT, macho e fêmea (Scot Consultoria) ---------- */
 const REP0={uf:'MT',v:[['Desmama','8 meses',195,6.5,3391.54,'2026-10-26'],['Bezerro','12 meses',240,8,4032.81,'2026-10-26'],['Garrote','18 meses',300,10,4585.24,'2026-10-27'],['Boi magro','',375,12.5,5318.96,'2026-10-26']]};
-let REP=(()=>{try{const o=JSON.parse(localStorage.getItem('repoNelore')||'null'); return o&&o.v&&o.v.length===4?o:REP0;}catch(e){return REP0;}})();
-function repoHTML(){
-  return `<div class="panel"><div class="row-head"><h2>Reposição: macho Nelore em ${REP.uf}</h2><span class="small muted">Scot Consultoria${COT_AUTO?' · automático':''}</span></div>
+const REPF0={uf:'MT',v:[['Desmama','8 meses',180,6,2870.97,'2026-11-04'],['Bezerra','12 meses',210,7,3315.41,'2026-11-04'],['Novilha','18 meses',270,9,3813.46,'2026-11-04'],['Vaca boiadeira','',330,11,4419.20,'2026-11-04']]};
+const repoGuardado=(k,pad)=>{try{const o=JSON.parse(localStorage.getItem(k)||'null'); return o&&o.v&&o.v.length===4?o:pad;}catch(e){return pad;}};
+let REP=repoGuardado('repoNelore',REP0), REPF=repoGuardado('repoNeloreF',REPF0);
+/* a mesma tabela para macho (form repF, campos rc/rd) e fêmea (form repFF, campos fc/fd) */
+function repoTab(R,sexo,form,pre,url){
+  return `<div class="panel"><div class="row-head"><h2>Reposição: ${sexo} Nelore em ${R.uf}</h2><span class="small muted">Scot Consultoria${COT_AUTO?' · automático':''}</span></div>
   <div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Categoria</th><th>R$/cabeça</th><th>R$/kg</th><th>R$/@</th></tr></thead><tbody>
-  ${REP.v.map(([n,i,kg,arr,cab,d])=>`<tr><td><b>${n}</b><br><span class="small muted">${i?i+' · ':''}${nf(kg)} kg · ${nf(arr,1)} @</span></td><td><b>${brl(cab,2)}</b><br><span class="small muted">${dBR(d).slice(0,5)}</span></td><td>${brl(cab/kg,2)}</td><td>${brl(cab/arr,2)}</td></tr>`).join('')}
+  ${R.v.map(([n,i,kg,arr,cab,d])=>`<tr><td><b>${n}</b><br><span class="small muted">${i?i+' · ':''}${nf(kg)} kg · ${nf(arr,1)} @</span></td><td><b>${brl(cab,2)}</b><br><span class="small muted">${dBR(d).slice(0,5)}</span></td><td>${brl(cab/kg,2)}</td><td>${brl(cab/arr,2)}</td></tr>`).join('')}
   </tbody></table></div>
   <p class="note" style="margin-top:8px">Data de cada cotação abaixo do valor. R$/@ é o preço da cabeça dividido pelas @ de peso vivo da categoria.</p>
-  <details><summary>Atualizar os valores</summary><form class="f" id="repF"><div class="grid2">${REP.v.map(([n,i,kg,arr,cab,d],k)=>fld(n+' (R$/cabeça)','rc'+k,'number','step="0.01"',cab)+fld('Data '+n.toLowerCase(),'rd'+k,'date','',d)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
-  <p class="note">Fonte: <a href="https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/macho-nelore-boi-magro" target="_blank" rel="noopener">Scot Consultoria, via Notícias Agrícolas</a>. Pesos de referência: desmama 195 kg, bezerro 240 kg, garrote 300 kg, boi magro 375 kg. Os valores ficam salvos neste aparelho.</p></details></div>`;}
+  <details><summary>Atualizar os valores</summary><form class="f" id="${form}"><div class="grid2">${R.v.map(([n,i,kg,arr,cab,d],k)=>fld(n+' (R$/cabeça)',pre+'c'+k,'number','step="0.01"',cab)+fld('Data '+n.toLowerCase(),pre+'d'+k,'date','',d)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
+  <p class="note">Fonte: <a href="${url}" target="_blank" rel="noopener">Scot Consultoria, via Notícias Agrícolas</a>. Pesos de referência: ${R.v.map(([n,,kg])=>n.toLowerCase()+' '+nf(kg)+' kg').join(', ')}. Os valores ficam salvos neste aparelho.</p></details></div>`;}
+const repoHTML=()=>repoTab(REP,'macho','repF','r','https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/reposicao-nelore-macho');
+const repoFHTML=()=>repoTab(REPF,'fêmea','repFF','f','https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/reposicao-nelore-femea');
 
 /* cotações automáticas: o GitHub atualiza cotacoes.json todo dia útil */
 let COT_AUTO=false;
@@ -1717,6 +1722,7 @@ async function carregaCot(){
     if(j.milho&&j.milho.v&&j.milho.v.length===4&&j.milho.data>=MIL.data){ MIL={data:j.milho.data,v:j.milho.v}; mudou=true; }
     const mx=a=>a.reduce((m,x)=>x[5]>m?x[5]:m,'');
     if(j.reposicao&&j.reposicao.v&&j.reposicao.v.length===4&&mx(j.reposicao.v)>=mx(REP.v)){ REP=j.reposicao; mudou=true; }
+    if(j.reposicao_femea&&j.reposicao_femea.v&&j.reposicao_femea.v.length===4&&mx(j.reposicao_femea.v)>=mx(REPF.v)){ REPF=j.reposicao_femea; mudou=true; }
     if(mudou){ COT_AUTO=true; if(UI.tab==='inicio') render(); } }catch(e){}
 }
 function renderInicio(){
@@ -1725,6 +1731,7 @@ function renderInicio(){
   <div style="margin-top:18px">${bgiHTML()}</div>
   <div style="margin-top:12px">${milhoHTML()}</div>
   <div style="margin-top:12px">${repoHTML()}</div>
+  <div style="margin-top:12px">${repoFHTML()}</div>
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
@@ -1904,6 +1911,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     if(error&&error.code!=='23505') return toast(semRede(error)?'Sem internet. Tente de novo com sinal.':'Não foi possível convidar.');
     f.reset(); await carregaSocios(); toast('Convite criado. Agora envie o link do app para ele.'); return; }
   if(f.id==='notaF'){ await salvaNota(f.dataset.mes,f.txt.value); document.activeElement?.blur(); render(); toast('Anotações salvas'); return; }
+  if(f.id==='repFF'){ REPF={uf:REPF.uf,v:REPF.v.map((r,k)=>[r[0],r[1],r[2],r[3],Number(f['fc'+k].value)||r[4],f['fd'+k].value||r[5]])}; try{localStorage.setItem('repoNeloreF',JSON.stringify(REPF));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='repF'){ REP={uf:REP.uf,v:REP.v.map((r,k)=>[r[0],r[1],r[2],r[3],Number(f['rc'+k].value)||r[4],f['rd'+k].value||r[5]])}; try{localStorage.setItem('repoNelore',JSON.stringify(REP));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='milhoF'){ MIL={data:f.mdata.value||MIL.data,v:MIL.v.map(([n,p,x],i)=>[n,Number(f['mp'+i].value)||p,x])}; try{localStorage.setItem('milho',JSON.stringify(MIL));}catch(x){} render(); toast('Valores salvos'); return; }
   if(f.id==='bgiF'){ const v=BGI.v.map(([n,p,x],i)=>[n,Number(f['bp'+i].value)||p,x]); BGI={data:f.bdata.value||BGI.data,spot:Number(f.bspot.value)||BGI.spot,v}; try{localStorage.setItem('bgi',JSON.stringify(BGI));}catch(x){} render(); toast('Valores salvos'); return; }

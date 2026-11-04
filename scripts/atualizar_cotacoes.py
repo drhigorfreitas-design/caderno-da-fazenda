@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atualiza cotacoes.json com boi gordo e milho (B3) e reposição de macho Nelore em MT (Scot).
+"""Atualiza cotacoes.json com boi gordo e milho (B3) e reposição de macho e fêmea Nelore em MT (Scot).
 Fonte: páginas públicas do Notícias Agrícolas. Se uma parte falhar, mantém o valor antigo dela."""
 import json, re, sys, os, urllib.request
 from datetime import datetime, timezone, timedelta
@@ -13,6 +13,10 @@ FONTES = {
     "bezerro": BASE + "boi-gordo/macho-nelore-bezerro-12-meses",
     "garrote": BASE + "boi-gordo/macho-nelore-garrote-18-meses",
     "magro": BASE + "boi-gordo/macho-nelore-boi-magro",
+    "f_desmama": BASE + "boi-gordo/femea-nelore-desmama-8-meses",
+    "f_bezerra": BASE + "boi-gordo/bezerra-nelore-femea-12-meses",
+    "f_novilha": BASE + "boi-gordo/femea-nelore-novilha-18-meses",
+    "f_vaca": BASE + "boi-gordo/femea-nelore-vaca-boiadeira",
 }
 MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 ABREV = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
@@ -98,6 +102,19 @@ def reposicao(chave):
     raise ValueError(f"reposição {chave}: linha de MT não encontrada")
 
 REPO = [("desmama", "Desmama", "8 meses", 195, 6.5), ("bezerro", "Bezerro", "12 meses", 240, 8), ("garrote", "Garrote", "18 meses", 300, 10), ("magro", "Boi magro", "", 375, 12.5)]
+# fêmea Nelore: os pesos de referência da Scot (desmama 180 kg 6@, bezerra 210 kg 7@, novilha 270 kg 9@, vaca boiadeira 330 kg 11@)
+REPO_F = [("f_desmama", "Desmama", "8 meses", 180, 6), ("f_bezerra", "Bezerra", "12 meses", 210, 7), ("f_novilha", "Novilha", "18 meses", 270, 9), ("f_vaca", "Vaca boiadeira", "", 330, 11)]
+
+def tabela_reposicao(lista, anterior, erros):
+    """Uma linha por categoria; se uma falhar, mantém o valor antigo dela."""
+    antigo = {x[0]: x for x in (anterior or [])}
+    linhas = []
+    for chave, nome, idade, kg, arr in lista:
+        try: cab, d = reposicao(chave); linhas.append([nome, idade, kg, arr, cab, d])
+        except Exception as e:
+            erros.append(f"{chave}: {e}")
+            if nome in antigo: linhas.append(antigo[nome])
+    return linhas
 
 def main():
     try: atual = json.load(open(SAIDA, encoding="utf-8"))
@@ -106,14 +123,9 @@ def main():
     for chave, fn in (("boi", boi), ("milho", milho)):
         try: atual[chave] = fn()
         except Exception as e: erros.append(f"{chave}: {e}")
-    antigo = {x[0]: x for x in (atual.get("reposicao", {}).get("v") or [])}
-    linhas = []
-    for chave, nome, idade, kg, arr in REPO:
-        try: cab, d = reposicao(chave); linhas.append([nome, idade, kg, arr, cab, d])
-        except Exception as e:
-            erros.append(f"{chave}: {e}")
-            if nome in antigo: linhas.append(antigo[nome])
-    if len(linhas) == 4: atual["reposicao"] = {"uf": "MT", "v": linhas}
+    for chave_json, lista in (("reposicao", REPO), ("reposicao_femea", REPO_F)):
+        linhas = tabela_reposicao(lista, atual.get(chave_json, {}).get("v"), erros)
+        if len(linhas) == 4: atual[chave_json] = {"uf": "MT", "v": linhas}
     atual["atualizado"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     json.dump(atual, open(SAIDA, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     for e in erros: print("ERRO", e, file=sys.stderr)
