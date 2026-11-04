@@ -6,6 +6,7 @@
 // Depois de publicar, abra .../functions/v1/telegram?setup=1 uma vez para ligar o webhook.
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import * as XLSX from "npm:xlsx@0.18.5";
 
 /* ---------- tipos de custo: os mesmos do app (chave, nome, grupo do benchmark) ---------- */
 const ITENS: [string, string, string][] = [
@@ -155,7 +156,8 @@ export type Deps = {
   link?: (caminho: string) => Promise<string | null>; // link temporário para ver a foto
   usuario?: (token: string) => Promise<string | null>; // id de quem está logado no app
   transcreve?: (bytes: Uint8Array, nome: string) => Promise<string | null>; // áudio → texto (OpenAI); ausente se não houver a chave
-  envia?: (chat: number, nome: string, bytes: Uint8Array, legenda: string) => Promise<any>; // manda um arquivo (backup)
+  envia?: (chat: number, nome: string, bytes: Uint8Array, legenda: string, tipo?: string) => Promise<any>; // manda um arquivo (backup, planilha)
+  planilha?: (abas: Aba[]) => Uint8Array; // monta o arquivo Excel
   cotacao?: () => Promise<{ data: string; spot: number } | null>; // arroba do boi gordo (cotacoes.json do app)
   db: any; // cliente supabase com a chave de serviço
 };
@@ -188,7 +190,7 @@ const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret 
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês; para ver o do mês passado agora, mande <b>relatório</b>.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -619,8 +621,101 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
       (faltaFech.length ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app${faltaFech[0] ? ` (${esc(faltaFech.join(" e "))})` : ""}: contar o gado e o peso de cada categoria. Com ele saem produção, GMD e lotação do mês.\n` : "") +
       `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
     for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
+    // no dia 1º vai junto a planilha do mês para o contador
+    if (!so) { try { await mandaPlanilha(d, faz, chats, mes, fz?.nome || ""); } catch (e) { console.error("planilha do mês", e); } }
   }
   return `relatório mensal enviado para ${n} conversa(s)`;
+}
+
+/* ---------- planilha do mês para o contador (Excel): resumo + uma aba por parte da fazenda ---------- */
+// valores em reais vão como { $: número } para a planilha formatar como moeda
+export type Aba = { nome: string; linhas: any[][]; larguras: number[] };
+const R$ = (v: number) => ({ $: Math.round((Number(v) || 0) * 100) / 100 });
+const fimMes = (mes: string) => new Date(Date.UTC(+mes.slice(0, 4), +mes.slice(5, 7), 0)).toISOString().slice(0, 10);
+const dBR4 = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
+export async function planilhaMes(d: Deps, faz: string, mes: string, nomeFaz = "") {
+  const ini = mes + "-01", fim = fimMes(mes), nomeMes = `${MESF[+mes.slice(5, 7) - 1]} de ${mes.slice(0, 4)}`;
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const G = grupos(retirosDe(cfg?.dados)), nomeG = (g: Grupo) => g.nome || "Fazenda";
+  const porData = (a: any, b: any) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0);
+  const gastos = (await todos(d, "desembolsos", faz, ini)).filter((x) => x.data <= fim).sort(porData);
+  const gado = (await todos(d, "movimentos", faz, ini)).filter((x) => x.data <= fim && (x.tipo === "venda" || x.tipo === "compra")).sort(porData);
+  const soma = (a: any[]) => a.reduce((s, x) => s + (Number(x.valor) || 0), 0), inv = (x: any) => x.tipo === "investimento";
+  const titulo = `${nomeFaz || "Fazenda"} · ${nomeMes}`;
+
+  // resumo: uma linha por parte e o total
+  const resumo: any[][] = [[`Caderno da Fazenda · ${titulo}`], ["Valores em reais, lançados no app e pelo robô do Telegram."], [],
+    ["Parte", "Custeio", "Investimento", "Total de custos", "Vendas de gado", "Compras de gado", "Saldo (vendas − compras − custos)"]];
+  const tot = [0, 0, 0, 0];
+  for (const g of G) {
+    const c = gastos.filter(g.f), m = gado.filter(g.f);
+    const cus = soma(c.filter((x) => !inv(x))), iv = soma(c.filter(inv)), v = soma(m.filter((x) => x.tipo === "venda")), cp = soma(m.filter((x) => x.tipo === "compra"));
+    tot[0] += cus; tot[1] += iv; tot[2] += v; tot[3] += cp;
+    resumo.push([nomeG(g), R$(cus), R$(iv), R$(cus + iv), R$(v), R$(cp), R$(v - cp - cus - iv)]);
+  }
+  if (G.length > 1) resumo.push(["Fazenda toda", R$(tot[0]), R$(tot[1]), R$(tot[0] + tot[1]), R$(tot[2]), R$(tot[3]), R$(tot[2] - tot[3] - tot[0] - tot[1])]);
+  // custos por tipo, com uma coluna por parte
+  const itens = [...new Set(gastos.map((x) => ITN[x.item] ? x.item : "outros"))].sort((a, b) => soma(gastos.filter((x) => x.item === b)) - soma(gastos.filter((x) => x.item === a)));
+  if (itens.length) {
+    resumo.push([], ["Custos por tipo"], ["Tipo de custo", ...G.map(nomeG), ...(G.length > 1 ? ["Fazenda toda"] : [])]);
+    for (const it of itens) {
+      const a = gastos.filter((x) => (ITN[x.item] ? x.item : "outros") === it);
+      resumo.push([ITN[it], ...G.map((g) => R$(soma(a.filter(g.f)))), ...(G.length > 1 ? [R$(soma(a))] : [])]);
+    }
+  }
+  const abas: Aba[] = [{ nome: "Resumo", linhas: resumo, larguras: [34, 16, 16, 16, 16, 16, 18] }];
+
+  // visão geral: todos os lançamentos do mês juntos, com a parte de cada um
+  if (G.length > 1) {
+    const parte = (x: any) => nomeG(G.find((g) => g.f(x)) || G[G.length - 1]);
+    const L: any[][] = [[`Fazenda toda · ${titulo}`], ["Todos os lançamentos do mês; a coluna Parte diz de qual parte é cada um."], [], ["CUSTOS"],
+      ["Data", "Parte", "Tipo de custo", "Setor", "Custeio ou investimento", "Descrição", "Valor (R$)", "Lançado por", "Foto da nota"]];
+    gastos.forEach((x) => L.push([dBR4(x.data), parte(x), ITN[x.item] || "Outros gastos", ONDE[x.centro] || ONDE.geral, inv(x) ? "Investimento" : "Custeio",
+      x.descricao || "", R$(x.valor), x.por || "", x.nota ? "sim, no app" : ""]));
+    if (!gastos.length) L.push(["nenhum custo lançado no mês"]);
+    L.push(["", "", "", "", "", "Total de custos", R$(soma(gastos))], [], ["VENDAS E COMPRAS DE GADO"],
+      ["Data", "Parte", "Tipo", "Categoria", "Cabeças", "Peso médio (kg)", "Preço da @ (R$)", "Valor (R$)", "Observação", "Lançado por"]);
+    gado.forEach((x) => L.push([dBR4(x.data), parte(x), TIPOS_MOV[x.tipo], CATS[x.categoria] || "", Number(x.cab) || 0, Number(x.pesoMedio) || "",
+      Number(x.precoArroba) ? R$(x.precoArroba) : "", R$(x.valor), x.obs || "", x.por || ""]));
+    if (!gado.length) L.push(["nenhuma venda ou compra de gado no mês"]);
+    else L.push(["", "", "", "", "", "", "Vendas", R$(soma(gado.filter((x) => x.tipo === "venda")))], ["", "", "", "", "", "", "Compras", R$(soma(gado.filter((x) => x.tipo === "compra")))]);
+    abas.push({ nome: "Fazenda toda", linhas: L, larguras: [12, 16, 30, 16, 20, 36, 16, 18, 22, 16] });
+  }
+
+  // uma aba por parte: custos e gado do mês, linha a linha
+  for (const g of G) {
+    const c = gastos.filter(g.f), m = gado.filter(g.f), L: any[][] = [[`${nomeG(g)} · ${titulo}`], [], ["CUSTOS"],
+      ["Data", "Tipo de custo", "Setor", "Custeio ou investimento", "Descrição", "Valor (R$)", "Lançado por", "Foto da nota"]];
+    c.forEach((x) => L.push([dBR4(x.data), ITN[x.item] || "Outros gastos", ONDE[x.centro] || ONDE.geral, inv(x) ? "Investimento" : "Custeio",
+      x.descricao || "", R$(x.valor), x.por || "", x.nota ? "sim, no app" : ""]));
+    if (!c.length) L.push(["nenhum custo lançado no mês"]);
+    L.push(["", "", "", "", "Total de custos", R$(soma(c))], [], ["VENDAS E COMPRAS DE GADO"],
+      ["Data", "Tipo", "Categoria", "Cabeças", "Peso médio (kg)", "Preço da @ (R$)", "Valor (R$)", "Observação", "Lançado por"]);
+    m.forEach((x) => L.push([dBR4(x.data), TIPOS_MOV[x.tipo], CATS[x.categoria] || "", Number(x.cab) || 0, Number(x.pesoMedio) || "",
+      Number(x.precoArroba) ? R$(x.precoArroba) : "", R$(x.valor), x.obs || "", x.por || ""]));
+    if (!m.length) L.push(["nenhuma venda ou compra de gado no mês"]);
+    else L.push(["", "", "", "", "", "Vendas", R$(soma(m.filter((x) => x.tipo === "venda")))], ["", "", "", "", "", "Compras", R$(soma(m.filter((x) => x.tipo === "compra")))]);
+    abas.push({ nome: nomeG(g).slice(0, 31), linhas: L, larguras: [12, 30, 16, 20, 36, 16, 18, 22, 16] });
+  }
+  return { abas, nCustos: gastos.length, nGado: gado.length, nomeMes, partes: G.map(nomeG) };
+}
+export async function mandaPlanilha(d: Deps, faz: string, chats: number[], mes: string, nomeFaz = "") {
+  if (!d.planilha || !d.envia || !chats.length) return 0;
+  const P = await planilhaMes(d, faz, mes, nomeFaz), bytes = d.planilha(P.abas);
+  const slug = (nomeFaz || "fazenda").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "fazenda";
+  const legenda = `📊 <b>Planilha de ${P.nomeMes} para o contador</b>\n${nfBR(P.nCustos)} custos e ${nfBR(P.nGado)} vendas/compras de gado.` +
+    (P.partes.length > 1 ? `\nAbas: Resumo, Fazenda toda (tudo junto) e uma para cada parte: ${esc(P.partes.join(", "))}.` : "") +
+    `\nÉ só encaminhar este arquivo ao contador.`;
+  let n = 0;
+  for (const chat of chats) { const r = await d.envia(chat, `contador-${slug}-${mes}.xlsx`, bytes, legenda, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); if (r?.ok !== false) n++; }
+  return n;
+}
+// "planilha", "planilha de outubro": de que mês (sem dizer, o mês passado; mês que ainda não chegou neste ano é do ano passado)
+export function mesPedido(cmd: string, hoje: string) {
+  const m = MESF.findIndex((x) => cmd.includes(semAcento(x)) || cmd.includes(x));
+  if (m < 0) return somaDias(hoje.slice(0, 7) + "-01", -1).slice(0, 7);
+  const ano = +hoje.slice(0, 4) - (m + 1 > +hoje.slice(5, 7) ? 1 : 0);
+  return `${ano}-${String(m + 1).padStart(2, "0")}`;
 }
 
 /* ---------- backup: todos os dados da fazenda num arquivo, pelo Telegram ---------- */
@@ -891,6 +986,13 @@ export async function trata(d: Deps, up: any) {
     await relatorioMensal(d, { faz: conta.fazenda_id, chat });
     return;
   }
+  if (!msg.photo && !msg.document && /^\/?(manda a |mandar a |quero a )?planilha\b/.test(cmd) && cmd.length < 50) {
+    if (!d.planilha || !d.envia) return responde(d, chat, "A planilha ainda não está ligada.");
+    await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", conta.fazenda_id).maybeSingle();
+    const n = await mandaPlanilha(d, conta.fazenda_id, [chat], mesPedido(cmd, hojeMT()), fz?.nome || "");
+    return n ? undefined : responde(d, chat, "Não consegui gerar a planilha agora. Tente de novo em instantes.");
+  }
   if (!msg.photo && !msg.document && /^\/?(fazer |quero o |manda o |mandar o )?backup$/.test(cmd)) {
     if (!d.envia) return responde(d, chat, "O backup ainda não está ligado.");
     await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
@@ -1017,10 +1119,10 @@ if (typeof Deno !== "undefined") {
       return (await r.json()).text || null;
     } catch (e) { console.error("transcrição", e); return null; }
   } : undefined;
-  const envia = async (chat: number, nome: string, bytes: Uint8Array, legenda: string) => {
+  const envia = async (chat: number, nome: string, bytes: Uint8Array, legenda: string, tipo = "application/json") => {
     const fd = new FormData();
     fd.append("chat_id", String(chat)); fd.append("caption", legenda); fd.append("parse_mode", "HTML");
-    fd.append("document", new Blob([bytes], { type: "application/json" }), nome);
+    fd.append("document", new Blob([bytes], { type: tipo }), nome);
     const r = await (await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: fd })).json();
     if (!r?.ok) console.error("sendDocument", r);
     return r;
@@ -1032,7 +1134,20 @@ if (typeof Deno !== "undefined") {
     const b = (await r.json())?.boi;
     return b?.spot > 0 && b?.data ? { data: String(b.data), spot: Number(b.spot) } : null;
   };
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao };
+  // planilha Excel: valores { $: n } viram número com formato de reais
+  const planilha = (abas: Aba[]) => {
+    const wb = XLSX.utils.book_new();
+    for (const a of abas) {
+      const moeda: string[] = [];
+      const linhas = a.linhas.map((l, r) => l.map((v, c) => { if (v && typeof v === "object" && "$" in v) { moeda.push(XLSX.utils.encode_cell({ r, c })); return v.$; } return v; }));
+      const ws = XLSX.utils.aoa_to_sheet(linhas);
+      moeda.forEach((ref) => { if (ws[ref]) ws[ref].z = '"R$" #,##0.00'; });
+      ws["!cols"] = a.larguras.map((wch) => ({ wch }));
+      XLSX.utils.book_append_sheet(wb, ws, a.nome);
+    }
+    return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
+  };
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
