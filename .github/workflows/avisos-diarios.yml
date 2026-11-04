@@ -1,0 +1,21 @@
+name: Lembretes e aviso da arroba
+# Todo dia às 7h de Cuiabá (11h UTC) o robô do Telegram manda os lembretes do dia.
+# Nos dias úteis roda de novo às 23h45 UTC, depois que as cotações são atualizadas, para o aviso de preço da arroba.
+# Cada lembrete e cada aviso sai uma vez só, então rodar de novo não repete.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+    - cron: "45 23 * * 1-5"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  avisos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir os avisos
+        run: |
+          resp=$(curl -s -w '\n%{http_code}' "https://siolfbiubwjwvbeqekut.supabase.co/functions/v1/telegram?avisos=1")
+          code=$(echo "$resp" | tail -n1); corpo=$(echo "$resp" | head -n -1)
+          echo "HTTP $code: $corpo"
+          [ "$code" = "200" ] || exit 1

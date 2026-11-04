@@ -872,7 +872,8 @@ function renderNotas(){
       <textarea id="nota-txt" name="txt" rows="14" placeholder="Ex.: chuva de 40 mm no dia 12. Vacinação de aftosa no dia 20. Comprar sal mineral. Vendi 30 bois para o frigorífico…">${esc(txt)}</textarea></label>
     <div class="btns"><button class="btn primary" type="submit">Salvar</button><span class="small muted" id="notaSt">${txt?'Salvo':''}</span></div>
     <p class="note">Salva sozinho enquanto você escreve. Fica guardado na sua conta e aparece no celular e no computador.</p>
-  </form></div>`;
+  </form></div>
+  ${lembretesHTML()}`;
 }
 document.addEventListener('input',e=>{ if(e.target.id!=='nota-txt') return; const m=e.target.form.dataset.mes; notaPend={m,txt:e.target.value}; notaSt('Escrevendo…');
   clearTimeout(notaT); notaT=setTimeout(()=>salvaNotaPendente(),1200); });
@@ -886,7 +887,7 @@ let TG_COD=null;
 const telegramHTML=()=>{ if(!TG_BOT) return `<h3 style="margin-top:16px">Robô do Telegram</h3><p class="note">O robô ainda está sendo configurado.</p>`;
   const minhas=S.telegram||[];
   return `<h3 style="margin-top:16px">Robô do Telegram</h3>
-  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), e toda segunda de manhã o robô manda o resumo da semana. Cada sócio conecta o próprio Telegram.</p>
+  <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), lançar pesagens ("pesei a recria, média 280 kg"), marcar lembretes ("lembrar: vacina dia 15/11") e pedir aviso da arroba ("me avisa quando o boi passar de 320"). Toda segunda de manhã o robô manda o resumo da semana e o backup com todos os dados. Cada sócio conecta o próprio Telegram.</p>
   ${minhas.length?`<div class="list">${minhas.map(t=>`<div class="item"><span class="t">Telegram conectado${t.nome_telegram?' · '+esc(t.nome_telegram):''}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(t.chat_id))}">Desconectar</button></span></div>`).join('')}</div>`:''}
   ${TG_COD?`<div class="calc" style="margin-top:8px">Seu código: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_COD)}</b> · vale 30 minutos<br><a class="btn primary" style="margin-top:8px;display:inline-flex" href="https://t.me/${esc(TG_BOT)}?start=${esc(TG_COD)}" target="_blank" rel="noopener">Abrir o robô no Telegram</a><br><span class="small">No Telegram, toque em <b>Iniciar</b>. Se não abrir, procure @${esc(TG_BOT)} e mande o código.</span></div>`
     :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}`; };
@@ -933,6 +934,56 @@ function renderAjustes(){
   </form></div>`;
 }
 
+/* ---------- Pesagens e lembretes: guardados no config (pesagens, lembretes, alertas); o robô do Telegram também lança e avisa ---------- */
+const loteK=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/^(o|a)\s+/,'').replace(/^lote\s+(da|do|de|das|dos)\s+/,'').replace(/\s+/g,' ').trim();
+function pesagensHTML(){
+  const P=[...(S.config.pesagens||[])].sort((a,b)=>a.data<b.data?-1:1), lotes={};
+  P.forEach(p=>(lotes[loteK(p.lote)]=lotes[loteK(p.lote)]||[]).push(p));
+  const L=Object.values(lotes).map(ps=>{ const u=ps[ps.length-1], a=ps[ps.length-2], n=a?Math.round((Date.parse(u.data)-Date.parse(a.data))/864e5):0; return {u,n,g:a&&n?(u.peso-a.peso)/n:null}; }).sort((x,y)=>x.u.data<y.u.data?1:-1);
+  const hist=[...P].reverse().slice(0,30);
+  return `<div class="row-head" id="pesagens"><h2>Pesagens</h2></div>
+  <div class="panel">
+    ${L.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lote</th><th>Última</th><th>Peso kg</th><th>GMD kg/dia</th></tr></thead><tbody>${L.map(x=>`<tr><td>${esc(x.u.lote)}</td><td>${dBR(x.u.data)}</td><td>${nf(x.u.peso)}</td><td>${x.g!=null?nf(x.g,3)+` <span class="small muted">em ${x.n} dias</span>`:'<span class="small muted">1ª pesagem</span>'}</td></tr>`).join('')}</tbody></table></div>`
+      :'<p class="empty">Lance a pesagem de cada lote. Da segunda pesagem do mesmo lote em diante, o app mostra o ganho de peso por dia (GMD).</p>'}
+    <form class="f" id="pesF" style="margin-top:12px"><div class="grid2">
+      <label class="fl">Data<input id="pes-data" name="data" type="date" required value="${today()}" max="${today()}"></label>
+      <label class="fl">Lote<input id="pes-lote" name="lote" required list="pes-lotes" autocomplete="off" maxlength="60" placeholder="ex.: recria, lote 3"></label>
+      <label class="fl">Cabeças pesadas (opcional)<input id="pes-cab" name="cab" type="number" min="0" step="1" inputmode="numeric"></label>
+      <label class="fl">Peso médio (kg)<input id="pes-peso" name="peso" type="number" required min="1" step="0.1" inputmode="decimal"></label></div>
+      <datalist id="pes-lotes">${L.map(x=>`<option value="${esc(x.u.lote)}">`).join('')}</datalist>
+      <div class="btns"><button class="btn primary" type="submit">Lançar pesagem</button></div></form>
+    ${hist.length?`<details style="margin-top:8px"><summary>Todas as pesagens</summary><div class="list">${hist.map(p=>`<div class="item"><span class="t">${esc(p.lote)}</span><span class="amt">${nf(p.peso)} kg</span><span class="meta">${dBR(p.data)}${p.cab?' · '+nf(p.cab)+' cab.':''}${porTxt(p)}</span><span class="act"><button class="btn del" type="button" data-rm-cfg="pesagens:${esc(p.id)}">Excluir</button></span></div>`).join('')}</div></details>`:''}
+    <p class="note">Use sempre o mesmo nome para o mesmo lote. Pelo Telegram: <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>. Se o lote tiver o nome de um setor (cria, recria ou engorda), o robô mostra também o custo da @ produzida.</p>
+  </div>`;
+}
+function lembretesHTML(){
+  const L=(S.config.lembretes||[]).filter(x=>!x.enviado).sort((a,b)=>a.data<b.data?-1:1), A=S.config.alertas||[];
+  return `<div class="panel" id="lembretes"><h2>Lembretes</h2>
+    <p class="note" style="margin:4px 0 8px">O robô do Telegram avisa às 7h do dia, no Telegram de quem marcou.</p>
+    ${L.length||A.length?`<div class="list">${L.map(x=>`<div class="item"><span class="t">⏰ ${esc(x.texto)}</span><span class="meta">${dBR(x.data)}${x.data<today()?' · atrasado':''}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-rm-cfg="lembretes:${esc(x.id)}">Cancelar</button></span></div>`).join('')}
+      ${A.map(a=>`<div class="item"><span class="t">📈 Avisar quando o boi gordo ${a.direcao==='abaixo'?'cair abaixo de':'passar de'} ${brl(+a.valor,2)}/@</span><span class="meta">B3 à vista${porTxt(a)}</span><span class="act"><button class="btn del" type="button" data-rm-cfg="alertas:${esc(a.id)}">Cancelar</button></span></div>`).join('')}</div>`
+      :'<p class="empty">Nenhum lembrete marcado.</p>'}
+    <form class="f" id="lembF" style="margin-top:12px"><div class="grid2">
+      <label class="fl">Dia do aviso<input id="lemb-data" name="data" type="date" required min="${today()}"></label>
+      <label class="fl">Lembrar de<input id="lemb-txt" name="texto" required maxlength="200" placeholder="ex.: vacina da aftosa"></label></div>
+      <div class="btns"><button class="btn primary" type="submit">Marcar lembrete</button></div></form>
+    <p class="note">Pelo Telegram: <i>lembrar: vacina da aftosa dia 15/11</i> · <i>me avisa quando o boi passar de 320</i>. Mande <b>lembretes</b> para ver e cancelar. Para receber o aviso, conecte seu Telegram em Mais → Sócios.</p></div>`;
+}
+async function salvaCfgItem(f){
+  if(!db||!writable) return toast('Entre na sua conta para salvar.');
+  const pes=f.id==='pesF', base={id:crypto.randomUUID()+(pes?'-p1':'-l1'),porId:UID,por:nomeDe(UID)||'',criadoEm:new Date().toISOString(),origem:'app'};
+  let k, x;
+  if(pes){ const peso=Math.round(Number(f.peso.value)*10)/10, lote=f.lote.value.trim().toLowerCase(), data=f.data.value;
+    if(!(peso>0)||!lote||!data) return toast('Preencha data, lote e peso.');
+    if(data>today()) return toast('A data da pesagem não pode ser no futuro.');
+    k='pesagens'; x={...base,data,lote,cab:Math.max(0,Math.round(Number(f.cab.value)||0)),peso}; }
+  else { const data=f.data.value, texto=f.texto.value.trim();
+    if(!data||!texto) return toast('Preencha o dia e do que lembrar.');
+    if(data<today()) return toast('Escolha hoje ou um dia que ainda vai chegar.');
+    k='lembretes'; x={...base,data,texto}; }
+  try{ await db.configMod(b=>({...b,[k]:[...(b[k]||[]),x]})); toast(pes?'Pesagem lançada':'Lembrete marcado'); }catch(e){ dbErr(e); }
+}
+
 /* ---------- Rebanho ---------- */
 function renderRebanho(){
   const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1], R=calc(), J=R.J;
@@ -951,7 +1002,8 @@ function renderRebanho(){
     ${mortCat.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Mortes</th><th>Reb. médio</th><th>%</th></tr></thead><tbody>${mortCat.map(x=>`<tr><td>${x.n}</td><td>${nf(x.m)}</td><td>${nf(x.med)}</td><td>${pct(x.p,2)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma morte registrada no período.</p>'}</div>
   <div class="row-head"><h2>Movimentações</h2><button class="btn" type="button" data-open="movimento">Registrar</button></div>
   <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
-  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA</span><span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span></div>`).join('')}</div></details>`:''}`;
+  ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA</span><span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span></div>`).join('')}</div></details>`:''}
+  ${pesagensHTML()}`;
 }
 function chartRebanho(F){
   const W=340,H=150,L=40,B=22,T=10,ch=H-B-T,n=F.length,cw=(W-L-4)/n, mx=Math.max(1,...F.map(f=>fCab(f)));
@@ -1377,6 +1429,8 @@ async function exportaExcel(){
    ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
    ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
+   ['Pesagens',ord(S.config.pesagens||[],'data').map(p=>({'Data':p.data,'Lote':p.lote||'','Cabeças':n(p.cab),'Peso médio (kg)':n(p.peso),'Lançado por':nomeDe(p.porId)||p.por||''}))],
+   ['Lembretes',ord(S.config.lembretes||[],'data').map(x=>({'Dia':x.data,'Lembrar de':x.texto||'','Avisado em':x.enviado||'','Marcado por':nomeDe(x.porId)||x.por||''}))],
    ['Adaptações',S.adapt.map(a=>({'Lote':a.nome,'Suplemento':(SUP_REF[a.tipo]||{}).nome||a.tipo,'Início':a.inicio,'Fase':FN[a.fase]||'','Cabeças':n(a.cab),'Peso (kg)':n(a.peso)}))],
    ['Ajustes',[['Fazenda',fazNome()],['Área produtiva (ha)',area()],['Kg por @',kgA()],['Mês de início da safra',S.config.safraMes],['Selic (%)',S.config.selic],...FASES.map(([k,nm])=>['Área '+nm+' (ha)',(S.config.areaFase||{})[k]||0]),...CATS.map(([c,cn])=>['Preço da @ · '+cn,preco(c)])].map(([a,b])=>({'Item':a,'Valor':b}))]];
   const wb=X.utils.book_new();
@@ -1706,6 +1760,8 @@ document.addEventListener('click',async e=>{
   if(b.hasAttribute('data-close')) return closeSheet();
   if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if(b.dataset.rmCfg){ if(arma(b)) return; if(!db||!writable) return toast('Entre na sua conta para salvar.'); const [k,id]=b.dataset.rmCfg.split(':');
+    try{ await db.configMod(c=>({...c,[k]:(c[k]||[]).filter(x=>x.id!==id)})); toast(k==='pesagens'?'Pesagem excluída':'Cancelado'); }catch(e){ dbErr(e); } return; }
   if(b.dataset.rmConvite){ if(arma(b)) return; const {error}=await sb.from('convites').delete().eq('fazenda_id',FID).eq('email',b.dataset.rmConvite); if(error) return toast('Não foi possível cancelar.'); toast('Convite cancelado'); return carregaSocios(); }
   if(b.hasAttribute('data-share-app')){ const txt='Entre no Caderno da Fazenda ('+fazNome()+'): toque em Criar conta usando o e-mail em que eu te convidei.';
     try{ if(navigator.share){ await navigator.share({title:'Caderno da Fazenda',text:txt,url:linkApp()}); return; } }catch(x){ return; }
@@ -1734,6 +1790,7 @@ document.addEventListener('click',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='pesF'||f.id==='lembF') return salvaCfgItem(f);
   if(f.id==='convF'){ const em=f.email.value.trim().toLowerCase(); if(!/^[^@s]+@[^@s]+.[^@s]+$/.test(em)) return toast('Digite um e-mail válido.');
     if(S.membros.some(m=>(m.email||'')===em)) return toast('Essa pessoa já é sócia da fazenda.');
     const {error}=await sb.from('convites').insert({fazenda_id:FID,email:em});

@@ -42,7 +42,7 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "custos", "movimentos", "anotacao", "resposta"],
+  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "resposta"],
   properties: {
     tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
     custos: {
@@ -78,13 +78,45 @@ const SCHEMA = {
         },
       },
     },
+    lembretes: {
+      type: "array", description: "pedidos para o robô avisar num dia; vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false, required: ["data", "texto"],
+        properties: {
+          data: { type: "string", description: "AAAA-MM-DD do dia em que é para avisar" },
+          texto: { type: "string", description: "curto: do que lembrar, ex.: 'vacina da aftosa' ou 'pagar boleto do sal'" },
+        },
+      },
+    },
+    alertas: {
+      type: "array", description: "pedidos de aviso do preço da arroba do boi gordo; vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false, required: ["direcao", "valor"],
+        properties: {
+          direcao: { type: "string", enum: ["acima", "abaixo"] },
+          valor: { type: "number", description: "R$ por arroba" },
+        },
+      },
+    },
+    pesagens: {
+      type: "array", description: "pesagens de animais; vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false, required: ["data", "lote", "cab", "peso_medio"],
+        properties: {
+          data: { type: "string", description: "AAAA-MM-DD; vazio se a mensagem não disser (usa hoje)" },
+          lote: { type: "string", description: "nome do lote como o pecuarista chama, em minúsculas (ex.: recria, engorda, lote 3, garrotes da baixada)" },
+          cab: { type: "integer", description: "cabeças pesadas; 0 se não disser" },
+          peso_medio: { type: "number", description: "kg vivo médio por cabeça" },
+        },
+      },
+    },
     resposta: { type: "string", description: "quando tipo = nao_entendi: uma frase curta pedindo o que falta" },
   },
 };
 const SISTEMA = `Você lê o que um pecuarista manda pelo Telegram para o caderno da fazenda dele (cria, recria e engorda de gado de corte, em Mato Grosso).
 Uma mensagem pode trazer várias coisas ao mesmo tempo (ex.: "gastei 300 de sal e 200 de diesel, nasceram 5 bezerros, morreu 1 vaca e choveu 30 mm"). Separe cada uma no lugar certo; nada pode ficar de fora nem ser lançado duas vezes.
 tipo:
-- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos e anotacao (o que não houver fica vazio).
+- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos, anotacao, lembretes, alertas e pesagens (o que não houver fica vazio).
 - "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Tudo o mais fica vazio; a resposta vem depois.
 - "nao_entendi": não dá para saber o que lançar. Em "resposta", peça em uma frase o que falta.
 custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
@@ -92,6 +124,9 @@ movimentos: nascimento, compra, venda, morte ou mudança de categoria de animais
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
   Nascimento é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
 anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinação feita, observação do pasto, "anotar: ..."), escrito de forma curta, sem o "anotar:". Várias observações vão juntas no mesmo texto, separadas por "; ".
+lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 15/11", "me lembra de pagar o boleto do sal dia 20", "boleto do sal vence dia 20"). data = o dia citado; se só disser o número do dia, é o próximo dia com esse número a partir de hoje; "amanhã" = hoje + 1. Lembrete sem dia não entra: peça o dia em "resposta". O que vai para lembretes não vai também para anotacao.
+alertas: pedidos de aviso do preço da arroba do boi gordo ("me avisa quando o boi passar de 320" = acima 320; "quando a arroba cair abaixo de 300" = abaixo 300).
+pesagens: pesagem de animais ("pesei o lote da recria, média 280 kg", "pesei 40 garrotes do lote 3, deu 312 kg"). Um item por lote pesado, com o peso médio por cabeça (se disser o peso total e as cabeças, divida). Pesagem não é movimento nem anotação.
 resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por falta de informação, diga em uma frase o que faltou.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
 Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
@@ -100,7 +135,10 @@ Responda só com o JSON pedido.`;
 
 export type Mov = { mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
 export type Custo = { data: string; valor: number; item: string; onde: string; descricao: string };
-export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; resposta?: string };
+export type Lembrete = { data: string; texto: string };
+export type Alerta = { direcao: string; valor: number };
+export type Pesagem = { data: string; lote: string; cab: number; peso_medio: number };
+export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -113,6 +151,8 @@ export type Deps = {
   link?: (caminho: string) => Promise<string | null>; // link temporário para ver a foto
   usuario?: (token: string) => Promise<string | null>; // id de quem está logado no app
   transcreve?: (bytes: Uint8Array, nome: string) => Promise<string | null>; // áudio → texto (OpenAI); ausente se não houver a chave
+  envia?: (chat: number, nome: string, bytes: Uint8Array, legenda: string) => Promise<any>; // manda um arquivo (backup)
+  cotacao?: () => Promise<{ data: string; spot: number } | null>; // arroba do boi gordo (cotacoes.json do app)
   db: any; // cliente supabase com a chave de serviço
 };
 
@@ -127,7 +167,7 @@ const botoes = (base: string, custoId = "", onde = "") => ({
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -208,6 +248,24 @@ async function desanota(d: Deps, conta: any, linha: string) {
   const { error } = await d.db.from("config").upsert({ fazenda_id: conta.fazenda_id, dados: { ...dados, notas }, updated_at: new Date().toISOString() }, { onConflict: "fazenda_id" });
   return !error;
 }
+// muda o config da fazenda em cima da versão atual do banco; fn devolve null quando não há o que mudar
+async function mudaCfg(d: Deps, faz: string, fn: (dados: any) => any) {
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const novo = fn({ ...(cfg?.dados || {}) });
+  if (!novo) return true;
+  const { error } = await d.db.from("config").upsert({ fazenda_id: faz, dados: novo, updated_at: new Date().toISOString() }, { onConflict: "fazenda_id" });
+  if (error) console.error("upsert config", error);
+  return !error;
+}
+// pesagens: o mesmo lote escrito de jeitos diferentes ("Lote da Recria", "recria") vira a mesma chave
+export const loteK = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  .replace(/^(o|a)\s+/, "").replace(/^lote\s+(da|do|de|das|dos)\s+/, "").replace(/\s+/g, " ").trim();
+// pesagem anterior do mesmo lote (antes da data)
+const anterior = (lista: any[], lote: string, data: string) =>
+  lista.filter((p) => loteK(p.lote) === loteK(lote) && p.data < data).sort((a, b) => (a.data < b.data ? -1 : 1)).pop() || null;
+const dias = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+const LIMPA_ENVIADOS = 60; // dias que um lembrete já avisado fica guardado
+
 async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto: string) {
   const linha = await anota(d, conta, quem, texto);
   if (!linha) return responde(d, chat, "Não consegui salvar a anotação agora. Tente de novo.");
@@ -234,9 +292,10 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
 
   // movimentos do rebanho
   const movs: any[] = [];
+  const precisaCfg = !!(L.movimentos?.length || L.pesagens?.length);
+  const cfgD = precisaCfg ? (await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle()).data?.dados || {} : {};
+  const kgA = Number(cfgD.kgArroba) || 30;
   if (L.movimentos?.length) {
-    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
-    const kgA = Number(cfg?.dados?.kgArroba) || 30;
     for (const m of L.movimentos) {
       const cab = Math.round(Number(m.cab) || 0);
       if (!TIPOS_MOV[m.mov] || cab <= 0) continue;
@@ -260,9 +319,60 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     }
   }
 
+  // lembretes (aviso às 7h do dia)
+  const lembs: any[] = [];
+  for (const l of L.lembretes || []) {
+    const texto = String(l.texto || "").trim();
+    if (!texto) continue;
+    if (!okData(l.data) || l.data < hoje) { avisos.push(`O lembrete "${texto}" ficou sem dia: mande de novo dizendo o dia.`); continue; }
+    lembs.push({ id: `${base}-l${lembs.length + 1}`, data: l.data, texto, porId: conta.user_id, por: quem, criadoEm });
+    txt.push(`⏰ <b>Lembrete</b> · ${dBR(l.data)} · ${esc(texto)}`);
+  }
+
+  // avisos de preço da arroba
+  const alts: any[] = [];
+  if (L.alertas?.length) {
+    const cot = d.cotacao ? await d.cotacao().catch(() => null) : null;
+    for (const a of L.alertas) {
+      const valor = Math.round((Number(a.valor) || 0) * 100) / 100, acima = a.direcao !== "abaixo";
+      if (valor <= 0) continue;
+      const hojeTxt = cot ? `a arroba está em ${brl(cot.spot)} (B3 à vista, pregão de ${dBR(cot.data).slice(0, 5)})` : "";
+      if (cot && (acima ? cot.spot >= valor : cot.spot <= valor)) {
+        avisos.push(`Não marquei o aviso de ${brl(valor)}: ${hojeTxt}, já ${acima ? "acima" : "abaixo"} desse valor. Mande outro valor.`);
+        continue;
+      }
+      alts.push({ id: `${base}-a${alts.length + 1}`, direcao: acima ? "acima" : "abaixo", valor, porId: conta.user_id, por: quem, criadoEm });
+      txt.push(`📈 <b>Aviso da arroba</b> · quando o boi gordo ${acima ? "passar de" : "cair abaixo de"} <b>${brl(valor)}</b>/@${hojeTxt ? `\n   <i>${hojeTxt}</i>` : ""}`);
+    }
+  }
+
+  // pesagens: ganho de peso desde a pesagem anterior do mesmo lote e, se o lote for um setor, o custo da @ produzida
+  const pes: any[] = [];
+  for (const p of L.pesagens || []) {
+    const peso = Math.round((Number(p.peso_medio) || 0) * 10) / 10, lote = String(p.lote || "").trim().toLowerCase();
+    if (peso <= 0 || !lote) continue;
+    const data = okData(p.data) && p.data <= hoje ? p.data : hoje, cab = Math.max(0, Math.round(Number(p.cab) || 0));
+    const novo = { id: `${base}-p${pes.length + 1}`, data, lote, cab, peso, porId: conta.user_id, por: quem, criadoEm };
+    let linha = `⚖️ <b>Pesagem</b> · ${esc(lote)} · ${cab ? nfBR(cab) + " cab. · " : ""}${nfBR(peso, 1)} kg · ${dBR(data)}`;
+    const ant = anterior([...(cfgD.pesagens || []), ...pes], lote, data);
+    if (ant) {
+      const n = dias(ant.data, data), gmd = (peso - ant.peso) / n;
+      linha += `\n   GMD <b>${gmd.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg/dia</b> em ${n} dias (eram ${nfBR(ant.peso, 1)} kg em ${dBR(ant.data)})`;
+      const setor = loteK(lote), nc = cab || ant.cab;
+      if (ONDE[setor] && setor !== "geral" && gmd > 0 && nc) {
+        const gasto = (await todos(d, "desembolsos", conta.fazenda_id, somaDias(ant.data, 1)))
+          .filter((x) => x.data <= data && x.centro === setor && x.tipo !== "investimento").reduce((s, x) => s + (Number(x.valor) || 0), 0);
+        const arr = nc * (peso - ant.peso) / kgA;
+        if (gasto > 0) linha += `\n   Custo da @ produzida: <b>${brl(gasto / arr)}</b> (${brl(gasto)} lançados na ${ONDE[setor]} ÷ ${nfBR(arr, 1)} @)`;
+      }
+    } else linha += "\n   <i>Primeira pesagem deste lote: na próxima eu calculo o ganho de peso.</i>";
+    pes.push(novo);
+    txt.push(linha);
+  }
+
   const temNota = !!String(L.anotacao || "").trim();
-  if (!custos.length && !movs.length && !temNota)
-    return responde(d, chat, esc(L.resposta || "Não entendi o que lançar. Escreva o valor e o que foi comprado, ou quantas cabeças e o que aconteceu."));
+  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !temNota)
+    return responde(d, chat, esc([...avisos, L.resposta || ""].filter(Boolean).join(" ") || "Não entendi o que lançar. Escreva o valor e o que foi comprado, ou quantas cabeças e o que aconteceu."));
 
   // grava: se uma parte falhar, desfaz o que já entrou para não ficar pela metade
   if (custos.length) {
@@ -277,20 +387,31 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
     }
   }
+  if (lembs.length || alts.length || pes.length) {
+    const ok = await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D,
+      ...(lembs.length ? { lembretes: [...(D.lembretes || []), ...lembs] } : {}),
+      ...(alts.length ? { alertas: [...(D.alertas || []), ...alts] } : {}),
+      ...(pes.length ? { pesagens: [...(D.pesagens || []), ...pes] } : {}) }));
+    if (!ok) {
+      if (custos.length) await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
+      if (movs.length) await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
+      return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
+    }
+  }
   let linhaNota = "";
   if (temNota) {
     linhaNota = await anota(d, conta, quem, String(L.anotacao));
     if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
   }
 
-  const tot = custos.length + movs.length;
+  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length;
   const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
     (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
     (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
     (avisos.length ? `\n<i>${esc([...new Set(avisos)].join(" "))}</i>` : "") +
     (L.resposta ? `\n⚠️ ${esc(L.resposta)}` : "") +
-    (custos.length === 1 && !movs.length ? "\nSe o setor estiver errado, toque nele abaixo." : "");
-  return responde(d, chat, msg, botoes(base, custos.length === 1 && !movs.length ? custos[0].id : "", custos[0]?.centro));
+    (custos.length === 1 && tot === 1 ? "\nSe o setor estiver errado, toque nele abaixo." : "");
+  return responde(d, chat, msg, botoes(base, custos.length === 1 && tot === 1 ? custos[0].id : "", custos[0]?.centro));
 }
 
 /* ---------- dados da fazenda (para o resumo e as perguntas) ---------- */
@@ -359,8 +480,96 @@ export async function resumoSemanal(d: Deps) {
       (R ? `\n<b>Rebanho hoje:</b> ${nfBR(R.total)} cabeças\n<i>Fechamento de ${MESF[+R.mes.slice(5) - 1]} + movimentos lançados depois.</i>` : "") +
       `\n\nPergunte o que quiser, ex.: <i>quantas vacas eu tenho?</i>`;
     for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: txt, parse_mode: "HTML" }); n++; }
+    try { await mandaBackup(d, faz, chats, fz?.nome || ""); } catch (e) { console.error("backup semanal", e); }
   }
   return `enviado para ${n} conversa(s)`;
+}
+
+/* ---------- backup: todos os dados da fazenda num arquivo, pelo Telegram ---------- */
+const TAB_BACKUP = ["config", "fechamentos", "movimentos", "desembolsos", "estacoes", "engorda", "insumos", "estoque_movs", "formulacoes", "adaptacoes"];
+export async function geraBackup(d: Deps, faz: string) {
+  const tabelas: Record<string, any[]> = {}, erros: string[] = [];
+  let n = 0;
+  for (const t of TAB_BACKUP) {
+    const linhas: any[] = [];
+    for (let i = 0; ; i += 1000) {
+      const { data, error } = await d.db.from(t).select("*").eq("fazenda_id", faz).range(i, i + 999);
+      if (error) { console.error("backup " + t, error); erros.push(t); break; }
+      linhas.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    tabelas[t] = linhas;
+    if (t !== "config") n += linhas.length;
+  }
+  const json = JSON.stringify({ app: "Caderno da Fazenda", fazenda_id: faz, gerado_em: new Date().toISOString(), tabelas, ...(erros.length ? { faltou: erros } : {}) });
+  return { bytes: new TextEncoder().encode(json), registros: n, erros };
+}
+async function mandaBackup(d: Deps, faz: string, chats: number[], nomeFaz: string) {
+  if (!d.envia || !chats.length) return 0;
+  const { bytes, registros, erros } = await geraBackup(d, faz), hoje = hojeMT();
+  const slug = (nomeFaz || "fazenda").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "fazenda";
+  const legenda = `🔒 <b>Backup da fazenda</b> · ${dBR(hoje)}\n${nfBR(registros)} lançamentos, mais ajustes, anotações, lembretes e pesagens.\n` +
+    `Deixe este arquivo guardado aqui no Telegram. Se um dia algo sumir do app, ele traz tudo de volta.` +
+    (erros.length ? `\n⚠️ Faltou: ${esc(erros.join(", "))}` : "");
+  let n = 0;
+  for (const chat of chats) { const r = await d.envia(chat, `backup-${slug}-${hoje}.json`, bytes, legenda); if (r?.ok !== false) n++; }
+  return n;
+}
+
+/* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
+export async function avisosDiarios(d: Deps) {
+  const hoje = hojeMT();
+  const { data: cfgs } = await d.db.from("config").select("fazenda_id,dados");
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,user_id,fazenda_id");
+  // só usa a cotação se for recente (o arquivo do app atualiza nos dias úteis)
+  let cot = d.cotacao ? await d.cotacao().catch(() => null) : null;
+  if (cot && (!okData(cot.data) || dias(cot.data, hoje) > 5 || !(cot.spot > 0))) cot = null;
+  let n = 0;
+  for (const c of cfgs || []) {
+    if (!c.fazenda_id) continue;
+    const D = c.dados || {};
+    const lem = (D.lembretes || []).filter((x: any) => !x.enviado && x.data <= hoje);
+    const alt = cot ? (D.alertas || []).filter((a: any) => (a.direcao === "abaixo" ? cot!.spot <= a.valor : cot!.spot >= a.valor)) : [];
+    const velhos = (D.lembretes || []).some((x: any) => x.enviado && dias(x.enviado, hoje) > LIMPA_ENVIADOS);
+    if (!lem.length && !alt.length && !velhos) continue;
+    const daFaz = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
+    // vai para quem pediu; se ele não tiver mais o Telegram ligado, vai para os outros sócios
+    const para = (uid: string) => { const s = daFaz.filter((x: any) => x.user_id === uid); return (s.length ? s : daFaz).map((x: any) => x.chat_id); };
+    const enviados = new Set<string>();
+    for (const x of lem) {
+      const t = `⏰ <b>Lembrete</b> · ${dBR(hoje)}\n${esc(x.texto)}` + (x.data < hoje ? `\n<i>era para ${dBR(x.data)}</i>` : "") + (x.por ? `\n<i>marcado por ${esc(x.por)}</i>` : "");
+      const cs = para(x.porId);
+      for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
+      if (cs.length) enviados.add(x.id);
+    }
+    for (const a of alt) {
+      const t = `📈 <b>Arroba do boi gordo: ${brl(cot!.spot)}</b>\n${a.direcao === "abaixo" ? "Caiu abaixo" : "Passou"} de ${brl(a.valor)}, como você pediu.\n<i>B3 à vista, pregão de ${dBR(cot!.data)}. A cotação da sua região costuma ser diferente.</i>`;
+      const cs = para(a.porId);
+      for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
+      if (cs.length) enviados.add(a.id);
+    }
+    await mudaCfg(d, c.fazenda_id, (X) => ({ ...X,
+      lembretes: (X.lembretes || []).map((x: any) => (enviados.has(x.id) ? { ...x, enviado: hoje } : x))
+        .filter((x: any) => !(x.enviado && dias(x.enviado, hoje) > LIMPA_ENVIADOS)),
+      alertas: (X.alertas || []).filter((a: any) => !enviados.has(a.id)) }));
+  }
+  return `${n} aviso(s) enviados`;
+}
+// "lembretes": lista o que está marcado, com botão para cancelar
+async function listaLembretes(d: Deps, faz: string) {
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+  const L = (cfg?.dados?.lembretes || []).filter((x: any) => !x.enviado).sort((a: any, b: any) => (a.data < b.data ? -1 : 1));
+  const A = cfg?.dados?.alertas || [];
+  if (!L.length && !A.length) return { text: "Nenhum lembrete nem aviso da arroba marcado.\n\nPara marcar, mande por exemplo:\n• <i>lembrar: vacina da aftosa dia 15/11</i>\n• <i>me avisa quando o boi passar de 320</i>", extra: {} };
+  const itens = [...L, ...A];
+  const linhas = [
+    ...(L.length ? ["⏰ <b>Lembretes</b>", ...L.map((x: any, i: number) => `${i + 1}. ${dBR(x.data)} · ${esc(x.texto)}${x.por ? ` <i>(${esc(x.por)})</i>` : ""}`)] : []),
+    ...(A.length ? [`${L.length ? "\n" : ""}📈 <b>Avisos da arroba</b>`, ...A.map((a: any, i: number) => `${L.length + i + 1}. quando o boi gordo ${a.direcao === "abaixo" ? "cair abaixo de" : "passar de"} ${brl(a.valor)}`)] : []),
+    "\nPara cancelar, toque no número.",
+  ];
+  const bts = itens.map((x: any, i: number) => ({ text: `❌ ${i + 1}`, callback_data: `canc:${x.id}` }));
+  const kb: any[][] = []; for (let i = 0; i < bts.length; i += 5) kb.push(bts.slice(i, i + 5));
+  return { text: linhas.join("\n"), extra: { reply_markup: { inline_keyboard: kb } } };
 }
 
 /* ---------- perguntas sobre os dados ---------- */
@@ -385,6 +594,10 @@ export async function contexto(d: Deps, faz: string) {
       [x.data, ITN[x.item] || x.item || "", ONDE[x.centro] || "Fazenda toda", x.valor, x.descricao || "", x.tipo || "custeio"].join(";")),
     "BLOCO DE NOTAS (mês: texto):",
     ...Object.keys(notas).sort().slice(-12).map((m) => `${m}: ${String(notas[m]).replace(/\s*\n\s*/g, " | ")}`),
+    "PESAGENS (data;lote;cabeças;peso médio kg) — GMD = diferença de peso ÷ dias entre pesagens do mesmo lote:",
+    ...[...(cfg?.dados?.pesagens || [])].filter((p: any) => p.data >= desde).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)).map((p: any) => [p.data, p.lote, p.cab || "", p.peso].join(";")),
+    "LEMBRETES MARCADOS (dia;texto):",
+    ...(cfg?.dados?.lembretes || []).filter((x: any) => !x.enviado).map((x: any) => `${x.data};${x.texto}`),
   ];
   return linhas.join("\n");
 }
@@ -408,12 +621,34 @@ async function botao(d: Deps, q: any) {
     const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
     const t = String(q.message?.text || ""), i = t.indexOf(MSG_ANOTA);
     const tirouNota = i >= 0 ? await desanota(d, conta, t.slice(i + MSG_ANOTA.length).split("\n")[0].trim()) : false;
-    const nc = cs?.length || 0, nm = ms?.length || 0;
-    const partes = [nc && (nc === 1 ? "1 custo" : nc + " custos"), nm && (nm === 1 ? "1 movimento do rebanho" : nm + " movimentos do rebanho"), tirouNota && "a anotação"].filter(Boolean) as string[];
+    const tirou: Record<string, number> = {};
+    await mudaCfg(d, conta.fazenda_id, (D) => {
+      for (const k of ["lembretes", "alertas", "pesagens"]) {
+        const a = D[k] || [], b = a.filter((x: any) => !String(x.id || "").startsWith(id + "-"));
+        tirou[k] = a.length - b.length; if (tirou[k]) D[k] = b;
+      }
+      return Object.values(tirou).some(Boolean) ? D : null;
+    });
+    const nc = cs?.length || 0, nm = ms?.length || 0, pl = (n: number, um: string, v: string) => n && (n === 1 ? "1 " + um : n + " " + v);
+    const partes = [pl(nc, "custo", "custos"), pl(nm, "movimento do rebanho", "movimentos do rebanho"), pl(tirou.lembretes, "lembrete", "lembretes"),
+      pl(tirou.alertas, "aviso da arroba", "avisos da arroba"), pl(tirou.pesagens, "pesagem", "pesagens"), tirouNota && "a anotação"].filter(Boolean) as string[];
     if (!partes.length) return fim("Esse lançamento já não existe.");
     const lista = partes.length > 1 ? partes.slice(0, -1).join(", ") + " e " + partes.at(-1) : partes[0];
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: `↩ Desfeito: tirei do app ${lista}.` });
     return fim("Desfeito");
+  }
+  if (acao === "canc" && /^[0-9a-f-]{36}-[la]\d+$/.test(id)) {
+    let achou = false;
+    await mudaCfg(d, conta.fazenda_id, (D) => {
+      for (const k of ["lembretes", "alertas"]) {
+        const a = D[k] || [], b = a.filter((x: any) => x.id !== id);
+        if (b.length !== a.length) { D[k] = b; achou = true; }
+      }
+      return achou ? D : null;
+    });
+    const L = await listaLembretes(d, conta.fazenda_id);
+    await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: L.text, parse_mode: "HTML", ...L.extra });
+    return fim(achou ? "Cancelado" : "Já não estava marcado.");
   }
   // botões de mensagens antigas (antes de juntar tudo numa mensagem)
   if (acao === "apagarm" && /^[0-9a-f-]{36}$/.test(id)) {
@@ -474,6 +709,20 @@ export async function trata(d: Deps, up: any) {
     if (!ouvido) return responde(d, chat, "Não consegui entender o áudio. Tente de novo falando mais perto do celular, ou mande por escrito.");
     await responde(d, chat, `🎤 <i>${esc(ouvido)}</i>`);
     texto = ouvido;
+  }
+
+  // comandos que não gastam com a inteligência artificial
+  const cmd = texto.toLowerCase().replace(/[.!?]+$/, "").trim();
+  if (!msg.photo && !msg.document && /^\/?(meus |ver )?(lembretes|avisos|alertas)$/.test(cmd)) {
+    const L = await listaLembretes(d, conta.fazenda_id);
+    return responde(d, chat, L.text, L.extra);
+  }
+  if (!msg.photo && !msg.document && /^\/?(fazer |quero o |manda o |mandar o )?backup$/.test(cmd)) {
+    if (!d.envia) return responde(d, chat, "O backup ainda não está ligado.");
+    await d.tg("sendChatAction", { chat_id: chat, action: "upload_document" });
+    const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", conta.fazenda_id).maybeSingle();
+    const n = await mandaBackup(d, conta.fazenda_id, [chat], fz?.nome || "");
+    return n ? undefined : responde(d, chat, "Não consegui gerar o backup agora. Tente de novo em instantes.");
   }
 
   // anotação direta, sem gastar com a inteligência artificial
@@ -591,7 +840,22 @@ if (typeof Deno !== "undefined") {
       return (await r.json()).text || null;
     } catch (e) { console.error("transcrição", e); return null; }
   } : undefined;
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve };
+  const envia = async (chat: number, nome: string, bytes: Uint8Array, legenda: string) => {
+    const fd = new FormData();
+    fd.append("chat_id", String(chat)); fd.append("caption", legenda); fd.append("parse_mode", "HTML");
+    fd.append("document", new Blob([bytes], { type: "application/json" }), nome);
+    const r = await (await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: fd })).json();
+    if (!r?.ok) console.error("sendDocument", r);
+    return r;
+  };
+  // mesma cotação que o app mostra (o GitHub atualiza cotacoes.json nos dias úteis)
+  const cotacao = async () => {
+    const r = await fetch("https://raw.githubusercontent.com/drhigorfreitas-design/caderno-da-fazenda/main/cotacoes.json", { cache: "no-store" });
+    if (!r.ok) return null;
+    const b = (await r.json())?.boi;
+    return b?.spot > 0 && b?.data ? { data: String(b.data), spot: Number(b.spot) } : null;
+  };
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
@@ -617,6 +881,10 @@ if (typeof Deno !== "undefined") {
     if (url.searchParams.has("resumo")) {
       // chamado toda segunda pelo GitHub Actions; manda no máximo uma vez por semana
       try { return new Response(await resumoSemanal(deps)); } catch (e) { console.error("resumo", e); return new Response("erro", { status: 500 }); }
+    }
+    if (url.searchParams.has("avisos")) {
+      // chamado todo dia pelo GitHub Actions: lembretes do dia e avisos de preço da arroba
+      try { return new Response(await avisosDiarios(deps)); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
