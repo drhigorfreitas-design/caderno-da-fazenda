@@ -453,14 +453,14 @@ const CATS=[['matrizes','Matrizes'],['descarte','Matrizes de descarte'],['bezerr
  ['f8_12','Fêmeas 8 a 12 meses'],['f13_24','Fêmeas 13 a 24 meses'],['f24','Fêmeas > 24 meses'],
  ['m8_12','Machos 8 a 12 meses'],['m13_24','Machos 13 a 24 meses'],['m25_36','Machos 25 a 36 meses'],['m36','Machos > 36 meses'],['outras','Outras categorias'],
  /* gado P.O. (puro de origem): fica separado do comercial; vaca total P.O. = com cria + solteira + prenha */
- ['po_vaca_cria','P.O. Vaca com cria'],['po_vaca_solteira','P.O. Vaca solteira'],['po_vaca_prenha','P.O. Vaca prenha'],
+ ['po_vaca_cria','P.O. Vaca com cria'],['po_vaca_solteira','P.O. Vaca solteira'],['po_vaca_prenha','P.O. Vaca prenha'],['po_touro','P.O. Touro'],
  ['po_bezerro','P.O. Bezerro'],['po_bezerra','P.O. Bezerra'],['po_novilha','P.O. Novilha'],['po_garrote','P.O. Garrote']];
 const isPO=c=>String(c).startsWith('po_'), CATS_COM=CATS.filter(([k])=>!isPO(k)), CATS_PO=CATS.filter(([k])=>isPO(k));
 const PO_VACAS=['po_vaca_cria','po_vaca_solteira','po_vaca_prenha'], NASC=['bezerros','po_bezerro','po_bezerra'];
 const REB=[['','Os dois (dividir)'],['com','Só o comercial'],['po','Só o P.O.']], rebOf=x=>x.rebanho==='com'||x.rebanho==='po'?x.rebanho:'';
 const CK=CATS.map(c=>c[0]); const CN=Object.fromEntries(CATS);
 const PRECO_PADRAO={matrizes:300,descarte:295,bezerros:340,touros:290,f8_12:330,f13_24:315,f24:305,m8_12:345,m13_24:325,m25_36:315,m36:305,outras:290,
- po_vaca_cria:300,po_vaca_solteira:300,po_vaca_prenha:300,po_bezerro:345,po_bezerra:330,po_novilha:315,po_garrote:325};
+ po_vaca_cria:300,po_vaca_solteira:300,po_vaca_prenha:300,po_touro:290,po_bezerro:345,po_bezerra:330,po_novilha:315,po_garrote:325};
 const GRUPOS=[['nutricao','Nutrição','var'],['sanidade','Sanidade','var'],['reproducao','Reprodução','var'],['pastagem','Pastagem: formação e manutenção','fix'],
  ['mao','Mão de obra permanente','fix'],['manutencao','Manutenção da fazenda','fix'],['maquinas','Parque de máquinas','fix'],['administracao','Administração','fix'],['impostos','Taxas e impostos','fix'],['arrendamento','Arrendamento / custo da terra','fix'],['outros','Outros','fix']];
 const GN=Object.fromEntries(GRUPOS.map(g=>[g[0],g[1]])); const GVAR=new Set(GRUPOS.filter(g=>g[2]==='var').map(g=>g[0]));
@@ -472,7 +472,7 @@ const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','de
 const COL={fech:'fechamentos',movs:'movimentos',desemb:'desembolsos',estacoes:'estacoes',engorda:'engorda',insumos:'insumos',emovs:'estoque_movs',form:'formulacoes',adapt:'adaptacoes'};
 const FASES=[['cria','Cria'],['recria','Recria'],['engorda','Engorda']]; const FN=Object.fromEntries(FASES); const CENTROS=FASES.map(f=>f[0]);
 const FASE_PADRAO={matrizes:'cria',bezerros:'cria',touros:'cria',f8_12:'recria',f13_24:'recria',f24:'recria',m8_12:'recria',m13_24:'recria',m25_36:'engorda',m36:'engorda',descarte:'engorda',outras:'engorda',
- po_vaca_cria:'cria',po_vaca_solteira:'cria',po_vaca_prenha:'cria',po_bezerro:'cria',po_bezerra:'cria',po_novilha:'recria',po_garrote:'recria'};
+ po_vaca_cria:'cria',po_vaca_solteira:'cria',po_vaca_prenha:'cria',po_touro:'cria',po_bezerro:'cria',po_bezerra:'cria',po_novilha:'recria',po_garrote:'recria'};
 const CENTRO_N={geral:'Fazenda toda (rateado)',cria:'Cria',recria:'Recria',engorda:'Engorda'};
 /* tipos de custo que o usuário lança; cada um cai num grupo do benchmark */
 const ITENS=[['peao','Peão / funcionário fixo','mao'],['empreiteiro','Empreiteiro','mao'],['diarista','Diarista','mao'],['combustivel','Combustível','maquinas'],
