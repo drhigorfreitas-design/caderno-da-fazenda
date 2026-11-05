@@ -26,7 +26,11 @@ const ONDE: Record<string, string> = { geral: "Fazenda toda", cria: "Cria", recr
 /* rebanho: as mesmas categorias e tipos de movimento do app */
 const CATS: Record<string, string> = { matrizes: "Matrizes", descarte: "Matrizes de descarte", bezerros: "Bezerros mamando", touros: "Touros",
   f8_12: "Fêmeas 8 a 12 meses", f13_24: "Fêmeas 13 a 24 meses", f24: "Fêmeas > 24 meses",
-  m8_12: "Machos 8 a 12 meses", m13_24: "Machos 13 a 24 meses", m25_36: "Machos 25 a 36 meses", m36: "Machos > 36 meses", outras: "Outras categorias" };
+  m8_12: "Machos 8 a 12 meses", m13_24: "Machos 13 a 24 meses", m25_36: "Machos 25 a 36 meses", m36: "Machos > 36 meses", outras: "Outras categorias",
+  // gado P.O. (puro de origem), separado do comercial
+  po_vaca_cria: "P.O. Vaca com cria", po_vaca_solteira: "P.O. Vaca solteira", po_vaca_prenha: "P.O. Vaca prenha",
+  po_bezerro: "P.O. Bezerro", po_bezerra: "P.O. Bezerra", po_novilha: "P.O. Novilha", po_garrote: "P.O. Garrote" };
+const NASC = ["bezerros", "po_bezerro", "po_bezerra"];
 const TIPOS_MOV: Record<string, string> = { nascimento: "Nascimento", compra: "Compra", venda: "Venda", morte: "Morte", transferencia: "Mudança de categoria" };
 const MESF = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
@@ -142,7 +146,8 @@ tipo:
 custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
 movimentos: nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Um item por movimento. Compra ou venda de animais vai só aqui, com o valor no movimento, nunca também em custos.
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
-  Nascimento é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
+  Nascimento do gado comercial é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
+  Gado P.O. (puro de origem, "PO", registrado, elite) tem categorias próprias, com "po_" na frente; use-as SÓ quando a mensagem disser P.O./PO, senão é gado comercial. Vaca P.O. com bezerro ao pé/parida = po_vaca_cria; vaca P.O. vazia/solteira = po_vaca_solteira; vaca P.O. prenha/prenhe = po_vaca_prenha (se não disser qual, use po_vaca_solteira e avise em "resposta"); bezerro P.O. macho = po_bezerro; bezerra P.O. = po_bezerra; novilha P.O. = po_novilha; garrote/tourinho P.O. = po_garrote. Nascimento P.O.: macho = po_bezerro, fêmea = po_bezerra (sem dizer o sexo, po_bezerro e anote em obs). Desmame P.O. = mudança de po_bezerro para po_garrote ou de po_bezerra para po_novilha. Vaca P.O. que pariu, emprenhou ou desmamou = mudança entre po_vaca_prenha, po_vaca_cria e po_vaca_solteira.
 anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinação feita, observação do pasto, "anotar: ..."), escrito de forma curta, sem o "anotar:". Várias observações vão juntas no mesmo texto, separadas por "; ".
 lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 15/11", "me lembra de pagar o boleto do sal dia 20", "boleto do sal vence dia 20"). data = o dia citado; se só disser o número do dia, é o próximo dia com esse número a partir de hoje; "amanhã" = hoje + 1. Lembrete sem dia não entra: peça o dia em "resposta". O que vai para lembretes não vai também para anotacao.
 alertas: pedidos de aviso do preço da arroba do boi gordo ("me avisa quando o boi passar de 320" = acima 320; "quando a arroba cair abaixo de 300" = abaixo 300).
@@ -383,7 +388,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     for (const m of L.movimentos) {
       const cab = Math.round(Number(m.cab) || 0);
       if (!TIPOS_MOV[m.mov] || cab <= 0) continue;
-      const categoria = m.mov === "nascimento" ? "bezerros" : CATS[m.categoria] ? m.categoria : "outras";
+      const categoria = m.mov === "nascimento" ? (NASC.includes(m.categoria) ? m.categoria : "bezerros") : CATS[m.categoria] ? m.categoria : "outras";
       if (m.mov === "transferencia" && (!CATS[m.para] || m.para === categoria)) continue;
       const data = okData(m.data) && m.data <= hoje ? m.data : hoje;
       const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0, r = rid(m);

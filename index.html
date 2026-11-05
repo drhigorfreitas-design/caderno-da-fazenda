@@ -256,6 +256,8 @@ textarea.voz-tx{font:16px var(--body);color:var(--ink);background:var(--bg);bord
 .voz-bts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;white-space:normal}
 .voz-bts button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px;font:600 13px var(--body);cursor:pointer}
 .voz-ex{font-size:12.5px;color:var(--muted);margin:0}
+.po-tit{font-size:13px;font-weight:800;margin:0 0 6px}
+details.po-box{margin-top:10px}details.po-box>summary{font-weight:800}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
 /* tipografia e cartões do novo visual */
 h2{font-size:19px;font-weight:700;letter-spacing:-.01em} h3{font-size:16px;font-weight:700}
@@ -449,9 +451,15 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
 /* ---------- constantes do método ---------- */
 const CATS=[['matrizes','Matrizes'],['descarte','Matrizes de descarte'],['bezerros','Bezerros mamando'],['touros','Touros'],
  ['f8_12','Fêmeas 8 a 12 meses'],['f13_24','Fêmeas 13 a 24 meses'],['f24','Fêmeas > 24 meses'],
- ['m8_12','Machos 8 a 12 meses'],['m13_24','Machos 13 a 24 meses'],['m25_36','Machos 25 a 36 meses'],['m36','Machos > 36 meses'],['outras','Outras categorias']];
+ ['m8_12','Machos 8 a 12 meses'],['m13_24','Machos 13 a 24 meses'],['m25_36','Machos 25 a 36 meses'],['m36','Machos > 36 meses'],['outras','Outras categorias'],
+ /* gado P.O. (puro de origem): fica separado do comercial; vaca total P.O. = com cria + solteira + prenha */
+ ['po_vaca_cria','P.O. Vaca com cria'],['po_vaca_solteira','P.O. Vaca solteira'],['po_vaca_prenha','P.O. Vaca prenha'],
+ ['po_bezerro','P.O. Bezerro'],['po_bezerra','P.O. Bezerra'],['po_novilha','P.O. Novilha'],['po_garrote','P.O. Garrote']];
+const isPO=c=>String(c).startsWith('po_'), CATS_COM=CATS.filter(([k])=>!isPO(k)), CATS_PO=CATS.filter(([k])=>isPO(k));
+const PO_VACAS=['po_vaca_cria','po_vaca_solteira','po_vaca_prenha'], NASC=['bezerros','po_bezerro','po_bezerra'];
 const CK=CATS.map(c=>c[0]); const CN=Object.fromEntries(CATS);
-const PRECO_PADRAO={matrizes:300,descarte:295,bezerros:340,touros:290,f8_12:330,f13_24:315,f24:305,m8_12:345,m13_24:325,m25_36:315,m36:305,outras:290};
+const PRECO_PADRAO={matrizes:300,descarte:295,bezerros:340,touros:290,f8_12:330,f13_24:315,f24:305,m8_12:345,m13_24:325,m25_36:315,m36:305,outras:290,
+ po_vaca_cria:300,po_vaca_solteira:300,po_vaca_prenha:300,po_bezerro:345,po_bezerra:330,po_novilha:315,po_garrote:325};
 const GRUPOS=[['nutricao','Nutrição','var'],['sanidade','Sanidade','var'],['reproducao','Reprodução','var'],['pastagem','Pastagem: formação e manutenção','fix'],
  ['mao','Mão de obra permanente','fix'],['manutencao','Manutenção da fazenda','fix'],['maquinas','Parque de máquinas','fix'],['administracao','Administração','fix'],['impostos','Taxas e impostos','fix'],['arrendamento','Arrendamento / custo da terra','fix'],['outros','Outros','fix']];
 const GN=Object.fromEntries(GRUPOS.map(g=>[g[0],g[1]])); const GVAR=new Set(GRUPOS.filter(g=>g[2]==='var').map(g=>g[0]));
@@ -462,7 +470,8 @@ const TIPOS_MOV={nascimento:'Nascimento',compra:'Compra',venda:'Venda',morte:'Mo
 const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const COL={fech:'fechamentos',movs:'movimentos',desemb:'desembolsos',estacoes:'estacoes',engorda:'engorda',insumos:'insumos',emovs:'estoque_movs',form:'formulacoes',adapt:'adaptacoes'};
 const FASES=[['cria','Cria'],['recria','Recria'],['engorda','Engorda']]; const FN=Object.fromEntries(FASES); const CENTROS=FASES.map(f=>f[0]);
-const FASE_PADRAO={matrizes:'cria',bezerros:'cria',touros:'cria',f8_12:'recria',f13_24:'recria',f24:'recria',m8_12:'recria',m13_24:'recria',m25_36:'engorda',m36:'engorda',descarte:'engorda',outras:'engorda'};
+const FASE_PADRAO={matrizes:'cria',bezerros:'cria',touros:'cria',f8_12:'recria',f13_24:'recria',f24:'recria',m8_12:'recria',m13_24:'recria',m25_36:'engorda',m36:'engorda',descarte:'engorda',outras:'engorda',
+ po_vaca_cria:'cria',po_vaca_solteira:'cria',po_vaca_prenha:'cria',po_bezerro:'cria',po_bezerra:'cria',po_novilha:'recria',po_garrote:'recria'};
 const CENTRO_N={geral:'Fazenda toda (rateado)',cria:'Cria',recria:'Recria',engorda:'Engorda'};
 /* tipos de custo que o usuário lança; cada um cai num grupo do benchmark */
 const ITENS=[['peao','Peão / funcionário fixo','mao'],['empreiteiro','Empreiteiro','mao'],['diarista','Diarista','mao'],['combustivel','Combustível','maquinas'],
@@ -1052,8 +1061,10 @@ function fechFalta(last){ if(UI.ret||!last||!retiros().length) return ''; const 
 function renderRebanho(){
   const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1], R=calc(), J=R.J;
   const tabela=last?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Cab.</th><th>Peso kg</th><th>@ total</th><th>UA</th></tr></thead><tbody>
-    ${FASES.map(([fk,fn])=>{const cs=CK.filter(c=>faseOf(c)===fk); const rows=CATS.filter(([k])=>faseOf(k)===fk&&cabOf(last,k)>0); if(!rows.length) return '';
+    ${CATS_PO.some(([k])=>cabOf(last,k)>0)?linhaCat(last,'<b>Gado comercial</b>',CATS_COM.map(c=>c[0]),'sub'):''}
+    ${FASES.map(([fk,fn])=>{const cs=CATS_COM.map(c=>c[0]).filter(c=>faseOf(c)===fk); const rows=CATS_COM.filter(([k])=>faseOf(k)===fk&&cabOf(last,k)>0); if(!rows.length) return '';
       return `<tr class="sub"><td><span class="dot" style="background:${FCOR[fk]}"></span>${fn}</td><td>${nf(fCab(last,cs))}</td><td>${nf(fKg(last,cs)/(fCab(last,cs)||1))}</td><td>${nf(fKg(last,cs)/kgA())}</td><td>${nf(fKg(last,cs)/450)}</td></tr>`+rows.map(([k,n])=>`<tr><td>${n}</td><td>${nf(cabOf(last,k))}</td><td>${nf(pesoOf(last,k))}</td><td>${nf(cabOf(last,k)*pesoOf(last,k)/kgA())}</td><td>${nf(cabOf(last,k)*pesoOf(last,k)/450)}</td></tr>`).join('');}).join('')}
+    ${poRows(last)}
     </tbody><tfoot><tr><td>Fazenda</td><td>${nf(fCab(last))}</td><td>${nf(fKg(last)/(fCab(last)||1))}</td><td>${nf(fKg(last)/kgA())}</td><td>${nf(fKg(last)/450)}</td></tr></tfoot></table></div>`:'';
   const mortCat=J.ok?CATS.map(([k,n])=>{const med=sum(J.fechs,f=>cabOf(f,k))/J.fechs.length, m=sum(S.movs.filter(x=>x.tipo==='morte'&&x.categoria===k&&J.inR(x.data)),x=>x.cab);return {n,med,m,p:m/med*100};}).filter(x=>x.m>0):[];
   const movs=[...S.movs].sort((a,b)=>a.data<b.data?1:-1).slice(0,25);
@@ -1069,6 +1080,10 @@ function renderRebanho(){
   ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA${f._junto?` · soma de ${f._junto} retiros`:retTxt(f)}</span>${!UI.ret&&retiros().length?'':`<span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span>`}</div>`).join('')}</div></details>`:''}
   ${pesagensHTML()}`;
 }
+const linhaCat=(last,n,cs,cls='')=>`<tr${cls?` class="${cls}"`:''}><td>${n}</td><td>${nf(fCab(last,cs))}</td><td>${nf(fKg(last,cs)/(fCab(last,cs)||1))}</td><td>${nf(fKg(last,cs)/kgA())}</td><td>${nf(fKg(last,cs)/450)}</td></tr>`;
+function poRows(last){ const ks=CATS_PO.map(c=>c[0]); if(!ks.some(k=>cabOf(last,k)>0)) return '';
+  return linhaCat(last,'<span class="dot" style="background:var(--gold)"></span>Gado P.O.',ks,'sub')+linhaCat(last,'<b>Vaca total</b>',PO_VACAS)
+    +CATS_PO.map(([k,n])=>linhaCat(last,(PO_VACAS.includes(k)?'&nbsp;&nbsp;&nbsp;↳ ':'')+n.replace(/^P\.O\. /,''),[k])).join(''); }
 function chartRebanho(F){
   const W=340,H=150,L=40,B=22,T=10,ch=H-B-T,n=F.length,cw=(W-L-4)/n, mx=Math.max(1,...F.map(f=>fCab(f)));
   const step=Math.pow(10,Math.floor(Math.log10(mx))), top=Math.ceil(mx/step)*step, y=v=>T+ch-(v/top)*ch;
@@ -1596,14 +1611,16 @@ function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNot
 
 /* ---------- formulários ---------- */
 const fld=(label,name,type='text',attrs='',val='')=>`<label class="fl">${label}<input id="f-${name}" name="${name}" type="${type}" value="${esc(val??'')}" ${attrs}></label>`;
+const selCat=(label,name,val='')=>{const op=([v,t])=>`<option value="${esc(v)}" ${v===val?'selected':''}>${esc(t)}</option>`;
+  return `<label class="fl">${label}<select id="f-${name}" name="${name}"><optgroup label="Gado comercial">${CATS_COM.map(op).join('')}</optgroup><optgroup label="Gado P.O.">${CATS_PO.map(op).join('')}</optgroup></select></label>`;};
 const sel=(label,name,opts,val='',attrs='')=>`<label class="fl">${label}<select id="f-${name}" name="${name}" ${attrs}>${opts.map(([v,t])=>`<option value="${esc(v)}" ${String(v)===String(val)?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;
 const num='step="any" min="0"';
 const FORMS={
   fechamento:{t:'Fechamento do mês',d:'Estoque por categoria',html:o=>{
     const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1]; const mes=o.mes||(last?addM(last.mes,1):ym(today()));
     return `${fld('Mês','mes','month','required',mes)}<p class="note">Já vem calculado: fechamento anterior + nascimentos e compras − vendas e mortes ± mudanças de categoria. Confira as cabeças e atualize o peso médio.</p><div id="fechRows">${fechRows(mes)}</div>`;}},
-  movimento:{t:'Movimento do rebanho',d:'Nascer, comprar, vender, morrer',html:()=>`${sel('Tipo','tipo',Object.entries(TIPOS_MOV))}<div class="grid2">${fld('Data','data','date','required',today())}${sel('Categoria','categoria',CATS)}</div>
-    <div data-show="transferencia" hidden>${sel('Para a categoria','para',CATS,'m8_12')}</div>
+  movimento:{t:'Movimento do rebanho',d:'Nascer, comprar, vender, morrer',html:()=>`${sel('Tipo','tipo',Object.entries(TIPOS_MOV))}<div class="grid2">${fld('Data','data','date','required',today())}${selCat('Categoria','categoria')}</div>
+    <div data-show="transferencia" hidden>${selCat('Para a categoria','para','m8_12')}</div>
     <div class="grid2">${fld('Cabeças','cab','number','min="1" required')}${fld('Peso médio (kg vivo)','pesoMedio','number','step="any" min="0"')}</div>
     <div data-show="venda" hidden><div class="grid2">${fld('Preço da @ (R$)','precoArroba','number','step="0.01" min="0"')}${fld('Valor total (R$)','valorV','number','step="0.01" min="0"')}</div><div class="calc" id="calc">Preencha cabeças, peso e preço para calcular.</div></div>
     <div data-show="transferencia" hidden><p class="note">Se a categoria de destino for de outra fase (ex.: bezerros desmamados indo para a recria), o app conta como venda de uma fase e compra da outra. Informe o peso médio na passagem.</p></div>
@@ -1767,10 +1784,11 @@ function renderCalc(){
 function fechRows(mes){const cats=prefillFech(mes);
   /* mostra só as categorias que a fazenda tem; as outras ficam num "mostrar mais" */
   const linha=([k,n])=>`<div class="grid3" style="margin-bottom:6px"><span class="cat">${n}</span><label class="fl"><input id="f-cab_${k}" name="cab_${k}" type="number" min="0" step="1" value="${cats[k]?.cab||0}" aria-label="Cabeças ${n}"></label><label class="fl"><input id="f-peso_${k}" name="peso_${k}" type="number" min="0" step="any" value="${cats[k]?.peso||0}" aria-label="Peso médio ${n}"></label></div>`;
-  const tem=CATS.filter(([k])=>(cats[k]?.cab||0)>0), resto=CATS.filter(([k])=>!((cats[k]?.cab||0)>0));
+  const has=([k])=>(cats[k]?.cab||0)>0, tem=CATS_COM.filter(has), resto=CATS_COM.filter(x=>!has(x));
   const cab=`<div class="grid3" style="margin-bottom:4px"><span class="small muted">Categoria</span><span class="small muted">Cabeças</span><span class="small muted">Peso médio kg</span></div>`;
-  if(!tem.length) return cab+CATS.map(linha).join('');
-  return cab+tem.map(linha).join('')+`<details class="mais-cat"><summary>Outras categorias (${resto.length})</summary>${resto.map(linha).join('')}</details>`;}
+  const com='<p class="po-tit">Gado comercial</p>'+cab+(!tem.length?CATS_COM.map(linha).join(''):tem.map(linha).join('')+`<details class="mais-cat"><summary>Outras categorias (${resto.length})</summary>${resto.map(linha).join('')}</details>`);
+  return com+`<details class="mais-cat po-box" ${CATS_PO.some(has)?'open':''}><summary>Gado P.O.</summary><p class="note" id="poVacaTot">${poVacaTxt(sum(PO_VACAS,k=>cats[k]?.cab||0))}</p>${cab}${CATS_PO.map(linha).join('')}</details>`;}
+const poVacaTxt=n=>`Vaca total P.O.: <b>${nf(n)}</b> (com cria + solteira + prenha)`;
 function closeSheet(){vozPara(); $('#sheetRoot').innerHTML=''; if($('#entrySlot')&&!$('#entrySlot').firstChild) mountEntry();}
 function openPicker(){$('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Registrar"><div class="row-head"><h2>O que você quer registrar?</h2><button class="btn link" type="button" data-close>Fechar</button></div><div class="types">${['custosMes','desembolso','movimento','fechamento','fornecimento','adaptacao','entrada','saida','lote','estacao','insumo'].map(k=>`<button type="button" data-open="${k}">${FORMS[k].t}<span>${FORMS[k].d}</span></button>`).join('')}</div></div></div>`;}
 function openForm(k,o={}){
@@ -1793,8 +1811,9 @@ function wireForm(k,o,inline){
   if(k==='suplemento') f.tipo.addEventListener('change',()=>{const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
   if(k==='adaptacao'){ const upd=()=>{const r=SUP_REF[f.tipo.value]; if(!r) return; const cab=+f.cab.value||0,peso=+f.peso.value||0; $('#adaptPrev').innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Período</th><th>Fornecimento</th><th>Lote/dia</th></tr></thead><tbody>${r.etapas.map(e=>`<tr><td>${periodo(e)}</td><td style="white-space:normal;text-align:left">${etapaTxt(e)}</td><td>${cab&&peso?kgTxt(etapaKg(e,r,cab,peso)):'—'}</td></tr>`).join('')}</tbody></table></div>`;}; f.addEventListener('input',upd); f.addEventListener('change',upd); upd(); }
   if(k==='formulacao'){ const upd=()=>{let t=0,c=0; for(let n=0;n<6;n++){const p=+f['ip_'+n].value||0; t+=p; c+=p*(+f['iv_'+n].value||0);} $('#calc').innerHTML=`Soma: <b class="${Math.abs(t-100)<0.01?'pos':'neg'}">${nf(t,1)}%</b>${t&&c?' · custo da mistura '+brl(c/t,3)+'/kg':''}`;}; f.addEventListener('input',upd); upd(); }
-  if(k==='fechamento') f.mes.addEventListener('change',()=>{ if(f.mes.value) $('#fechRows').innerHTML=fechRows(f.mes.value); });
-  if(k==='movimento'){ let manual=false; const sync=()=>{f.querySelectorAll('[data-show]').forEach(d=>d.hidden=d.dataset.show!==f.tipo.value); if(f.tipo.value==='nascimento') f.categoria.value='bezerros';};
+  if(k==='fechamento'){ f.mes.addEventListener('change',()=>{ if(f.mes.value) $('#fechRows').innerHTML=fechRows(f.mes.value); });
+    f.addEventListener('input',()=>{ const t=$('#poVacaTot'); if(t) t.innerHTML=poVacaTxt(sum(PO_VACAS,k=>+(f['cab_'+k]?.value)||0)); }); }
+  if(k==='movimento'){ let manual=false; const sync=()=>{f.querySelectorAll('[data-show]').forEach(d=>d.hidden=d.dataset.show!==f.tipo.value); if(f.tipo.value==='nascimento'&&!NASC.includes(f.categoria.value)) f.categoria.value='bezerros';};
     f.tipo.addEventListener('change',sync); sync(); f.valorV.addEventListener('input',()=>manual=true);
     f.addEventListener('input',e=>{ if(f.tipo.value!=='venda') return; const c=+f.cab.value,p=+f.pesoMedio.value,pr=+f.precoArroba.value; if(c&&p){const a=c*p/kgA(); if(pr&&!manual&&e.target!==f.valorV) f.valorV.value=(a*pr).toFixed(2); $('#calc').textContent=`${nf(a,1)} @ no total, ${nf(p/kgA(),2)} @ por cabeça`;}}); }
   if(!inline) setTimeout(()=>f.querySelector('input,select')?.focus(),50);
