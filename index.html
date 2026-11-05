@@ -239,6 +239,23 @@ ol.adapt{margin:6px 0 0;padding-left:20px;font-size:14px;display:flex;flex-direc
   .frame{display:grid;grid-template-columns:minmax(0,1fr) 340px}
   .side{display:block}
 }
+/* microfone: fala vira lançamento (o celular transcreve; o robô entende) */
+.mic{position:fixed;z-index:21;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(146px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;border:0;
+  background:var(--gold);color:var(--gold-ink);display:grid;place-items:center;box-shadow:0 6px 18px rgb(0 0 0 / .28);cursor:pointer}
+.mic svg,.voz-mic svg{width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media (min-width:960px){.mic{right:28px;bottom:28px;width:64px;height:64px}.mic svg{width:30px;height:30px}}
+.voz-top{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+.voz-mic{width:84px;height:84px;border-radius:50%;border:0;background:var(--gold);color:var(--gold-ink);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 18px rgb(0 0 0 / .2)}
+.voz-mic svg{width:38px;height:38px}
+.voz-mic.on{background:#c0392b;color:#fff}
+@media (prefers-reduced-motion:no-preference){.voz-mic.on{animation:pulsa 1.2s ease-in-out infinite}@keyframes pulsa{50%{box-shadow:0 0 0 14px rgb(192 57 43 / .18)}}}
+.voz-st{font-size:14px;font-weight:600;color:var(--muted);min-height:20px}
+textarea.voz-tx{font:16px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;width:100%;min-height:76px;resize:vertical}
+.voz-res{display:flex;flex-direction:column;gap:10px}
+.voz-msg{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:12px;font-size:14px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.voz-bts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;white-space:normal}
+.voz-bts button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px;font:600 13px var(--body);cursor:pointer}
+.voz-ex{font-size:12.5px;color:var(--muted);margin:0}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
 /* tipografia e cartões do novo visual */
 h2{font-size:19px;font-weight:700;letter-spacing:-.01em} h3{font-size:16px;font-weight:700}
@@ -355,7 +372,7 @@ nav.tabs .nav-cap{display:none}
 label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px;width:100%;min-width:0;min-height:320px;resize:vertical}
 .entry.editando{outline:2px solid var(--capim);outline-offset:-2px}
 @media print{
-  nav.tabs,.side,.band,#fab,.seg,[data-print],[data-exportar],#toastRoot,#sheetRoot{display:none !important}
+  nav.tabs,.side,.band,#fab,#micFab,.seg,[data-print],[data-exportar],#toastRoot,#sheetRoot{display:none !important}
   .frame{display:block !important} body{background:#fff}
   .panel{break-inside:avoid;box-shadow:none}
   .rel-g{grid-template-columns:1fr 1fr}
@@ -422,6 +439,7 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
     </form>
   </div>
 </div>
+<button class="mic" id="micFab" type="button" aria-label="Falar um lançamento" title="Falar um lançamento"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg></button>
 <div id="sheetRoot"></div>
 <div id="toastRoot"></div>
 
@@ -1753,7 +1771,7 @@ function fechRows(mes){const cats=prefillFech(mes);
   const cab=`<div class="grid3" style="margin-bottom:4px"><span class="small muted">Categoria</span><span class="small muted">Cabeças</span><span class="small muted">Peso médio kg</span></div>`;
   if(!tem.length) return cab+CATS.map(linha).join('');
   return cab+tem.map(linha).join('')+`<details class="mais-cat"><summary>Outras categorias (${resto.length})</summary>${resto.map(linha).join('')}</details>`;}
-function closeSheet(){$('#sheetRoot').innerHTML=''; if($('#entrySlot')&&!$('#entrySlot').firstChild) mountEntry();}
+function closeSheet(){vozPara(); $('#sheetRoot').innerHTML=''; if($('#entrySlot')&&!$('#entrySlot').firstChild) mountEntry();}
 function openPicker(){$('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Registrar"><div class="row-head"><h2>O que você quer registrar?</h2><button class="btn link" type="button" data-close>Fechar</button></div><div class="types">${['custosMes','desembolso','movimento','fechamento','fornecimento','adaptacao','entrada','saida','lote','estacao','insumo'].map(k=>`<button type="button" data-open="${k}">${FORMS[k].t}<span>${FORMS[k].d}</span></button>`).join('')}</div></div></div>`;}
 function openForm(k,o={}){
   const F=FORMS[k], okN=F.need?F.need():true; if(okN!==true) return toast(okN);
@@ -1832,6 +1850,47 @@ async function notaApi(acao,corpo){
   let r; try{ r=await fetch(SB_URL+'/functions/v1/telegram?nota='+acao,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fazenda:FID,...corpo})}); }
   catch(e){ throw new Error('Sem internet. Tente de novo com sinal.'); }
   const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.erro||'Não deu certo. Tente de novo.'); return j; }
+/* ---------- microfone: o celular transforma a fala em texto (grátis) e o robô (Claude) lança, igual ao Telegram ---------- */
+const MIC_SVG='<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>';
+const RECON=window.SpeechRecognition||window.webkitSpeechRecognition; let VOZ=null, VOZ_R=[];
+async function vozApi(acao,corpo){
+  const {data}=await sb.auth.getSession(), t=data&&data.session&&data.session.access_token; if(!t) throw new Error('Entre de novo no app.');
+  let r; try{ r=await fetch(SB_URL+'/functions/v1/telegram?voz='+acao,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fazenda:FID,...corpo})}); }
+  catch(e){ throw new Error('Sem internet. Tente de novo com sinal.'); }
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.erro||'Não deu certo. Tente de novo.'); return j; }
+/* a resposta do robô vem em HTML simples: só <b> e <i> passam */
+const vozHTML=s=>s.html?String(s.texto).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&lt;(\/?)(b|i)&gt;/g,'<$1$2>'):esc(s.texto);
+function vozResp(){ const el=$('#vozRes'); if(!el) return;
+  el.innerHTML=VOZ_R.map((s,i)=>`<div class="voz-msg" data-voz-i="${i}">${vozHTML(s)}${(s.botoes||[]).length?`<div class="voz-bts">${s.botoes.flat().map(b=>`<button type="button" data-voz-bt="${esc(b.callback_data||'')}" data-voz-of="${i}">${esc(b.text)}</button>`).join('')}</div>`:''}</div>`).join(''); }
+function vozSt(t){ const e=$('#vozSt'); if(e) e.textContent=t; }
+function abreVoz(){ if(!sb||!FID) return toast('Entre na sua conta para usar o microfone.');
+  VOZ_R=[]; $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Falar"><div class="row-head"><h2>Falar um lançamento</h2><button class="btn link" type="button" data-close>Fechar</button></div>
+  <div class="voz-top"><button class="voz-mic" id="vozMic" type="button" data-voz-falar aria-label="Falar">${MIC_SVG}</button><div class="voz-st" id="vozSt">${RECON?'Toque no microfone e fale':'Toque na caixa abaixo e use o 🎤 do teclado'}</div></div>
+  <textarea class="voz-tx" id="vozTx" placeholder="O que você falar aparece aqui. Dá para corrigir antes de enviar."></textarea>
+  <div class="btns"><button class="btn primary" type="button" data-voz-enviar>Lançar</button></div>
+  <p class="voz-ex">Exemplos: <i>gastei 300 de sal e 200 de diesel</i> · <i>nasceram 5 bezerros machos</i> · <i>Santa Helena: morreu 1 vaca</i> · <i>anotar: choveu 40 mm</i> · <i>quantas vacas eu tenho?</i> Sem dizer a parte, vai para a Sede.</p>
+  <div class="voz-res" id="vozRes"></div></div></div>`;
+  if(RECON) vozOuve(); else $('#vozTx').focus(); }
+function vozPara(){ if(VOZ){ try{VOZ.stop();}catch(e){} } }
+function vozOuve(){ if(!RECON) return; if(VOZ){ vozPara(); return; }
+  const tx=$('#vozTx'), mic=$('#vozMic'); if(!tx) return; const antes=tx.value.trim(); let final='';
+  const r=new RECON(); VOZ=r; r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
+  r.onresult=e=>{ let parcial=''; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) final+=t; else parcial+=t; }
+    tx.value=[antes,(final+parcial).trim()].filter(Boolean).join(' '); };
+  r.onerror=e=>{ vozSt(e.error==='not-allowed'||e.error==='service-not-allowed'?'O navegador não deixou usar o microfone. Libere nas permissões do site ou use o 🎤 do teclado.':e.error==='no-speech'?'Não ouvi nada. Toque e fale de novo.':e.error==='network'?'Sem internet para entender a fala.':'Não deu para ouvir. Tente de novo ou use o 🎤 do teclado.'); };
+  r.onend=()=>{ VOZ=null; if(mic) mic.classList.remove('on'); const st=$('#vozSt'); if(st&&/Ouvindo/.test(st.textContent)) vozSt(tx.value.trim()?'Confira o texto e toque em Lançar':'Toque no microfone e fale'); };
+  try{ r.start(); mic.classList.add('on'); vozSt('Ouvindo… fale agora'); }catch(e){ VOZ=null; vozSt('Não deu para abrir o microfone. Use o 🎤 do teclado.'); } }
+async function vozEnvia(b){ vozPara(); const tx=$('#vozTx'), texto=(tx&&tx.value||'').trim(); if(!texto) return toast('Fale ou escreva o que quer lançar.');
+  if(!navigator.onLine) return toast('Sem internet. Lance pelo + Registrar.');
+  b.disabled=true; vozSt('Entendendo… leva uns segundos');
+  try{ const j=await vozApi('texto',{texto}); VOZ_R=[{texto:'🎤 '+texto,html:false,botoes:[]},...(j.saidas||[])]; vozResp(); tx.value=''; vozSt('Pronto. Toque no microfone para lançar outra coisa'); if(db) db.refreshAll(); }
+  catch(e){ vozSt(e.message); }
+  finally{ b.disabled=false; } }
+async function vozBotao(b){ const i=+b.dataset.vozOf, s=VOZ_R[i], card=b.closest('.voz-msg'); if(!s||!card) return;
+  const txt=card.cloneNode(true); txt.querySelector('.voz-bts')?.remove();
+  card.querySelectorAll('button').forEach(x=>x.disabled=true);
+  try{ const j=await vozApi('botao',{data:b.dataset.vozBt,texto:txt.textContent,botoes:s.botoes}); if(j.saidas&&j.saidas[0]) VOZ_R[i]=j.saidas[0]; vozResp(); if(j.aviso) toast(j.aviso); if(db) db.refreshAll(); }
+  catch(e){ toast(e.message); card.querySelectorAll('button').forEach(x=>x.disabled=false); } }
 async function leFotoNota(f,arq){
   const a=arq.files&&arq.files[0]; if(!a) return; const ler=arq.dataset.modo==='ler', st=$('#notaSt'), bts=f.querySelectorAll('[data-nota-foto]');
   DIRTY=true; /* não redesenha o formulário enquanto lê */ bts.forEach(x=>x.disabled=true); st.textContent=ler?'Lendo a nota… leva uns segundos.':'Guardando a foto…';
@@ -1864,6 +1923,10 @@ document.addEventListener('click',async e=>{
   if(b.dataset.simFill) return simFill(b.dataset.simFill);
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
   if(b.id==='fab') return openPicker();
+  if(b.id==='micFab') return abreVoz();
+  if(b.hasAttribute('data-voz-falar')) return vozOuve();
+  if(b.hasAttribute('data-voz-enviar')) return vozEnvia(b);
+  if(b.dataset.vozBt) return vozBotao(b);
   if(b.hasAttribute('data-close')) return closeSheet();
   if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }

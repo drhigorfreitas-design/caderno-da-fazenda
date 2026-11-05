@@ -180,6 +180,7 @@ export type Deps = {
   zip?: (arquivos: Record<string, Uint8Array>) => Uint8Array; // junta as fotos num .zip
   cotacao?: () => Promise<{ data: string; spot: number } | null>; // arroba do boi gordo (cotacoes.json do app)
   db: any; // cliente supabase com a chave de serviço
+  origem?: string; // de onde veio o lançamento ("telegram" ou "app", pelo microfone do app)
 };
 
 /* ---------- respostas ---------- */
@@ -263,6 +264,42 @@ export async function notaApp(d: Deps, acao: string, token: string, corpo: any):
   return { status: 200, json: { caminho, leitura, aviso: leitura ? "" : (L?.resposta || "Não consegui ler a nota. Preencha à mão.") } };
 }
 
+/* ---------- app: microfone (POST ?voz=texto ou ?voz=botao, com o login do app) ----------
+   O app transforma a fala em texto (de graça, no próprio celular) e manda aqui. O texto segue o mesmo caminho
+   de uma mensagem do Telegram; as respostas, em vez de irem para o Telegram, voltam para o app com os botões. */
+export async function vozApp(d: Deps, acao: string, token: string, corpo: any): Promise<{ status: number; json: any }> {
+  const uid = token && d.usuario ? await d.usuario(token) : null;
+  if (!uid) return { status: 401, json: { erro: "Entre de novo no app." } };
+  const fazenda = String(corpo?.fazenda || "");
+  const { data: m } = await d.db.from("membros").select("nome,email").eq("fazenda_id", fazenda).eq("user_id", uid).maybeSingle();
+  if (!m) return { status: 403, json: { erro: "Você não é sócio desta fazenda." } };
+  const conta = { user_id: uid, fazenda_id: fazenda }, quem = m.nome || String(m.email || "").split("@")[0] || "sócio";
+  const saidas: any[] = [];
+  let aviso = "";
+  const dv: Deps = { ...d, origem: "app", envia: undefined, planilha: undefined, zip: undefined,
+    tg: async (metodo: string, c: Record<string, any>) => {
+      if (metodo === "sendMessage" || metodo === "editMessageText")
+        saidas.push({ texto: String(c.text || ""), html: c.parse_mode === "HTML", botoes: c.reply_markup?.inline_keyboard || [] });
+      if (metodo === "answerCallbackQuery") aviso = String(c.text || "");
+      return { ok: true, result: { message_id: 1 } };
+    } };
+  if (acao === "botao") {
+    const data = String(corpo?.data || "");
+    if (!/^(desf|ret|onde|pago|canc):/.test(data)) return { status: 400, json: { erro: "Botão inválido." } };
+    await botao(dv, { id: "app", data, message: { chat: { id: 0 }, message_id: 1, text: String(corpo?.texto || "").slice(0, 8000),
+      reply_markup: { inline_keyboard: Array.isArray(corpo?.botoes) ? corpo.botoes : [] } } }, conta);
+    return { status: 200, json: { saidas, aviso } };
+  }
+  if (acao !== "texto") return { status: 400, json: { erro: "?" } };
+  const texto = String(corpo?.texto || "").trim().slice(0, 2000);
+  if (!texto) return { status: 400, json: { erro: "Não ouvi nada. Toque no microfone e fale de novo." } };
+  const cmd = texto.toLowerCase().replace(/[.!?]+$/, "").trim();
+  if (cmd.length < 60 && /\b(planilha|backup|relat[oó]rio|imposto de renda)\b|^(manda as |mandar as |quero as )?(fotos d[aeo]s? )?notas( fiscais)?$/.test(cmd))
+    return { status: 200, json: { saidas: [{ texto: "Planilha, fotos das notas, backup e relatório chegam como arquivo pelo <b>Telegram</b>. Peça lá para o robô.", html: true, botoes: [] }] } };
+  await trataTexto(dv, 0, conta, quem, texto, {}, true);
+  return { status: 200, json: { saidas } };
+}
+
 /* ---------- lançar (uma mensagem pode ter custos, movimentos e anotação juntos) ---------- */
 const nfBR = (v: number, c = 0) => v.toLocaleString("pt-BR", { maximumFractionDigits: c });
 const MSG_ANOTA = "📝 Anotei: ";
@@ -317,7 +354,7 @@ async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto:
 }
 async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura, nota = "") {
   const hoje = hojeMT(), base = crypto.randomUUID(), criadoEm = new Date().toISOString();
-  const autor = { criadoEm, porId: conta.user_id, por: quem, origem: "telegram" };
+  const autor = { criadoEm, porId: conta.user_id, por: quem, origem: d.origem || "telegram" };
   const txt: string[] = [], avisos: string[] = [];
   const cfgD = (await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle()).data?.dados || {};
   const kgA = Number(cfgD.kgArroba) || 30;
@@ -888,7 +925,7 @@ export async function pagaConta(d: Deps, conta: any, contaId: string, quem: stri
   if (c.paga) return { erro: `Essa conta já foi paga em ${dBR(c.paga.data)}.` };
   const hoje = hojeMT(), base = crypto.randomUUID(), id = `${base}-c1`, item = ITN[c.item] ? c.item : "outros", centro = ONDE[c.centro] ? c.centro : "geral";
   const dados = { data: hoje, valor: c.valor, item, grupo: ITG[item], tipo: "custeio", descricao: `Conta paga: ${c.descricao}`, centro, loteId: "", contaId,
-    ...(c.retiro ? { retiro: c.retiro } : {}), criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: "telegram" };
+    ...(c.retiro ? { retiro: c.retiro } : {}), criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: d.origem || "telegram" };
   const { error } = await d.db.from("desembolsos").insert({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data: hoje, valor: c.valor, item, grupo: ITG[item], centro, lote_id: null, tipo: "custeio", dados });
   if (error) { console.error("pagar conta", error); return { erro: "Não consegui lançar agora. Tente de novo." }; }
   await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D, contas: (D.contas || []).map((x: any) => (x.id === contaId ? { ...x, paga: { data: hoje, custo: id, base, por: quem } } : x)) }));
@@ -1056,9 +1093,9 @@ async function respondePergunta(d: Deps, chat: number, conta: any, pergunta: str
 // marca com "• " o botão escolhido de uma fileira (setor ou retiro), mantendo os outros botões da mensagem
 const marca = (markup: any, prefixo: string, escolhido: string) => (markup?.inline_keyboard || []).map((fila: any[]) => fila.map((b: any) =>
   String(b.callback_data || "").startsWith(prefixo) ? { ...b, text: (b.callback_data === escolhido ? "• " : "") + String(b.text).replace(/^• /, "") } : b));
-async function botao(d: Deps, q: any) {
+async function botao(d: Deps, q: any, contaApp?: any) {
   const chat = q.message?.chat?.id, [acao, id, onde] = String(q.data || "").split(":");
-  const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
+  const conta = contaApp || (await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle()).data;
   const fim = (t: string) => d.tg("answerCallbackQuery", { callback_query_id: q.id, text: t });
   if (!conta) return fim("Telegram não está ligado ao app.");
   if (acao === "desf" && /^[0-9a-f-]{36}$/.test(id)) {
@@ -1191,7 +1228,11 @@ export async function trata(d: Deps, up: any) {
     await responde(d, chat, `🎤 <i>${esc(ouvido)}</i>`);
     texto = ouvido;
   }
+  return trataTexto(d, chat, conta, quem, texto, msg, !!audio);
+}
 
+// texto (escrito, falado no Telegram ou falado no microfone do app): comandos, anotação, pergunta ou lançamento
+async function trataTexto(d: Deps, chat: number, conta: any, quem: string, texto: string, msg: any, audio: boolean) {
   // comandos que não gastam com a inteligência artificial
   const cmd = texto.toLowerCase().replace(/[.!?]+$/, "").trim();
   if (!msg.photo && !msg.document && /^\/?(meus |ver )?(lembretes|avisos|alertas)$/.test(cmd)) {
@@ -1412,6 +1453,16 @@ if (typeof Deno !== "undefined") {
         const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
         r = await notaApp(deps, url.searchParams.get("nota") || "", jwt, await req.json());
       } catch (e) { console.error("nota", e); }
+      return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
+    }
+    if (url.searchParams.has("voz")) {
+      // chamado pelo app (botão do microfone): o texto falado é lançado igual a uma mensagem do Telegram
+      if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+      let r = { status: 500, json: { erro: "Erro no servidor. Tente de novo." } as any };
+      try {
+        const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+        r = await vozApp(deps, url.searchParams.get("voz") || "", jwt, await req.json());
+      } catch (e) { console.error("voz", e); }
       return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
     }
     if (url.searchParams.has("resumo")) {
