@@ -950,6 +950,42 @@ const telegramHTML=()=>{ if(!TG_BOT) return `<h3 style="margin-top:16px">Robô d
   ${minhas.length?`<div class="list">${minhas.map(t=>`<div class="item"><span class="t">Telegram conectado${t.nome_telegram?' · '+esc(t.nome_telegram):''}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(t.chat_id))}">Desconectar</button></span></div>`).join('')}</div>`:''}
   ${TG_COD?`<div class="calc" style="margin-top:8px">Seu código: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_COD)}</b> · vale 30 minutos<br><a class="btn primary" style="margin-top:8px;display:inline-flex" href="https://t.me/${esc(TG_BOT)}?start=${esc(TG_COD)}" target="_blank" rel="noopener">Abrir o robô no Telegram</a><br><span class="small">No Telegram, toque em <b>Iniciar</b>. Se não abrir, procure @${esc(TG_BOT)} e mande o código.</span></div>`
     :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}`; };
+/* ---------- acessos: o dono cria a conta dos sócios com senha provisória, troca senhas e bloqueia (sem e-mail) ---------- */
+let ACESSOS=null, AC_SENHA=null; /* AC_SENHA: senha provisória que acabou de ser criada, para copiar ou mandar */
+async function acessoApi(acao,corpo={}){
+  const {data}=await sb.auth.getSession(), t=data&&data.session&&data.session.access_token; if(!t) throw new Error('Entre de novo no app.');
+  let r; try{ r=await fetch(SB_URL+'/functions/v1/telegram?acesso='+acao,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fazenda:FID,...corpo})}); }
+  catch(e){ throw new Error('Sem internet. Tente de novo com sinal.'); }
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw Object.assign(new Error(j.erro||'Não deu certo. Tente de novo.'),{status:r.status}); return j; }
+async function carregaAcessos(){ if(!FID||!sb||!navigator.onLine) return; try{ ACESSOS=(await acessoApi('listar')).acessos||[]; }catch(e){ if(e.status===403) ACESSOS=null; } }
+const senhaProv=()=>{ const A='abcdefghjkmnpqrstuvwxyz23456789', v=new Uint32Array(8); crypto.getRandomValues(v); return 'boi-'+[...v].map(x=>A[x%A.length]).join(''); };
+const quandoTxt=s=>{ if(!s) return 'nunca entrou'; const d=new Date(s); return 'último acesso '+d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
+function acessosHTML(){ if(!ACESSOS) return '';
+  const zap=AC_SENHA?encodeURIComponent(`Acesso ao Caderno da Fazenda\nLink: ${location.origin+location.pathname}\nE-mail: ${AC_SENHA.email}\nSenha provisória: ${AC_SENHA.senha}\nNo primeiro acesso o app pede para você criar a sua senha.`):'';
+  return `<div class="panel ac-box" id="acessos" style="margin-top:14px"><div class="row-head"><h2>Gerenciar acessos</h2><span class="chip">só você vê</span></div>
+  <p class="note" style="margin:4px 0 8px">Crie a conta do seu pai ou irmão com uma senha provisória e mande pelo WhatsApp. Não depende de e-mail. No primeiro acesso, o app pede para a pessoa criar a senha dela.</p>
+  ${AC_SENHA?`<div class="calc" style="margin-bottom:10px">✅ ${esc(AC_SENHA.msg)}<br>E-mail: <b>${esc(AC_SENHA.email)}</b><br>Senha provisória: <b class="num" style="font-size:18px;letter-spacing:.04em">${esc(AC_SENHA.senha)}</b>
+    <div class="btns" style="margin-top:8px"><a class="btn primary" href="https://wa.me/?text=${zap}" target="_blank" rel="noopener">Mandar pelo WhatsApp</a><button class="btn link" type="button" data-ac-ok>Pronto, já mandei</button></div></div>`:''}
+  <div class="list">${ACESSOS.map(a=>`<div class="item"><span class="t">${esc(a.nome||a.email)}${a.dono?' <span class="chip">você · dono</span>':''}${a.bloqueado?' <span class="chip warn">bloqueado</span>':''}${a.trocar&&!a.dono?' <span class="chip warn">senha provisória</span>':''}</span>
+    <span class="meta">${esc(a.email)} · ${quandoTxt(a.ultimo)}</span>
+    <span class="act">${a.dono?'':`<button class="btn link" type="button" data-ac-senha="${esc(a.user_id)}">Nova senha</button> <button class="btn ${a.bloqueado?'link':'del'}" type="button" data-ac-bloq="${esc(a.user_id)}" data-ac-acao="${a.bloqueado?'desbloquear':'bloquear'}">${a.bloqueado?'Desbloquear':'Bloquear'}</button>`}</span></div>`).join('')}</div>
+  <details style="margin-top:10px"><summary>Criar acesso para um sócio</summary><form class="f" id="acF" style="margin-top:8px">
+    <div class="grid2"><label class="fl">Nome<input name="nome" type="text" maxlength="60" placeholder="Ex.: Pai" autocomplete="off"></label><label class="fl">E-mail<input name="email" type="email" required autocomplete="off" placeholder="nome@gmail.com"></label></div>
+    <label class="fl">Senha provisória<input name="senha" type="text" minlength="6" required autocomplete="off" value="${senhaProv()}"></label>
+    <div class="btns"><button class="btn primary" type="submit">Criar acesso</button></div></form></details></div>`; }
+function minhaSenhaHTML(){ return `<details style="margin-top:12px"><summary>Trocar minha senha</summary><form class="f" id="senhaF" style="margin-top:8px"><div class="grid2">
+  <label class="fl">Nova senha<input name="s1" type="password" minlength="6" required autocomplete="new-password"></label><label class="fl">Repita a nova senha<input name="s2" type="password" minlength="6" required autocomplete="new-password"></label></div>
+  <div class="btns"><button class="btn primary" type="submit">Trocar senha</button></div></form></details>`; }
+/* senha provisória ou link de "esqueci minha senha": a pessoa cria a senha dela antes de usar o app */
+function abreNovaSenha(motivo){ $('#sheetRoot').innerHTML=`<div class="sheet-bg"><div class="sheet" role="dialog" aria-label="Criar sua senha"><div class="row-head"><h2>Crie a sua senha</h2></div>
+  <p class="note">${motivo==='rec'?'Você abriu o link de recuperação. Escolha a nova senha.':'Você entrou com uma senha provisória. Escolha a sua senha para continuar.'}</p>
+  <form class="f" id="novaSenhaF"><label class="fl">Nova senha<input name="s1" type="password" minlength="6" required autocomplete="new-password"></label><label class="fl">Repita a nova senha<input name="s2" type="password" minlength="6" required autocomplete="new-password"></label>
+  <div class="btns"><button class="btn primary" type="submit">Salvar senha</button></div></form></div></div>`; }
+async function salvaMinhaSenha(f){ const s1=f.s1.value, s2=f.s2.value; if(s1.length<6) return toast('A senha precisa ter pelo menos 6 letras ou números.'); if(s1!==s2) return toast('As duas senhas não são iguais.');
+  const bt=f.querySelector('[type=submit]'); bt.disabled=true;
+  const {error}=await sb.auth.updateUser({password:s1,data:{trocar_senha:false}}); bt.disabled=false;
+  if(error) return toast(/different|same/i.test(error.message)?'Escolha uma senha diferente da anterior.':semRede(error)?'Sem internet. Tente de novo com sinal.':'Não consegui trocar a senha: '+error.message);
+  f.reset(); if(f.id==='novaSenhaF') closeSheet(); toast('Senha salva'); }
 function sociosHTML(){
   if(!FID) return `<div class="panel" id="socios"><h2>Sócios</h2><p class="note" style="margin-top:4px">Para compartilhar a fazenda com seus sócios, falta ativar o compartilhamento no Supabase (um passo único, feito uma vez).</p></div>`;
   const mem=S.membros, conv=S.convites;
@@ -960,6 +996,8 @@ function sociosHTML(){
   <form class="f" id="convF" style="margin-top:12px"><label class="fl">E-mail do sócio<input id="conv-email" name="email" type="email" required autocomplete="off" placeholder="nome@gmail.com"></label><div class="btns"><button class="btn primary" type="submit">Convidar</button></div></form>
   <p class="note">Depois de convidar, envie o link do app. Ele toca em <b>Criar conta</b> usando <b>este mesmo e-mail</b>, confirma pelo link que chega no e-mail e entra: já cai nesta fazenda. Se ele já tiver conta, é só sair e entrar de novo.</p>
   <div class="btns"><button class="btn" type="button" data-share-app>Enviar o link do app</button></div>
+  ${acessosHTML()}
+  ${minhaSenhaHTML()}
   ${telegramHTML()}
   ${MEMB.length>1?`<label class="fl" style="margin-top:12px">Fazenda aberta neste aparelho<select id="fazSel">${MEMB.map(m=>`<option value="${esc(m.fazenda_id)}" ${m.fazenda_id===FID?'selected':''}>${esc(m.nome_fazenda||'Fazenda')}</option>`).join('')}</select></label>`:''}
   </div>`;
@@ -1625,7 +1663,7 @@ function renderFase(k){
 function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.hidden=!R.length||!db; if(el.hidden) return;
   el.innerHTML=`<div class="seg">${partes().map(r=>`<button type="button" data-ret="${esc(r.id)}" aria-pressed="${UI.ret===r.id}">${esc(r.nome)}</button>`).join('')}<button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`; }
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#contaF,#pesF,#lembF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
   ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -2022,6 +2060,13 @@ document.addEventListener('click',async e=>{
   if(b.dataset.vozBt) return vozBotao(b);
   if(b.hasAttribute('data-close')) return closeSheet();
   if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
+  if(b.hasAttribute('data-ac-ok')){ AC_SENHA=null; return render(); }
+  if(b.dataset.acSenha){ if(arma(b)) return; const a=(ACESSOS||[]).find(x=>x.user_id===b.dataset.acSenha), senha=senhaProv(); b.disabled=true;
+    try{ await acessoApi('senha',{user_id:b.dataset.acSenha,senha}); AC_SENHA={email:a?a.email:'',senha,msg:'Nova senha provisória para '+(a&&(a.nome||a.email)||'o sócio')+'.'}; await carregaAcessos(); render(); toast('Senha trocada'); }
+    catch(x){ b.disabled=false; toast(x.message); } return; }
+  if(b.dataset.acBloq){ if(arma(b)) return; b.disabled=true;
+    try{ await acessoApi(b.dataset.acAcao,{user_id:b.dataset.acBloq}); await carregaAcessos(); render(); toast(b.dataset.acAcao==='bloquear'?'Acesso bloqueado':'Acesso liberado'); }
+    catch(x){ b.disabled=false; toast(x.message); } return; }
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
   if(b.hasAttribute('data-migra')){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const r=($('#migraRet')||{}).value; if(!r) return; if(arma(b)) return;
     const L=semRetiro(); b.disabled=true; b.textContent='Passando…'; let n=0;
@@ -2061,7 +2106,11 @@ document.addEventListener('click',async e=>{
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
   if(f.id==='pesF'||f.id==='lembF') return salvaCfgItem(f);
   if(f.id==='contaF') return salvaConta(f);
-  if(f.id==='convF'){ const em=f.email.value.trim().toLowerCase(); if(!/^[^@s]+@[^@s]+.[^@s]+$/.test(em)) return toast('Digite um e-mail válido.');
+  if(f.id==='senhaF'||f.id==='novaSenhaF') return salvaMinhaSenha(f);
+  if(f.id==='acF'){ const bt=f.querySelector('[type=submit]'); bt.disabled=true; const email=f.email.value.trim().toLowerCase(), senha=f.senha.value.trim(), nome=f.nome.value.trim();
+    try{ await acessoApi('criar',{email,senha,nome}); AC_SENHA={email,senha,msg:'Acesso criado para '+(nome||email)+'.'}; await carregaAcessos(); await carregaSocios(); toast('Acesso criado'); }
+    catch(e){ bt.disabled=false; toast(e.message); } return; }
+  if(f.id==='convF'){ const em=f.email.value.trim().toLowerCase(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return toast('Digite um e-mail válido.');
     if(S.membros.some(m=>(m.email||'')===em)) return toast('Essa pessoa já é sócia da fazenda.');
     const {error}=await sb.from('convites').insert({fazenda_id:FID,email:em});
     if(error&&error.code!=='23505') return toast(semRede(error)?'Sem internet. Tente de novo com sinal.':'Não foi possível convidar.');
@@ -2200,7 +2249,7 @@ const FORM_PADRAO=[
  ['racao-tip','Ração TIP (terminação intensiva a pasto)','tip',[['Milho moído (fubá)',75.5],['Caroço de algodão',16],['Farelo de soja',4.8],['Núcleo mineral / sal mineral',2],['Ureia pecuária',1.7]]]];
 /* tela de entrada */
 const authMsg=(t,k)=>{const m=$('#au-msg'); m.hidden=!t; m.textContent=t||''; m.className='msg '+(k||'');};
-const authErro=e=>{const m=(e&&e.message)||''; return /invalid login/i.test(m)?'E-mail ou senha incorretos.':/not confirmed/i.test(m)?'Confirme seu e-mail pelo link que enviamos e entre de novo.':/already registered/i.test(m)?'Esse e-mail já tem conta. Use Entrar.':/at least|weak/i.test(m)?'A senha precisa ter pelo menos 6 caracteres.':/rate limit/i.test(m)?'Muitas tentativas. Espere alguns minutos.':'Não foi possível entrar. Confira os dados e tente de novo.';};
+const authErro=e=>{const m=(e&&e.message)||''; return /banned/i.test(m)?'Seu acesso foi bloqueado pelo dono da fazenda.':/invalid login/i.test(m)?'E-mail ou senha incorretos.':/not confirmed/i.test(m)?'Confirme seu e-mail pelo link que enviamos e entre de novo.':/already registered/i.test(m)?'Esse e-mail já tem conta. Use Entrar.':/at least|weak/i.test(m)?'A senha precisa ter pelo menos 6 caracteres.':/rate limit/i.test(m)?'Muitas tentativas. Espere alguns minutos.':'Não foi possível entrar. Confira os dados e tente de novo.';};
 function showAuth(on){ $('#authRoot').hidden=!on; if(on) setTimeout(()=>$('#au-email')&&$('#au-email').focus(),50); }
 $('#authForm').addEventListener('submit',async e=>{ e.preventDefault(); e.stopPropagation(); if(!sb) return authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue.','bad');
   const f=e.target, act=e.submitter&&e.submitter.dataset.act||'entrar', email=f.email.value.trim(), senha=f.senha.value;
@@ -2240,13 +2289,16 @@ async function escolheFazenda(){
 async function carregaSocios(){ if(!FID||!sb||!UID) return;
   try{ const [m,c]=await Promise.all([sb.from('membros').select('user_id,email,nome,created_at').eq('fazenda_id',FID).order('created_at'),sb.from('convites').select('email,created_at').eq('fazenda_id',FID).order('created_at')]);
     if(!m.error){ S.membros=m.data||[]; locPut('membros',S.membros); } if(!c.error) S.convites=c.data||[];
+    await carregaAcessos();
     if(TG_BOT){ const t=await sb.from('telegram_contas').select('chat_id,nome_telegram').eq('user_id',UID); if(!t.error){ const novo=(t.data||[]).length>(S.telegram||[]).length; S.telegram=t.data||[]; if(novo) TG_COD=null; } }
     render(); }catch(e){} }
-function encerrar(){ started=false; TG_COD=null; S.telegram=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>{S[k]=[]; delete RAW[k];}); S.config={...CFG0}; render(); showAuth(true); }
+function encerrar(){ ACESSOS=null; AC_SENHA=null; started=false; TG_COD=null; S.telegram=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>{S[k]=[]; delete RAW[k];}); S.config={...CFG0}; render(); showAuth(true); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&db) db.refreshAll(); });
 (async()=>{
   if(!sb){ showAuth(true); authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue a página.','bad'); render(); return; }
-  sb.auth.onAuthStateChange((ev,session)=>{ if(session) iniciar(session); else if(started) encerrar(); });
+  sb.auth.onAuthStateChange((ev,session)=>{ if(session) iniciar(session); else if(started) encerrar();
+    if(ev==='PASSWORD_RECOVERY') setTimeout(()=>abreNovaSenha('rec'),300);
+    else if(session&&session.user&&session.user.user_metadata&&session.user.user_metadata.trocar_senha&&!$('#novaSenhaF')) setTimeout(()=>abreNovaSenha('prov'),300); });
   const {data}=await sb.auth.getSession();
   if(data&&data.session) iniciar(data.session); else { showAuth(true); render(); }
 })();

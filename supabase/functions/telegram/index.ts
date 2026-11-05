@@ -188,6 +188,11 @@ export type Deps = {
   zip?: (arquivos: Record<string, Uint8Array>) => Uint8Array; // junta as fotos num .zip
   cotacao?: () => Promise<{ data: string; spot: number } | null>; // arroba do boi gordo (cotacoes.json do app)
   db: any; // cliente supabase com a chave de serviço
+  admin?: { // contas do login (chave de administrador; só a função usa)
+    ver: (id: string) => Promise<any | null>;
+    criar: (email: string, senha: string, meta: Record<string, unknown>) => Promise<{ id?: string; erro?: string }>;
+    atualizar: (id: string, attrs: Record<string, unknown>) => Promise<boolean>;
+  };
   origem?: string; // de onde veio o lançamento ("telegram" ou "app", pelo microfone do app)
 };
 
@@ -318,6 +323,57 @@ export async function vozApp(d: Deps, acao: string, token: string, corpo: any): 
     return { status: 200, json: { saidas: [{ texto: "Planilha, fotos das notas, backup e relatório chegam como arquivo pelo <b>Telegram</b>. Peça lá para o robô.", html: true, botoes: [] }], ouvido } };
   await trataTexto(dv, 0, conta, quem, texto, {}, true);
   return { status: 200, json: { saidas, ouvido } };
+}
+
+/* ---------- app: painel de acessos (POST ?acesso=listar|criar|senha|bloquear|desbloquear, com o login do app) ----------
+   Só o dono da fazenda (quem a criou) usa. Cria a conta já confirmada, sem e-mail, com senha provisória:
+   no primeiro acesso o app pede para a pessoa criar a senha dela (user_metadata.trocar_senha). */
+export async function acessoApp(d: Deps, acao: string, token: string, corpo: any): Promise<{ status: number; json: any }> {
+  const uid = token && d.usuario ? await d.usuario(token) : null;
+  if (!uid) return { status: 401, json: { erro: "Entre de novo no app." } };
+  const fazenda = String(corpo?.fazenda || "");
+  const { data: fz } = await d.db.from("fazendas").select("criada_por").eq("id", fazenda).maybeSingle();
+  if (!fz || fz.criada_por !== uid) return { status: 403, json: { erro: "Só o dono da fazenda gerencia os acessos." } };
+  if (!d.admin) return { status: 500, json: { erro: "Painel de acessos não está ligado." } };
+  const { data: mem } = await d.db.from("membros").select("user_id,email,nome,created_at").eq("fazenda_id", fazenda);
+  const membro = (id: string) => (mem || []).find((m: any) => m.user_id === id);
+  const senhaOk = (s: any) => typeof s === "string" && s.length >= 6 && s.length <= 72;
+  if (acao === "listar") {
+    const acessos = [];
+    for (const m of mem || []) {
+      const u = await d.admin.ver(m.user_id);
+      acessos.push({ user_id: m.user_id, email: m.email || u?.email || "", nome: m.nome || u?.user_metadata?.nome || "", dono: m.user_id === uid,
+        ultimo: u?.last_sign_in_at || null, bloqueado: !!u?.banned_until && new Date(u.banned_until) > new Date(), trocar: !!u?.user_metadata?.trocar_senha });
+    }
+    return { status: 200, json: { acessos } };
+  }
+  if (acao === "criar") {
+    const email = String(corpo?.email || "").trim().toLowerCase(), nome = String(corpo?.nome || "").trim().slice(0, 60), senha = corpo?.senha;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { status: 400, json: { erro: "Digite um e-mail válido." } };
+    if (!senhaOk(senha)) return { status: 400, json: { erro: "A senha provisória precisa ter pelo menos 6 letras ou números." } };
+    if ((mem || []).some((m: any) => String(m.email || "").toLowerCase() === email)) return { status: 400, json: { erro: "Essa pessoa já é sócia da fazenda." } };
+    const r = await d.admin.criar(email, senha, { nome, trocar_senha: true });
+    if (!r.id) return { status: 400, json: { erro: /already|registered|exists/i.test(r.erro || "")
+      ? "Esse e-mail já tem conta no app. Use o Convidar (mais acima) e peça para ele entrar com a senha dele."
+      : "Não consegui criar a conta: " + (r.erro || "erro desconhecido") } };
+    const { error } = await d.db.from("membros").insert({ fazenda_id: fazenda, user_id: r.id, email, nome: nome || null, via_convite: true });
+    if (error) { console.error("membros", error); return { status: 500, json: { erro: "A conta foi criada, mas não consegui ligar à fazenda. Tente de novo." } }; }
+    await d.db.from("convites").delete().eq("fazenda_id", fazenda).eq("email", email);
+    return { status: 200, json: { ok: true, user_id: r.id } };
+  }
+  const alvo = String(corpo?.user_id || "");
+  if (!membro(alvo)) return { status: 404, json: { erro: "Essa pessoa não é sócia desta fazenda." } };
+  if (acao === "senha") {
+    if (!senhaOk(corpo?.senha)) return { status: 400, json: { erro: "A senha precisa ter pelo menos 6 letras ou números." } };
+    const ok = await d.admin.atualizar(alvo, { password: corpo.senha, user_metadata: { trocar_senha: alvo !== uid } });
+    return ok ? { status: 200, json: { ok: true } } : { status: 500, json: { erro: "Não consegui trocar a senha. Tente de novo." } };
+  }
+  if (acao === "bloquear" || acao === "desbloquear") {
+    if (alvo === uid) return { status: 400, json: { erro: "Você não pode bloquear a si mesmo." } };
+    const ok = await d.admin.atualizar(alvo, { ban_duration: acao === "bloquear" ? "876000h" : "none" });
+    return ok ? { status: 200, json: { ok: true } } : { status: 500, json: { erro: "Não deu certo. Tente de novo." } };
+  }
+  return { status: 400, json: { erro: "?" } };
 }
 
 /* ---------- lançar (uma mensagem pode ter custos, movimentos e anotação juntos) ---------- */
@@ -1452,7 +1508,16 @@ if (typeof Deno !== "undefined") {
   };
   // fotos já são comprimidas: guarda sem comprimir de novo (mais rápido)
   const zip = (arquivos: Record<string, Uint8Array>) => zipSync(Object.fromEntries(Object.entries(arquivos).map(([n, b]) => [n, [b, { level: 0 }]])) as any);
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip };
+  const admin = {
+    ver: async (id: string) => { const { data, error } = await db.auth.admin.getUserById(id); if (error) console.error("ver usuário", error); return data?.user || null; },
+    criar: async (email: string, senha: string, meta: Record<string, unknown>) => {
+      const { data, error } = await db.auth.admin.createUser({ email, password: senha, email_confirm: true, user_metadata: meta });
+      if (error) console.error("criar usuário", error.message);
+      return error ? { erro: error.message } : { id: data.user?.id };
+    },
+    atualizar: async (id: string, attrs: Record<string, unknown>) => { const { error } = await db.auth.admin.updateUserById(id, attrs as any); if (error) console.error("atualizar usuário", error); return !error; },
+  };
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
@@ -1473,6 +1538,16 @@ if (typeof Deno !== "undefined") {
         const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
         r = await notaApp(deps, url.searchParams.get("nota") || "", jwt, await req.json());
       } catch (e) { console.error("nota", e); }
+      return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
+    }
+    if (url.searchParams.has("acesso")) {
+      // chamado pelo app (Sócios → Gerenciar acessos): só o dono da fazenda
+      if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+      let r = { status: 500, json: { erro: "Erro no servidor. Tente de novo." } as any };
+      try {
+        const jwt = (req.headers.get("authorization") || "").replace(/^Bearers+/i, "");
+        r = await acessoApp(deps, url.searchParams.get("acesso") || "", jwt, await req.json());
+      } catch (e) { console.error("acesso", e); }
       return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
     }
     if (url.searchParams.has("voz")) {
