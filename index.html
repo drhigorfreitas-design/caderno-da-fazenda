@@ -256,6 +256,8 @@ textarea.voz-tx{font:16px var(--body);color:var(--ink);background:var(--bg);bord
 .voz-bts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;white-space:normal}
 .voz-bts button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px;font:600 13px var(--body);cursor:pointer}
 .voz-ex{font-size:12.5px;color:var(--muted);margin:0}
+.mic[data-n]::after{content:attr(data-n);position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:10px;background:#c0392b;color:#fff;font:700 12px/20px var(--body);text-align:center;padding:0 5px}
+
 .po-tit{font-size:13px;font-weight:800;margin:0 0 6px}
 details.po-box{margin-top:10px}details.po-box>summary{font-weight:800}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
@@ -1895,8 +1897,25 @@ const RECON=window.SpeechRecognition||window.webkitSpeechRecognition; let VOZ=nu
 async function vozApi(acao,corpo){
   const {data}=await sb.auth.getSession(), t=data&&data.session&&data.session.access_token; if(!t) throw new Error('Entre de novo no app.');
   let r; try{ r=await fetch(SB_URL+'/functions/v1/telegram?voz='+acao,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fazenda:FID,...corpo})}); }
-  catch(e){ throw new Error('Sem internet. Tente de novo com sinal.'); }
-  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.erro||'Não deu certo. Tente de novo.'); return j; }
+  catch(e){ throw Object.assign(new Error('Sem internet.'),{manter:true}); }
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw Object.assign(new Error(j.erro||'Não deu certo. Tente de novo.'),{manter:r.status===401||r.status>=500}); return j; }
+/* sem internet: a mensagem fica guardada no celular e vai sozinha quando o sinal voltar */
+const VF='vozFila', VR='vozResp', lsG=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v;}catch(e){return d;}}, lsS=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
+function vozGuarda(texto){ lsS(VF,[...lsG(VF,[]),{texto,fazenda:FID,ts:Date.now()}]); vozFilaTxt(); }
+function vozFilaTxt(){ const n=lsG(VF,[]).length, m=$('#micFab'); if(m){ if(n) m.dataset.n=n; else delete m.dataset.n; }
+  const e=$('#vozFila'); if(e){ e.hidden=!n; e.textContent=n?`📥 ${n===1?'1 mensagem guardada':n+' mensagens guardadas'} sem internet: ${n===1?'vai':'vão'} sozinha${n===1?'':'s'} quando o sinal voltar.`:''; } }
+function vozPuxaResp(){ const R=lsG(VR,[]); if(R.length){ VOZ_R.push(...R); lsS(VR,[]); } }
+let vozEnviando=false;
+async function vozFilaEnvia(){ if(vozEnviando||!navigator.onLine||!sb||!FID||!lsG(VF,[]).length) return; vozEnviando=true; let n=0;
+  try{ for(;;){ const it=lsG(VF,[])[0]; if(!it) break; let saidas;
+      try{ saidas=(await vozApi('texto',{texto:it.texto,fazenda:it.fazenda})).saidas||[]; }
+      catch(e){ if(e.manter) break; saidas=[{texto:'Não deu certo: '+e.message,html:false,botoes:[]}]; }
+      lsS(VF,lsG(VF,[]).filter(x=>x.ts!==it.ts)); n++;
+      lsS(VR,[...lsG(VR,[]),{texto:'📥 '+it.texto+' (guardada sem internet, enviada agora)',html:false,botoes:[]},...saidas].slice(-40)); } }
+  finally{ vozEnviando=false; vozFilaTxt(); }
+  if(n){ toast(n===1?'A mensagem guardada foi enviada':n+' mensagens guardadas foram enviadas'); if(db) db.refreshAll(); if($('#vozRes')){ vozPuxaResp(); vozResp(); } } }
+window.addEventListener('online',()=>setTimeout(vozFilaEnvia,1500)); setInterval(vozFilaEnvia,30000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) vozFilaEnvia(); });
 /* a resposta do robô vem em HTML simples: só <b> e <i> passam */
 const vozHTML=s=>s.html?String(s.texto).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&lt;(\/?)(b|i)&gt;/g,'<$1$2>'):esc(s.texto);
 function vozResp(){ const el=$('#vozRes'); if(!el) return;
@@ -1908,22 +1927,24 @@ function abreVoz(){ if(!sb||!FID) return toast('Entre na sua conta para usar o m
   <textarea class="voz-tx" id="vozTx" placeholder="O que você falar aparece aqui. Dá para corrigir antes de enviar."></textarea>
   <div class="btns"><button class="btn primary" type="button" data-voz-enviar>Lançar</button></div>
   <p class="voz-ex">Exemplos: <i>gastei 300 de sal e 200 de diesel</i> · <i>nasceram 5 bezerros machos</i> · <i>Santa Helena: morreu 1 vaca</i> · <i>anotar: choveu 40 mm</i> · <i>quantas vacas eu tenho?</i> Sem dizer a parte, vai para a Sede.</p>
-  <div class="voz-res" id="vozRes"></div></div></div>`;
-  if(RECON) vozOuve(); else $('#vozTx').focus(); }
+  <p class="note" id="vozFila" hidden></p><div class="voz-res" id="vozRes"></div></div></div>`;
+  vozPuxaResp(); vozResp(); vozFilaTxt(); vozFilaEnvia();
+  if(RECON&&navigator.onLine) vozOuve(); else { if(!navigator.onLine) vozSt('Sem internet: escreva na caixa. A mensagem fica guardada e vai quando o sinal voltar.'); $('#vozTx').focus(); } }
 function vozPara(){ if(VOZ){ try{VOZ.stop();}catch(e){} } }
 function vozOuve(){ if(!RECON) return; if(VOZ){ vozPara(); return; }
   const tx=$('#vozTx'), mic=$('#vozMic'); if(!tx) return; const antes=tx.value.trim(); let final='';
   const r=new RECON(); VOZ=r; r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
   r.onresult=e=>{ let parcial=''; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) final+=t; else parcial+=t; }
     tx.value=[antes,(final+parcial).trim()].filter(Boolean).join(' '); };
-  r.onerror=e=>{ vozSt(e.error==='not-allowed'||e.error==='service-not-allowed'?'O navegador não deixou usar o microfone. Libere nas permissões do site ou use o 🎤 do teclado.':e.error==='no-speech'?'Não ouvi nada. Toque e fale de novo.':e.error==='network'?'Sem internet para entender a fala.':'Não deu para ouvir. Tente de novo ou use o 🎤 do teclado.'); };
+  r.onerror=e=>{ vozSt(e.error==='not-allowed'||e.error==='service-not-allowed'?'O navegador não deixou usar o microfone. Libere nas permissões do site ou use o 🎤 do teclado.':e.error==='no-speech'?'Não ouvi nada. Toque e fale de novo.':e.error==='network'?'Sem internet para ouvir. Escreva na caixa: a mensagem fica guardada.':'Não deu para ouvir. Tente de novo ou use o 🎤 do teclado.'); };
   r.onend=()=>{ VOZ=null; if(mic) mic.classList.remove('on'); const st=$('#vozSt'); if(st&&/Ouvindo/.test(st.textContent)) vozSt(tx.value.trim()?'Confira o texto e toque em Lançar':'Toque no microfone e fale'); };
   try{ r.start(); mic.classList.add('on'); vozSt('Ouvindo… fale agora'); }catch(e){ VOZ=null; vozSt('Não deu para abrir o microfone. Use o 🎤 do teclado.'); } }
 async function vozEnvia(b){ vozPara(); const tx=$('#vozTx'), texto=(tx&&tx.value||'').trim(); if(!texto) return toast('Fale ou escreva o que quer lançar.');
-  if(!navigator.onLine) return toast('Sem internet. Lance pelo + Registrar.');
+  const guarda=()=>{ vozGuarda(texto); VOZ_R.push({texto:'📥 '+texto+' (guardada: vai quando o sinal voltar)',html:false,botoes:[]}); vozResp(); tx.value=''; vozSt('Sem internet: guardei a mensagem. Ela vai sozinha quando o sinal voltar.'); };
+  if(!navigator.onLine) return guarda();
   b.disabled=true; vozSt('Entendendo… leva uns segundos');
-  try{ const j=await vozApi('texto',{texto}); VOZ_R=[{texto:'🎤 '+texto,html:false,botoes:[]},...(j.saidas||[])]; vozResp(); tx.value=''; vozSt('Pronto. Toque no microfone para lançar outra coisa'); if(db) db.refreshAll(); }
-  catch(e){ vozSt(e.message); }
+  try{ const j=await vozApi('texto',{texto}); VOZ_R.push({texto:'🎤 '+texto,html:false,botoes:[]},...(j.saidas||[])); vozResp(); tx.value=''; vozSt('Pronto. Toque no microfone para lançar outra coisa'); if(db) db.refreshAll(); }
+  catch(e){ if(e.manter&&/internet/i.test(e.message)) guarda(); else vozSt(e.message); }
   finally{ b.disabled=false; } }
 async function vozBotao(b){ const i=+b.dataset.vozOf, s=VOZ_R[i], card=b.closest('.voz-msg'); if(!s||!card) return;
   const txt=card.cloneNode(true); txt.querySelector('.voz-bts')?.remove();
