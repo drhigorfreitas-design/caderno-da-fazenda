@@ -1639,8 +1639,8 @@ const sel=(label,name,opts,val='',attrs='')=>`<label class="fl">${label}<select 
 const num='step="any" min="0"';
 const FORMS={
   fechamento:{t:'Fechamento do mês',d:'Estoque por categoria',html:o=>{
-    const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1]; const mes=o.mes||(last?addM(last.mes,1):ym(today()));
-    return `${fld('Mês','mes','month','required',mes)}<p class="note">Já vem calculado: fechamento anterior + nascimentos e compras − vendas e mortes ± mudanças de categoria. Confira as cabeças e atualize o peso médio.</p><div id="fechRows">${fechRows(mes)}</div>`;}},
+    const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1]; const prox=last?addM(last.mes,1):ym(today()), mes=o.mes||(prox>ym(today())?ym(today()):prox); /* nunca sugere um mês que ainda não chegou */
+    return `${fld('Mês','mes','month','required max="'+ym(today())+'"',mes)}<p class="note">Já vem calculado: fechamento anterior + nascimentos e compras − vendas e mortes ± mudanças de categoria. Confira as cabeças e atualize o peso médio.</p><div id="fechRows">${fechRows(mes)}</div>`;}},
   movimento:{t:'Movimento do rebanho',d:'Nascer, comprar, vender, morrer',html:()=>`${sel('Tipo','tipo',Object.entries(TIPOS_MOV))}<div class="grid2">${fld('Data','data','date','required',today())}${selCat('Categoria','categoria')}</div>
     <div data-show="transferencia" hidden>${selCat('Para a categoria','para','m8_12')}</div>
     <div class="grid2">${fld('Cabeças','cab','number','min="1" required')}${fld('Peso médio (kg vivo)','pesoMedio','number','step="any" min="0"')}</div>
@@ -1844,7 +1844,10 @@ async function submitForm(f){
   const k=f.dataset.kind, v=Object.fromEntries(new FormData(f)), N=x=>x===''||x==null?null:Number(x), ed=f.dataset.edit;
   const rv=v.retiro?{retiro:v.retiro}:{};
   const add=(col,d)=>db.collection(col).add({...d,...rv,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
-  if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};}); 
+  if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};});
+    /* não deixa gravar fechamento vazio (ex.: Enter no teclado antes de preencher) nem de mês que ainda não chegou */
+    if(v.mes>ym(today())) throw {code:'form',msg:mLabel(v.mes)+' ainda não chegou. Escolha este mês ou um anterior.'};
+    if(!Object.keys(cats).length) throw {code:'form',msg:'Nenhuma cabeça preenchida. Preencha as cabeças de cada categoria antes de salvar.'};
     /* um fechamento por retiro e mês (os antigos, de antes dos retiros, têm o mês como id) */
     const ret=ehRet(UI.ret)?UI.ret:'', ex=(RAW.fech||[]).find(x=>x.mes===v.mes&&(ehRet(x.retiro)?x.retiro:'')===ret);
     await db.doc(COL.fech+'/'+(ex?ex.id:ret?ret+'_'+v.mes:v.mes)).set({mes:v.mes,cats,...(ret?{retiro:ret}:{}),criadoEm:(ex&&ex.criadoEm)||new Date().toISOString()}); }
