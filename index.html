@@ -256,7 +256,7 @@ textarea.voz-tx{font:16px var(--body);color:var(--ink);background:var(--bg);bord
 .voz-bts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;white-space:normal}
 .voz-bts button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px;font:600 13px var(--body);cursor:pointer}
 .voz-ex{font-size:12.5px;color:var(--muted);margin:0}
-.mic[data-n]::after{content:attr(data-n);position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:10px;background:#c0392b;color:#fff;font:700 12px/20px var(--body);text-align:center;padding:0 5px}
+.mic[data-n]{overflow:visible}.mic[data-n]::after{content:attr(data-n);position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:10px;background:#c0392b;color:#fff;font:700 12px/20px var(--body);text-align:center;padding:0 5px}
 
 .po-tit{font-size:13px;font-weight:800;margin:0 0 6px}
 details.po-box{margin-top:10px}details.po-box>summary{font-weight:800}
@@ -1903,17 +1903,27 @@ async function vozApi(acao,corpo){
 const VF='vozFila', VR='vozResp', lsG=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v;}catch(e){return d;}}, lsS=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
 function vozGuarda(texto){ lsS(VF,[...lsG(VF,[]),{texto,fazenda:FID,ts:Date.now()}]); vozFilaTxt(); }
 function vozFilaTxt(){ const n=lsG(VF,[]).length, m=$('#micFab'); if(m){ if(n) m.dataset.n=n; else delete m.dataset.n; }
-  const e=$('#vozFila'); if(e){ e.hidden=!n; e.textContent=n?`📥 ${n===1?'1 mensagem guardada':n+' mensagens guardadas'} sem internet: ${n===1?'vai':'vão'} sozinha${n===1?'':'s'} quando o sinal voltar.`:''; } }
+  const e=$('#vozFila'); if(e){ e.hidden=!n; e.textContent=n?`📥 ${n===1?'1 mensagem guardada':n+' mensagens guardadas'} (texto ou áudio) sem internet: ${n===1?'vai':'vão'} sozinha${n===1?'':'s'} quando o sinal voltar.`:''; } }
 function vozPuxaResp(){ const R=lsG(VR,[]); if(R.length){ VOZ_R.push(...R); lsS(VR,[]); } }
+const vozBD=()=>new Promise((ok,er)=>{ const r=indexedDB.open('cadernoVoz',1); r.onupgradeneeded=()=>r.result.createObjectStore('a'); r.onsuccess=()=>ok(r.result); r.onerror=()=>er(r.error); });
+const vozBDop=async(modo,fn)=>{ const bd=await vozBD(); return new Promise((ok,er)=>{ const t=bd.transaction('a',modo), q=fn(t.objectStore('a')); t.oncomplete=()=>{ ok(q&&q.result); bd.close(); }; t.onerror=()=>{ er(t.error); bd.close(); }; }); };
+const dur=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+async function vozGuardaAudio(blob,seg){ const ts=Date.now(); await vozBDop('readwrite',s=>s.put(blob,ts));
+  lsS(VF,[...lsG(VF,[]),{audio:true,ts,seg,tipo:blob.type,fazenda:FID}]); vozFilaTxt(); }
 let vozEnviando=false;
 async function vozFilaEnvia(){ if(vozEnviando||!navigator.onLine||!sb||!FID||!lsG(VF,[]).length) return; vozEnviando=true; let n=0;
   try{ for(;;){ const it=lsG(VF,[])[0]; if(!it) break; let saidas;
-      try{ saidas=(await vozApi('texto',{texto:it.texto,fazenda:it.fazenda})).saidas||[]; }
+      let rot=it.audio?`📥 Áudio de ${dur(it.seg||0)} (gravado sem internet, enviado agora)`:'📥 '+it.texto+' (guardada sem internet, enviada agora)';
+      try{ if(it.audio){ const b=await vozBDop('readonly',s=>s.get(it.ts));
+          if(!b) saidas=[{texto:'Esse áudio se perdeu neste celular. Grave de novo.',html:false,botoes:[]}];
+          else { const j=await vozApi('audio',{audio:await paraB64(b),tipo:it.tipo||b.type,fazenda:it.fazenda}); saidas=j.saidas||[]; if(j.ouvido) rot+='\n🎤 '+j.ouvido; } }
+        else saidas=(await vozApi('texto',{texto:it.texto,fazenda:it.fazenda})).saidas||[]; }
       catch(e){ if(e.manter) break; saidas=[{texto:'Não deu certo: '+e.message,html:false,botoes:[]}]; }
+      if(it.audio) await vozBDop('readwrite',s=>s.delete(it.ts)).catch(()=>{});
       lsS(VF,lsG(VF,[]).filter(x=>x.ts!==it.ts)); n++;
-      lsS(VR,[...lsG(VR,[]),{texto:'📥 '+it.texto+' (guardada sem internet, enviada agora)',html:false,botoes:[]},...saidas].slice(-40)); } }
+      lsS(VR,[...lsG(VR,[]),{texto:rot,html:false,botoes:[]},...saidas].slice(-40)); } }
   finally{ vozEnviando=false; vozFilaTxt(); }
-  if(n){ toast(n===1?'A mensagem guardada foi enviada':n+' mensagens guardadas foram enviadas'); if(db) db.refreshAll(); if($('#vozRes')){ vozPuxaResp(); vozResp(); } } }
+  if(n){ toast(n===1?'O que estava guardado foi enviado':n+' mensagens guardadas foram enviadas'); if(db) db.refreshAll(); if($('#vozRes')){ vozPuxaResp(); vozResp(); } } }
 window.addEventListener('online',()=>setTimeout(vozFilaEnvia,1500)); setInterval(vozFilaEnvia,30000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) vozFilaEnvia(); });
 /* a resposta do robô vem em HTML simples: só <b> e <i> passam */
@@ -1923,20 +1933,40 @@ function vozResp(){ const el=$('#vozRes'); if(!el) return;
 function vozSt(t){ const e=$('#vozSt'); if(e) e.textContent=t; }
 function abreVoz(){ if(!sb||!FID) return toast('Entre na sua conta para usar o microfone.');
   VOZ_R=[]; $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Falar"><div class="row-head"><h2>Falar um lançamento</h2><button class="btn link" type="button" data-close>Fechar</button></div>
-  <div class="voz-top"><button class="voz-mic" id="vozMic" type="button" data-voz-falar aria-label="Falar">${MIC_SVG}</button><div class="voz-st" id="vozSt">${RECON?'Toque no microfone e fale':'Toque na caixa abaixo e use o 🎤 do teclado'}</div></div>
+  <div class="voz-top"><button class="voz-mic" id="vozMic" type="button" data-voz-falar aria-label="Falar">${MIC_SVG}</button><div class="voz-st" id="vozSt">${RECON?'Toque no microfone e fale':podeGravar()?'Toque no microfone para gravar um áudio, ou escreva abaixo':'Toque na caixa abaixo e use o 🎤 do teclado'}</div></div>
   <textarea class="voz-tx" id="vozTx" placeholder="O que você falar aparece aqui. Dá para corrigir antes de enviar."></textarea>
   <div class="btns"><button class="btn primary" type="button" data-voz-enviar>Lançar</button></div>
   <p class="voz-ex">Exemplos: <i>gastei 300 de sal e 200 de diesel</i> · <i>nasceram 5 bezerros machos</i> · <i>Santa Helena: morreu 1 vaca</i> · <i>anotar: choveu 40 mm</i> · <i>quantas vacas eu tenho?</i> Sem dizer a parte, vai para a Sede.</p>
   <p class="note" id="vozFila" hidden></p><div class="voz-res" id="vozRes"></div></div></div>`;
-  vozPuxaResp(); vozResp(); vozFilaTxt(); vozFilaEnvia();
-  if(RECON&&navigator.onLine) vozOuve(); else { if(!navigator.onLine) vozSt('Sem internet: escreva na caixa. A mensagem fica guardada e vai quando o sinal voltar.'); $('#vozTx').focus(); } }
-function vozPara(){ if(VOZ){ try{VOZ.stop();}catch(e){} } }
+  FALA_FALHOU=false; vozPuxaResp(); vozResp(); vozFilaTxt(); vozFilaEnvia();
+  if(RECON&&navigator.onLine) vozOuve(); else { if(!navigator.onLine) vozSt(podeGravar()?'Sem internet: toque no microfone para gravar um áudio, ou escreva. Fica guardado e vai quando o sinal voltar.':'Sem internet: escreva na caixa. A mensagem fica guardada e vai quando o sinal voltar.'); $('#vozTx').focus(); } }
+function vozPara(){ if(VOZ){ try{VOZ.stop();}catch(e){} } if(GRAV&&GRAV.state==='recording'){ try{GRAV.stop();}catch(e){} } }
+let GRAV=null, FALA_FALHOU=false;
+const podeGravar=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+/* toque no microfone: com internet o celular escreve o que você fala; sem internet (ou se não der), grava o áudio */
+function vozMicToque(){ if(GRAV) return GRAV.stop(); if(RECON&&navigator.onLine&&!FALA_FALHOU) return vozOuve(); if(podeGravar()) return vozGrava();
+  vozSt('Este celular não grava áudio aqui. Escreva na caixa e toque em Lançar.'); }
+async function vozGrava(){ if(VOZ) vozPara();
+  let st; try{ st=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ return vozSt('O navegador não deixou usar o microfone. Libere nas permissões do site.'); }
+  const tipo=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus','audio/webm'].find(t=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(t))||'';
+  let rec; try{ rec=new MediaRecorder(st,tipo?{mimeType:tipo,audioBitsPerSecond:32000}:undefined); }catch(e){ rec=new MediaRecorder(st); }
+  const partes=[], t0=Date.now(); GRAV=rec;
+  const lim=setTimeout(()=>{ if(rec.state==='recording') rec.stop(); },180000);
+  const rel=setInterval(()=>{ if(GRAV===rec) vozSt(`🔴 Gravando ${dur(Math.round((Date.now()-t0)/1000))}… toque de novo para parar`); },1000);
+  rec.ondataavailable=e=>{ if(e.data&&e.data.size) partes.push(e.data); };
+  rec.onstop=async()=>{ clearTimeout(lim); clearInterval(rel); GRAV=null; st.getTracks().forEach(t=>t.stop()); const m=$('#vozMic'); if(m) m.classList.remove('on');
+    const seg=Math.round((Date.now()-t0)/1000); if(seg<1||!partes.length) return vozSt('Gravação muito curta. Toque e fale de novo.');
+    const blob=new Blob(partes,{type:String(rec.mimeType||tipo||'audio/webm').split(';')[0]});
+    try{ await vozGuardaAudio(blob,seg); }catch(e){ return vozSt('Não consegui guardar o áudio neste celular. Escreva a mensagem.'); }
+    const on=navigator.onLine; VOZ_R.push({texto:`📥 Áudio de ${dur(seg)} ${on?'enviando…':'guardado: vai quando o sinal voltar'}`,html:false,botoes:[]}); vozResp();
+    vozSt(on?'Enviando o áudio… leva uns segundos':'Sem internet: o áudio ficou guardado. Pode gravar outro.'); if(on) vozFilaEnvia(); };
+  rec.start(1000); const m=$('#vozMic'); if(m) m.classList.add('on'); vozSt('🔴 Gravando 0:00… toque de novo para parar'); }
 function vozOuve(){ if(!RECON) return; if(VOZ){ vozPara(); return; }
   const tx=$('#vozTx'), mic=$('#vozMic'); if(!tx) return; const antes=tx.value.trim(); let final='';
   const r=new RECON(); VOZ=r; r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
   r.onresult=e=>{ let parcial=''; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) final+=t; else parcial+=t; }
     tx.value=[antes,(final+parcial).trim()].filter(Boolean).join(' '); };
-  r.onerror=e=>{ vozSt(e.error==='not-allowed'||e.error==='service-not-allowed'?'O navegador não deixou usar o microfone. Libere nas permissões do site ou use o 🎤 do teclado.':e.error==='no-speech'?'Não ouvi nada. Toque e fale de novo.':e.error==='network'?'Sem internet para ouvir. Escreva na caixa: a mensagem fica guardada.':'Não deu para ouvir. Tente de novo ou use o 🎤 do teclado.'); };
+  r.onerror=e=>{ vozSt(e.error==='not-allowed'||e.error==='service-not-allowed'?'O navegador não deixou usar o microfone. Libere nas permissões do site ou use o 🎤 do teclado.':e.error==='no-speech'?'Não ouvi nada. Toque e fale de novo.':e.error==='network'?(FALA_FALHOU=true,'Sem internet para escrever a fala. Toque no microfone de novo para gravar um áudio, ou escreva.'):'Não deu para ouvir. Tente de novo ou use o 🎤 do teclado.'); };
   r.onend=()=>{ VOZ=null; if(mic) mic.classList.remove('on'); const st=$('#vozSt'); if(st&&/Ouvindo/.test(st.textContent)) vozSt(tx.value.trim()?'Confira o texto e toque em Lançar':'Toque no microfone e fale'); };
   try{ r.start(); mic.classList.add('on'); vozSt('Ouvindo… fale agora'); }catch(e){ VOZ=null; vozSt('Não deu para abrir o microfone. Use o 🎤 do teclado.'); } }
 async function vozEnvia(b){ vozPara(); const tx=$('#vozTx'), texto=(tx&&tx.value||'').trim(); if(!texto) return toast('Fale ou escreva o que quer lançar.');
@@ -1984,7 +2014,7 @@ document.addEventListener('click',async e=>{
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
   if(b.id==='fab') return openPicker();
   if(b.id==='micFab') return abreVoz();
-  if(b.hasAttribute('data-voz-falar')) return vozOuve();
+  if(b.hasAttribute('data-voz-falar')) return vozMicToque();
   if(b.hasAttribute('data-voz-enviar')) return vozEnvia(b);
   if(b.dataset.vozBt) return vozBotao(b);
   if(b.hasAttribute('data-close')) return closeSheet();

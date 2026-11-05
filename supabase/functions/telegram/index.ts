@@ -298,14 +298,26 @@ export async function vozApp(d: Deps, acao: string, token: string, corpo: any): 
       reply_markup: { inline_keyboard: Array.isArray(corpo?.botoes) ? corpo.botoes : [] } } }, conta);
     return { status: 200, json: { saidas, aviso } };
   }
-  if (acao !== "texto") return { status: 400, json: { erro: "?" } };
-  const texto = String(corpo?.texto || "").trim().slice(0, 2000);
+  if (acao !== "texto" && acao !== "audio") return { status: 400, json: { erro: "?" } };
+  let texto = String(corpo?.texto || "").trim().slice(0, 2000), ouvido = "";
+  // áudio gravado no app (normalmente sem internet, enviado quando o sinal voltou): vira texto pela OpenAI, igual ao áudio do Telegram
+  if (acao === "audio") {
+    const sem = (t: string) => ({ status: 200, json: { ouvido: "", saidas: [{ texto: t, html: false, botoes: [] }] } });
+    if (!d.transcreve) return sem("Ainda não entendo áudio: falta ligar a transcrição (chave da OpenAI). Escreva a mensagem.");
+    const dados = String(corpo?.audio || ""), tipo = String(corpo?.tipo || "");
+    if (!dados || dados.length > 8_000_000) return { status: 400, json: { erro: "Áudio vazio ou grande demais (até 3 minutos)." } };
+    const ext = /mp4|m4a|aac/.test(tipo) ? "mp4" : /ogg/.test(tipo) ? "ogg" : /wav/.test(tipo) ? "wav" : "webm";
+    const r = await d.transcreve(Uint8Array.from(atob(dados), (c) => c.charCodeAt(0)), `audio.${ext}`);
+    if (r == null) return { status: 503, json: { erro: "Não consegui ouvir o áudio agora. Tento de novo daqui a pouco." } };
+    ouvido = texto = r.trim().slice(0, 2000);
+    if (!texto) return sem("Não consegui entender o áudio. Grave de novo falando mais perto do celular, ou escreva.");
+  }
   if (!texto) return { status: 400, json: { erro: "Não ouvi nada. Toque no microfone e fale de novo." } };
   const cmd = texto.toLowerCase().replace(/[.!?]+$/, "").trim();
   if (cmd.length < 60 && /\b(planilha|backup|relat[oó]rio|imposto de renda)\b|^(manda as |mandar as |quero as )?(fotos d[aeo]s? )?notas( fiscais)?$/.test(cmd))
-    return { status: 200, json: { saidas: [{ texto: "Planilha, fotos das notas, backup e relatório chegam como arquivo pelo <b>Telegram</b>. Peça lá para o robô.", html: true, botoes: [] }] } };
+    return { status: 200, json: { saidas: [{ texto: "Planilha, fotos das notas, backup e relatório chegam como arquivo pelo <b>Telegram</b>. Peça lá para o robô.", html: true, botoes: [] }], ouvido } };
   await trataTexto(dv, 0, conta, quem, texto, {}, true);
-  return { status: 200, json: { saidas } };
+  return { status: 200, json: { saidas, ouvido } };
 }
 
 /* ---------- lançar (uma mensagem pode ter custos, movimentos e anotação juntos) ---------- */
@@ -1402,7 +1414,7 @@ if (typeof Deno !== "undefined") {
       fd.append("prompt", "Pecuária de corte em Mato Grosso. Palavras comuns: bezerros, matrizes, vacas, novilhas, garrotes, boi gordo, boi magro, arroba, desmama, IATF, DDG, núcleo, sal mineral, proteinado, cria, recria, engorda, confinamento, TIP, diesel. Valores em reais.");
       const r = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${chaveOpenAI}` }, body: fd });
       if (!r.ok) { console.error("transcrição", r.status, await r.text()); return null; }
-      return (await r.json()).text || null;
+      return (await r.json()).text ?? null; // "" = não deu para entender; null = erro
     } catch (e) { console.error("transcrição", e); return null; }
   } : undefined;
   const envia = async (chat: number, nome: string, bytes: Uint8Array, legenda: string, tipo = "application/json") => {
