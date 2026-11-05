@@ -55,7 +55,7 @@ const SCHEMA = {
       type: "array", description: "um item por gasto; vazio se não houver",
       items: {
         type: "object", additionalProperties: false,
-        required: ["data", "valor", "item", "onde", "descricao", "retiro"],
+        required: ["data", "valor", "item", "onde", "descricao", "retiro", "rebanho"],
         properties: {
           retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = Sede (fazenda principal), também quando citar a Sede" },
           data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
@@ -63,6 +63,7 @@ const SCHEMA = {
           item: { type: "string", enum: ITENS.map((i) => i[0]) },
           onde: { type: "string", enum: Object.keys(ONDE) },
           descricao: { type: "string", description: "curta: o que foi comprado e de quem, ex.: 'Diesel S10 300 L · Posto Trevo'" },
+          rebanho: { type: "string", enum: ["", "com", "po"], description: "po = gasto só do gado P.O.; com = só do gado comercial; vazio = dos dois (o normal)" },
         },
       },
     },
@@ -144,6 +145,7 @@ tipo:
 - "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Tudo o mais fica vazio; a resposta vem depois.
 - "nao_entendi": não dá para saber o que lançar. Em "resposta", peça em uma frase o que falta.
 custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
+  rebanho do gasto: "po" só quando a mensagem disser que o gasto é do gado P.O./PO (ex.: "sêmen para as vacas PO", "ração do P.O."); "com" só quando disser que é só do comercial; senão vazio (é dos dois).
 movimentos: nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Um item por movimento. Compra ou venda de animais vai só aqui, com o valor no movimento, nunca também em custos.
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
   Nascimento do gado comercial é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
@@ -162,7 +164,8 @@ retiro (em cada custo, movimento e pesagem): a fazenda é dividida em retiros (o
 Responda só com o JSON pedido.`;
 
 export type Mov = { retiro?: string; mov: string; data: string; categoria: string; para: string; cab: number; peso_medio: number; preco_arroba: number; valor: number; obs: string };
-export type Custo = { retiro?: string; data: string; valor: number; item: string; onde: string; descricao: string };
+export type Custo = { retiro?: string; data: string; valor: number; item: string; onde: string; descricao: string; rebanho?: string };
+const REB: Record<string, string> = { com: "comercial", po: "P.O." };
 export type Lembrete = { data: string; texto: string };
 export type Alerta = { direcao: string; valor: number };
 export type Pesagem = { retiro?: string; data: string; lote: string; cab: number; peso_medio: number };
@@ -378,8 +381,8 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!okData(c.data) && nota) avisos.push("A nota não tinha data: usei hoje.");
     const id = `${base}-c${custos.length + 1}`, r = rid(c);
     custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, valor, item, grupo: ITG[item], centro: onde, lote_id: null, tipo: "custeio",
-      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...RT(r), ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
-    txt.push(`💸 <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}${tagRet(rets, r)}${c.descricao ? `\n   <i>${esc(c.descricao)}</i>` : ""}`);
+      dados: { data, valor, item, grupo: ITG[item], tipo: "custeio", descricao: c.descricao || "", centro: onde, loteId: "", ...(REB[c.rebanho || ""] ? { rebanho: c.rebanho } : {}), ...RT(r), ...autor, ...(nota && custos.length === 0 ? { nota } : {}) } });
+    txt.push(`💸 <b>${esc(ITN[item])}</b> · <b>${brl(valor)}</b> · ${dBR(data)} · ${ONDE[onde]}${REB[c.rebanho || ""] ? " · " + REB[c.rebanho!] : ""}${tagRet(rets, r)}${c.descricao ? `\n   <i>${esc(c.descricao)}</i>` : ""}`);
   }
 
   // movimentos do rebanho
@@ -1073,9 +1076,9 @@ export async function contexto(d: Deps, faz: string) {
     "MOVIMENTOS (data;tipo;categoria;para;cabeças;peso médio kg;valor R$;obs;quem;retiro):",
     ...movs.filter((x) => x.data >= desde).sort((a, b) => (a.data < b.data ? -1 : 1)).map((x) =>
       [x.data, TIPOS_MOV[x.tipo] || x.tipo, CN(x.categoria), x.para ? CN(x.para) : "", x.cab, x.pesoMedio || "", x.valor || "", x.obs || "", x.por || "", RN(x)].join(";")),
-    "CUSTOS, últimos 2 anos (data;tipo de custo;setor;valor R$;descrição;custeio ou investimento;retiro):",
+    "CUSTOS, últimos 2 anos (data;tipo de custo;setor;valor R$;descrição;custeio ou investimento;retiro;rebanho: comercial, P.O. ou dos dois):",
     ...gastos.sort((a, b) => (a.data < b.data ? -1 : 1)).map((x) =>
-      [x.data, ITN[x.item] || x.item || "", ONDE[x.centro] || "Fazenda toda", x.valor, x.descricao || "", x.tipo || "custeio", RN(x)].join(";")),
+      [x.data, ITN[x.item] || x.item || "", ONDE[x.centro] || "Fazenda toda", x.valor, x.descricao || "", x.tipo || "custeio", RN(x), REB[x.rebanho] || "dos dois"].join(";")),
     "BLOCO DE NOTAS (mês: texto):",
     ...Object.keys(notas).sort().slice(-12).map((m) => `${m}: ${String(notas[m]).replace(/\s*\n\s*/g, " | ")}`),
     "PESAGENS (data;lote;cabeças;peso médio kg;retiro) — GMD = diferença de peso ÷ dias entre pesagens do mesmo lote e retiro:",
