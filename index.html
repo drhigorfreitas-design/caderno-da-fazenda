@@ -1114,12 +1114,70 @@ function renderRebanho(){
   <div class="row-head"><h2>Estoque por categoria</h2></div>${fechFalta(last)}
   <div class="panel">${last?`<p class="note" style="margin-bottom:6px">Fechamento de ${mLabel(last.mes)}</p>${tabela}`:`<p class="empty">Faça o primeiro fechamento: conte as cabeças e informe o peso médio de cada categoria. É o estoque inicial de onde saem a produção, o GMD e a lotação.</p>`}</div>
   ${F.length>1?`<div class="panel"><h2>Rebanho mês a mês</h2>${chartRebanho(F.slice(-13))}<p class="note">O rebanho médio é a média desses fechamentos, não (inicial + final) ÷ 2.</p></div>`:''}
+  ${indicesHTML()}
   <div class="panel"><div class="row-head"><h2>Mortalidade por categoria</h2><span class="small muted">${esc(J.nome)}</span></div>
     ${mortCat.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Mortes</th><th>Reb. médio</th><th>%</th></tr></thead><tbody>${mortCat.map(x=>`<tr><td>${x.n}</td><td>${nf(x.m)}</td><td>${nf(x.med)}</td><td>${pct(x.p,2)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma morte registrada no período.</p>'}</div>
   <div class="row-head"><h2>Movimentações</h2><button class="btn" type="button" data-open="movimento">Registrar</button></div>
   <div class="panel"><div class="list">${movs.length?movs.map(x=>`<div class="item"><span class="t">${TIPOS_MOV[x.tipo]} · ${esc(CN[x.categoria]||'')}${x.tipo==='transferencia'?' → '+esc(CN[x.para]||''):''}</span><span class="amt ${x.tipo==='venda'?'pos':x.tipo==='morte'?'neg':''}">${nf(x.cab)} cab.</span><span class="meta">${dBR(x.data)}${x.pesoMedio?' · '+nf(x.pesoMedio)+' kg':''}${x.valor?' · '+brl(x.valor):''}${x.obs?' · '+esc(x.obs):''}${retTxt(x)}${porTxt(x)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.movs}:${x.id}">Excluir</button></span></div>`).join(''):'<p class="empty">Registre nascimentos, compras, vendas, mortes e mudanças de categoria. O fechamento do mês já vem calculado a partir delas.</p>'}</div></div>
   ${F.length?`<details><summary>Fechamentos lançados (${F.length})</summary><div class="list">${[...F].reverse().map(f=>`<div class="item"><span class="t">${mLabel(f.mes)}</span><span class="amt">${nf(fCab(f))} cab.</span><span class="meta">${nf(fKg(f)/kgA())} @ · ${nf(fKg(f)/450)} UA${f._junto?` · soma de ${f._junto} retiros`:retTxt(f)}</span>${!UI.ret&&retiros().length?'':`<span class="act"><button class="btn link" type="button" data-open="fechamento" data-mes="${f.mes}">Editar</button> <button class="btn del" type="button" data-del="${COL.fech}:${f.id}">Excluir</button></span>`}</div>`).join('')}</div></details>`:''}
   ${pesagensHTML()}`;
+}
+/* ---------- Índices do rebanho: últimos 12 meses, comparando as partes, e mês a mês ----------
+   Sai só do que já é lançado (fechamentos e movimentos). Desmame = mudança de bezerro para outra categoria. */
+const MATRIZES=['matrizes',...PO_VACAS];
+const ehDesm=x=>x.tipo==='transferencia'&&NASC.includes(x.categoria)&&!NASC.includes(x.para);
+const jan12=()=>{const t=ym(today()); return {s:addM(t,-11),t};};
+function indicesDe(fech,movs,A){
+  const {s,t}=jan12(), inR=d=>!!d&&ym(d)>=s&&ym(d)<=t;
+  const F=[...fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1];
+  let FW=F.filter(f=>f.mes>=s&&f.mes<=t); if(!FW.length&&last) FW=[last];
+  const med=cs=>FW.length?sum(FW,f=>fCab(f,cs))/FW.length:NaN;
+  const mv=movs.filter(x=>inR(x.data)), cb=fn=>sum(mv.filter(fn),x=>x.cab);
+  const reb=med(CK), mat=med(MATRIZES), ua=last?fKg(last)/450:NaN;
+  const nasc=cb(x=>x.tipo==='nascimento'), mortes=cb(x=>x.tipo==='morte'), mortBez=cb(x=>x.tipo==='morte'&&NASC.includes(x.categoria));
+  const desm=cb(ehDesm), vendas=cb(x=>x.tipo==='venda'), compras=cb(x=>x.tipo==='compra');
+  return {cheio:!!F[0]&&F[0].mes<=s, mesF:last?.mes, cab:last?fCab(last):NaN, mat:last?fCab(last,MATRIZES):NaN, ua, uaHa:A&&last?ua/A:NaN,
+    nasc, natal:nasc/mat*100, desm, desmMat:desm/mat*100, mortes, mortal:mortes/reb*100, mortBez, mortBezP:mortBez/nasc*100,
+    vendas, compras, desfrute:vendas/(FW.length?fCab(FW[0]):NaN)*100};
+}
+const IND_LIN=[
+ ['Cabeças',I=>nf(I.cab),'no último fechamento'],
+ ['Matrizes',I=>nf(I.mat),'vacas comerciais + vacas P.O.'],
+ ['Lotação',I=>ok(I.uaHa)?nf(I.uaHa,2)+' UA/ha':'—','UA ÷ área da parte · Brasil 0,6 · meta 1,5',I=>ok(I.uaHa)?(I.uaHa>=1.5?'ok':I.uaHa<0.6?'bad':null):null],
+ ['Natalidade',I=>pct(I.natal,0),'nascidos ÷ matrizes · boa: 80% ou mais',I=>ok(I.natal)&&I.nasc?st(I.natal>=80):null],
+ ['Desmame por matriz',I=>pct(I.desmMat,0),'desmamados ÷ matrizes · boa: 75% ou mais',I=>ok(I.desmMat)&&I.desm?st(I.desmMat>=75):null],
+ ['Mortalidade geral',I=>pct(I.mortal,1),'mortes ÷ rebanho médio · ideal: até 2%',I=>ok(I.mortal)?st(I.mortal<=2):null],
+ ['Mortalidade de bezerros',I=>pct(I.mortBezP,1),'bezerros mortos ÷ nascidos · ideal: até 4%',I=>ok(I.mortBezP)?st(I.mortBezP<=4):null],
+ ['Taxa de vendas',I=>pct(I.desfrute,0),'cabeças vendidas ÷ rebanho inicial'],
+ ['Nascimentos',I=>nf(I.nasc),''],['Desmamados',I=>nf(I.desm),''],['Mortes',I=>nf(I.mortes),''],['Compras',I=>nf(I.compras),'cabeças'],['Vendas',I=>nf(I.vendas),'cabeças']];
+function indicesHTML(){
+  const P=partes(), cols=[];
+  if(P.length){ P.forEach(r=>cols.push({id:r.id,n:r.nome,I:indicesDe((RAW.fech||[]).filter(x=>daParte(r.id,x)),(RAW.movs||[]).filter(x=>daParte(r.id,x)),+r.area||0)}));
+    cols.push({id:'',n:'Fazenda toda',I:indicesDe(juntaFech(RAW.fech||[]),RAW.movs||[],+S.config.area||sum(P,r=>r.area))});
+    cols[cols.length-1].I.cheio=cols.slice(0,-1).every(c=>c.I.cheio); }
+  else cols.push({id:'',n:fazNome(),I:indicesDe(S.fech,S.movs,area())});
+  const {s,t}=jan12(), vazio=cols.every(c=>!c.I.mesF&&!c.I.nasc&&!c.I.mortes&&!c.I.vendas&&!c.I.compras);
+  const th=c=>`<th${P.length&&c.id===UI.ret?' style="color:var(--ink)"':''}>${esc(c.n)}</th>`;
+  const td=(l,c)=>{const v=l[1](c.I), k=l[3]&&c.I.cheio?l[3](c.I):null; return `<td class="${k==='ok'?'pos':k==='bad'?'neg':''}">${v}</td>`;};
+  return `<div class="panel"><div class="row-head"><h2>Índices do rebanho</h2><span class="small muted">${mLabel(s)} a ${mLabel(t)}</span></div>
+    ${vazio?'<p class="empty">Os índices aparecem aqui conforme você lança o fechamento do rebanho e os nascimentos, mortes, desmames, compras e vendas.</p>':`
+    <div class="tbl-wrap"><table class="tbl${cols.length>2?' cmp':''}"><thead><tr><th>Índice</th>${cols.map(th).join('')}</tr></thead><tbody>
+    ${IND_LIN.map((l,i)=>`${i===8?`<tr><td colspan="${cols.length+1}" style="font-weight:700;padding-top:14px">Em cabeças, nos 12 meses</td></tr>`:''}<tr><td>${l[0]}${l[2]?`<br><span class="small muted">${l[2]}</span>`:''}</td>${cols.map(c=>td(l,c)).join('')}</tr>`).join('')}
+    </tbody></table></div>
+    <p class="note">Últimos 12 meses. Com menos de um ano de lançamentos os índices ainda não valem para o ano inteiro; por isso as cores (verde = bom, vermelho = atenção) só aparecem quando a parte tiver 12 meses de fechamentos. Desmame é a mudança de bezerro para outra categoria ("desmamei 40 bezerros machos"). O detalhe da reprodução (prenhez, IATF) fica na estação de monta, em Cria.</p>`}
+  </div>${mesAMesHTML()}`;
+}
+function mesAMesHTML(){
+  const t=ym(today()), F=Object.fromEntries(S.fech.map(f=>[f.mes,f]));
+  const rows=[...Array(12)].map((_,i)=>addM(t,-i)).map(m=>{ const mv=S.movs.filter(x=>ym(x.data)===m), c=fn=>sum(mv.filter(fn),x=>x.cab);
+    return {m,f:F[m],v:[c(x=>x.tipo==='nascimento'),c(ehDesm),c(x=>x.tipo==='morte'),c(x=>x.tipo==='compra'),c(x=>x.tipo==='venda')]}; })
+    .filter(r=>r.f||r.v.some(Boolean));
+  if(!rows.length) return '';
+  const z=v=>v?nf(v):'<span class="muted">·</span>';
+  return `<div class="panel"><div class="row-head"><h2>Mês a mês</h2><span class="small muted">${UI.ret?esc(retNome(UI.ret)):'Fazenda toda'}</span></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mês</th><th>Cab.</th><th>Nasc.</th><th>Desm.</th><th>Mortes</th><th>Compras</th><th>Vendas</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${mLabel(r.m)}</td><td>${r.f?nf(fCab(r.f)):'<span class="muted">·</span>'}</td>${r.v.map((v,i)=>`<td class="${i===2&&v?'neg':''}">${z(v)}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div><p class="note">Cab. = fechamento do mês; meses sem fechamento ficam com ·.</p></div>`;
 }
 const linhaCat=(last,n,cs,cls='')=>`<tr${cls?` class="${cls}"`:''}><td>${n}</td><td>${nf(fCab(last,cs))}</td><td>${nf(fKg(last,cs)/(fCab(last,cs)||1))}</td><td>${nf(fKg(last,cs)/kgA())}</td><td>${nf(fKg(last,cs)/450)}</td></tr>`;
 function poRows(last){ const ks=CATS_PO.map(c=>c[0]); if(!ks.some(k=>cabOf(last,k)>0)) return '';
