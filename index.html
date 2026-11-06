@@ -660,6 +660,7 @@ function renderPainel(){
     <div class="kpi"><span class="l">Margem</span><span class="v ${RT.margem>=35?'pos':''}">${pct(RT.margem,0)}</span><span class="s">sobre a venda · meta 35%</span></div>
   </div>
   ${!area()?`<p class="note neg">Informe a área produtiva em Ajustes para ver lotação, @/ha e resultado por hectare.</p>`:''}
+  ${selicHTML(RT)}
 
   <div class="sec-title"><h2>Por fase</h2><span class="small muted">participação no rebanho em UA</span></div>
   <div class="fases">${FASES.map(([k,n])=>{const F=RF[k];return `<article class="fase-card" >
@@ -742,7 +743,7 @@ function detalhe(R,comExtra=true){
     ${f?'':ind('Variação dos insumos',brl(R.varIns),{f:'estoque de insumos final − inicial'})}
     ${ind('<b>Resultado da operação</b>',brl(R.resFinal),{f:f?'caixa + variação do rebanho':'caixa + variação do rebanho + variação dos insumos',st:ok(R.resFinal)?st(R.resFinal>=0):null})}
     ${ind('Resultado por hectare ao ano',brl(R.resHa),{f:'resultado ÷ área produtiva',ref:'alvo acima de R$ 1.200',st:ok(R.resHa)?st(R.resHa>=1200):null})}
-    ${ind('Resultado sobre o valor do rebanho',pct(R.resValReb),{f:'resultado ÷ valor inicial do rebanho',ref:'alvo 25% · Selic '+nf(+S.config.selic,2)+'%',st:ok(R.resValReb)?st(R.resValReb>=(+S.config.selic||0)):null})}
+    ${ind('Resultado sobre o valor do rebanho',pct(R.resValReb),{f:'resultado ÷ valor inicial do rebanho',ref:'alvo 25% · Selic '+nf(selicAA(),2)+'%',st:ok(R.resValReb)?st(R.resValReb>=selicAA()):null})}
     ${f?'':ind('Produção sobre o patrimônio',pct(R.prodPatr),{f:'@ produzidas × preço ÷ valor inicial do rebanho',ref:'alvo 15%',st:ok(R.prodPatr)?st(R.prodPatr>=15):null})}
     ${ind('Preço médio de venda',brl(R.precoArr,2)+'/@',{ref:brl(R.precoKg,2)+'/kg vivo'})}
     ${ind('Resultado por @ produzida',brl(R.resArr,2),{f:'preço de venda − desembolso por @'})}
@@ -895,7 +896,7 @@ function renderRel(){
     ${metaR('Insumos + pastagem no desembolso',RM.pctInsPas,50,true,v=>pct(v,0))}
     ${metaR('Custo variável no desembolso',RM.pctVar,60,true,v=>pct(v,0))}
     ${metaR('Lotação',RM.uaHa,1.5,true,v=>nf(v,2)+' UA/ha','média do Brasil 0,6')}
-    ${metaR('Resultado sobre o valor do rebanho',RM.resValReb,25,true,v=>pct(v,0),'compare com a Selic: '+nf(+S.config.selic,2)+'%')}
+    ${metaR('Resultado sobre o valor do rebanho',RM.resValReb,25,true,v=>pct(v,0),'compare com a Selic: '+nf(selicAA(),2)+'%')}
     ${!J.ok?'<p class="note neg">Faltam dois fechamentos do rebanho no período para calcular as metas.</p>':!RM.area?`<p class="note neg">Informe a área ${fz?'produtiva':'da '+nomeM} em Ajustes para ver @/ha, resultado/ha e lotação.</p>`:''}
     ${fz?'':'<p class="note">Na fase, a venda inclui a passagem de animais para a fase seguinte, valorizada pelo preço de referência da @ em Ajustes.</p>'}
   </div>`;
@@ -1015,6 +1016,7 @@ function renderAjustes(){
       <label class="fl">Kg vivo por @<input id="cfg-kg" name="kgArroba" type="number" step="0.5" min="1" value="${esc(kgA())}"></label>
       <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="fl">Selic / custo de oportunidade (% a.a.)<input id="cfg-selic" name="selic" type="number" step="0.01" min="0" value="${esc(c.selic)}"></label>
+      <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="selicAuto" ${c.selicAuto!==false?'checked':''} style="width:auto"> Usar a Selic do Banco Central (atualiza sozinha; hoje ${nf(+SELIC.meta,2)}%). Desmarque para usar a taxa digitada acima.</label>
     </div>
     <fieldset><legend>Área por fase (opcional)</legend><div class="grid2">${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-a-${k}" name="a_${k}" type="number" step="0.1" min="0" value="${esc(af[k]||'')}"></label>`).join('')}</div>
       <p class="note">Com a área de cada fase, o app mostra @/ha, lotação e resultado por hectare da cria, da recria e da engorda.</p></fieldset>
@@ -1866,6 +1868,42 @@ function repoTab(R,sexo,form,pre,url){
 const repoHTML=()=>repoTab(REP,'macho','repF','r','https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/reposicao-nelore-macho');
 const repoFHTML=()=>repoTab(REPF,'fêmea','repFF','f','https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/reposicao-nelore-femea');
 
+/* ---------- Selic (custo de oportunidade): meta e Selic de cada mês, do Banco Central, via cotacoes.json ---------- */
+const SELIC0={"data":"2026-11-06","meta":13.75,"mensal":{"2023-11":0.92,"2023-12":0.89,"2024-01":0.97,"2024-02":0.8,"2024-03":0.83,"2024-04":0.89,"2024-05":0.83,"2024-06":0.79,"2024-07":0.91,"2024-08":0.87,"2024-09":0.84,"2024-10":0.93,"2024-11":0.79,"2024-12":0.93,"2025-01":1.01,"2025-02":0.99,"2025-03":0.96,"2025-04":1.06,"2025-05":1.14,"2025-06":1.1,"2025-07":1.28,"2025-08":1.16,"2025-09":1.22,"2025-10":1.28,"2025-11":1.05,"2025-12":1.22,"2026-01":1.16,"2026-02":1,"2026-03":1.21,"2026-04":1.09,"2026-05":1.07,"2026-06":1.12,"2026-07":1.22,"2026-08":1.09,"2026-09":1.08,"2026-10":1.07}};
+let SELIC=SELIC0;
+/* dólar comercial (Banco Central) e a arroba do boi gordo em dólar = boi à vista (R$/@) ÷ dólar */
+const DOL0={"data":"2026-11-06","v":5.5013,"var":0.72};
+let DOL=DOL0;
+const selicAuto=()=>S.config.selicAuto!==false&&+SELIC.meta>0;
+const selicAA=()=>selicAuto()?+SELIC.meta:(+S.config.selic||0);
+/* juro composto da Selic nos meses depois de m0 até m1: o mês do Banco Central quando houver; senão a taxa anual de hoje */
+function selicPer(m0,m1){ let f=1; for(let m=addM(m0,1); m<=m1; m=addM(m,1)){ const v=selicAuto()?SELIC.mensal[m]:undefined; f*=v!=null?1+v/100:Math.pow(1+selicAA()/100,1/12); } return (f-1)*100; }
+const anualiza=(p,meses)=>p>-100&&meses>0?(Math.pow(1+p/100,12/meses)-1)*100:NaN;
+const selicFonte=()=>selicAuto()?'Banco Central, '+dBR(SELIC.data):'taxa digitada em Ajustes';
+function selicHTML(R){
+  const J=R.J, cab=`<div class="row-head"><h2>Fazenda × Selic</h2><span class="chip">Selic hoje ${nf(selicAA(),2)}% a.a.</span></div>`;
+  if(!J.ok||!(R.valIni>0)) return `<div class="panel">${cab}<p class="empty">Com dois fechamentos do rebanho o app compara o resultado da fazenda com o que o mesmo dinheiro renderia aplicado na Selic (custo de oportunidade).</p><p class="note">Fonte da Selic: ${selicFonte()}.</p></div>`;
+  const per=selicPer(J.ei.mes,J.ef.mes), rend=R.valIni*per/100, dif=R.resFinal-rend, fazPer=R.resFinal/R.valIni*100;
+  const fAA=anualiza(fazPer,J.meses), sAA=anualiza(per,J.meses), mx=Math.max(1,Math.abs(fAA)||0,sAA||0);
+  const barra=(l,v,cor)=>`<div style="margin:8px 0"><div class="row-head"><span class="small">${l}</span><b class="num ${v<0?'neg':''}">${pct(v,1)} ao ano</b></div><div style="height:10px;border-radius:5px;background:var(--sunk)"><div style="height:10px;border-radius:5px;width:${Math.max(0,Math.min(100,(v||0)/mx*100))}%;background:${cor}"></div></div></div>`;
+  return `<div class="panel">${cab}
+    <p class="${dif>=0?'pos':'neg'}" style="font-size:17px;margin:8px 0 6px"><b>A fazenda rendeu ${brl(Math.abs(dif))} ${dif>=0?'a mais':'a menos'} que a Selic</b></p>
+    ${barra('Fazenda',fAA,'var(--capim)')}${barra('Selic',sAA,'var(--gold)')}
+    <div style="margin-top:10px">
+    ${ind('Capital no rebanho',brl(R.valIni),{f:'valor do rebanho em '+mLabel(J.ei.mes)+', a preço de referência'})}
+    ${ind('Resultado da fazenda',brl(R.resFinal),{f:'caixa + variação do rebanho'+(R.fase?'':' e dos insumos')+' · '+pct(fazPer,1)+' no período'})}
+    ${ind('O mesmo capital na Selic',brl(rend),{f:'Selic acumulada de '+pct(per,2)+' de '+mLabel(J.ei.mes)+' a '+mLabel(J.ef.mes)})}
+    ${ind('<b>Ganho além da Selic</b>',brl(dif),{f:'resultado − rendimento na Selic (lucro econômico)',st:st(dif>=0)})}
+    </div>
+    <p class="note">Custo de oportunidade: quanto o dinheiro parado no gado renderia se estivesse aplicado na Selic. A conta usa a Selic de cada mês, bruta (sem o imposto de renda da aplicação, de 15% a 22,5%), e só o capital do rebanho: a terra não entra. Fonte da Selic: ${selicFonte()}.</p></div>`;
+}
+function selicCard(){ const t=ym(today()), p12=selicPer(addM(t,-13),addM(t,-1)), am=(Math.pow(1+selicAA()/100,1/12)-1)*100, usd=BGI.spot/DOL.v;
+  const st_=(v,l,sub,cls='')=>`<div class="stat"><div class="v ${cls}">${v}</div><div class="l">${l}</div>${sub?`<div class="small muted">${sub}</div>`:''}</div>`;
+  return `<div class="panel"><div class="row-head"><h2>Indicadores econômicos</h2><span class="small muted">Banco Central</span></div>
+  <div class="stats">${st_(nf(selicAA(),2)+'%','Selic ao ano',pct(am,2)+' ao mês')}${st_(pct(p12,2),'Selic 12 meses','rendeu na aplicação')}</div>
+  <div class="stats" style="margin-top:10px">${st_('R$ '+nf(DOL.v,4),'Dólar comercial',(DOL.var>0?'+':'')+nf(DOL.var,2)+'% no dia · '+dBR(DOL.data),DOL.var>0?'':'')}${st_('US$ '+nf(usd,2),'Arroba do boi em dólar','boi à vista R$ '+nf(BGI.spot,2)+' ÷ dólar')}</div>
+  <p class="note">A Selic é o custo de oportunidade: o que o dinheiro renderia aplicado (a comparação com a fazenda fica em Indicadores → Fazenda toda). A arroba em dólar mostra o boi em moeda forte: é como o mercado lá fora compara o preço do nosso gado.${selicAuto()?'':' Selic: taxa digitada em Ajustes.'}</p></div>`; }
+
 /* cotações automáticas: o GitHub atualiza cotacoes.json todo dia útil */
 let COT_AUTO=false;
 const COT_URL='https://raw.githubusercontent.com/drhigorfreitas-design/caderno-da-fazenda/main/cotacoes.json';
@@ -1876,7 +1914,9 @@ async function carregaCot(){
     const mx=a=>a.reduce((m,x)=>x[5]>m?x[5]:m,'');
     if(j.reposicao&&j.reposicao.v&&j.reposicao.v.length===4&&mx(j.reposicao.v)>=mx(REP.v)){ REP=j.reposicao; mudou=true; }
     if(j.reposicao_femea&&j.reposicao_femea.v&&j.reposicao_femea.v.length===4&&mx(j.reposicao_femea.v)>=mx(REPF.v)){ REPF=j.reposicao_femea; mudou=true; }
-    if(mudou){ COT_AUTO=true; if(UI.tab==='inicio') render(); } }catch(e){}
+    if(j.dolar&&+j.dolar.v>0&&j.dolar.data>=DOL.data){ DOL=j.dolar; mudou=true; }
+    if(j.selic&&+j.selic.meta>0&&j.selic.mensal&&j.selic.data>=SELIC.data){ SELIC=j.selic; mudou=true; }
+    if(mudou){ COT_AUTO=true; if(UI.tab==='inicio'||UI.tab==='painel') render(); } }catch(e){}
 }
 function renderInicio(){
   const de=[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).slice(0,5);
@@ -1885,6 +1925,7 @@ function renderInicio(){
   <div style="margin-top:12px">${milhoHTML()}</div>
   <div style="margin-top:12px">${repoHTML()}</div>
   <div style="margin-top:12px">${repoFHTML()}</div>
+  <div style="margin-top:12px">${selicCard()}</div>
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
@@ -2186,7 +2227,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
     /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
-    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); if(f.dataset.inline){DIRTY=false; UI.eo={}; render();} else closeSheet(); toast(f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
 });

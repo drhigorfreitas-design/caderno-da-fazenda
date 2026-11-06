@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atualiza cotacoes.json com boi gordo e milho (B3) e reposição de macho e fêmea Nelore em MT (Scot).
+"""Atualiza cotacoes.json com boi gordo e milho (B3), Selic e dólar (Banco Central) e reposição de macho e fêmea Nelore em MT (Scot).
 Fonte: páginas públicas do Notícias Agrícolas. Se uma parte falhar, mantém o valor antigo dela."""
 import json, re, sys, os, urllib.request
 from datetime import datetime, timezone, timedelta
@@ -116,6 +116,31 @@ def tabela_reposicao(lista, anterior, erros):
             if nome in antigo: linhas.append(antigo[nome])
     return linhas
 
+# Selic: Banco Central (SGS). 432 = meta Selic (% a.a.); 4390 = Selic acumulada no mês (% a.m.).
+# O mês corrente fica de fora (ainda incompleto); o app completa com a meta.
+SGS = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{}/dados/ultimos/{}?formato=json"
+SGS_PERIODO = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{}/dados?formato=json&dataInicial={}&dataFinal={}"
+def selic():
+    meta = float(json.loads(baixar(SGS.format(432, 1)))[-1]["valor"])
+    if not 1 <= meta <= 50: raise ValueError(f"meta fora da faixa: {meta}")
+    agora = datetime.now(timezone(timedelta(hours=-3)))
+    hoje = agora.strftime("%Y-%m")
+    mensal = {}
+    ini = (agora - timedelta(days=3 * 366)).strftime("01/%m/%Y")
+    for x in json.loads(baixar(SGS_PERIODO.format(4390, ini, agora.strftime("%d/%m/%Y")))):
+        d, m, a = x["data"].split("/"); k = f"{a}-{m}"; v = float(x["valor"])
+        if k < hoje and 0 <= v <= 5: mensal[k] = v
+    if len(mensal) < 12: raise ValueError("poucos meses da Selic")
+    return {"data": agora.strftime("%Y-%m-%d"), "meta": meta, "mensal": mensal}
+
+# Dólar comercial (venda), Banco Central SGS 1: último valor e variação sobre o dia anterior
+def dolar():
+    a = json.loads(baixar(SGS.format(1, 2)))
+    v, ant = float(a[-1]["valor"]), float(a[-2]["valor"])
+    if not 2 <= v <= 15: raise ValueError(f"dólar fora da faixa: {v}")
+    d, m, y = a[-1]["data"].split("/")
+    return {"data": f"{y}-{m}-{d}", "v": v, "var": round((v / ant - 1) * 100, 2)}
+
 def main():
     try: atual = json.load(open(SAIDA, encoding="utf-8"))
     except Exception: atual = {}
@@ -123,6 +148,10 @@ def main():
     for chave, fn in (("boi", boi), ("milho", milho)):
         try: atual[chave] = fn()
         except Exception as e: erros.append(f"{chave}: {e}")
+    try: atual["selic"] = selic()
+    except Exception as e: erros.append(f"selic: {e}")
+    try: atual["dolar"] = dolar()
+    except Exception as e: erros.append(f"dolar: {e}")
     for chave_json, lista in (("reposicao", REPO), ("reposicao_femea", REPO_F)):
         linhas = tabela_reposicao(lista, atual.get(chave_json, {}).get("v"), erros)
         if len(linhas) == 4: atual[chave_json] = {"uf": "MT", "v": linhas}
