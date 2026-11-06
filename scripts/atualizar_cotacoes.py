@@ -141,6 +141,14 @@ def dolar():
     d, m, y = a[-1]["data"].split("/")
     return {"data": f"{y}-{m}-{d}", "v": v, "var": round((v / ant - 1) * 100, 2)}
 
+# Relações de troca do dia (guardadas para comparar com a média): sacas de milho por @ do boi gordo,
+# bezerros de desmama e bois magros pagos por um boi gordo de 18 @, e ágio da @ da desmama sobre a @ do boi gordo.
+BOI_ARROBAS = 18
+def trocas(atual):
+    spot = float(atual["boi"]["spot"]); milho = float(atual["milho"]["v"][0][1]); rep = atual["reposicao"]["v"]
+    desm = next(x for x in rep if x[0] == "Desmama"); magro = next(x for x in rep if x[0] == "Boi magro")
+    return [round(spot / milho, 3), round(BOI_ARROBAS * spot / desm[4], 3), round(BOI_ARROBAS * spot / magro[4], 3), round((desm[4] / desm[3] / spot - 1) * 100, 2)]
+
 def main():
     try: atual = json.load(open(SAIDA, encoding="utf-8"))
     except Exception: atual = {}
@@ -155,6 +163,11 @@ def main():
     for chave_json, lista in (("reposicao", REPO), ("reposicao_femea", REPO_F)):
         linhas = tabela_reposicao(lista, atual.get(chave_json, {}).get("v"), erros)
         if len(linhas) == 4: atual[chave_json] = {"uf": "MT", "v": linhas}
+    try:
+        hist = atual.get("trocas") or {}
+        hist[datetime.now(timezone(timedelta(hours=-3))).strftime("%Y-%m-%d")] = trocas(atual)
+        atual["trocas"] = dict(sorted(hist.items())[-400:])
+    except Exception as e: erros.append(f"trocas: {e}")
     atual["atualizado"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     json.dump(atual, open(SAIDA, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     for e in erros: print("ERRO", e, file=sys.stderr)

@@ -1897,6 +1897,25 @@ function selicHTML(R){
     </div>
     <p class="note">Custo de oportunidade: quanto o dinheiro parado no gado renderia se estivesse aplicado na Selic. A conta usa a Selic de cada mês, bruta (sem o imposto de renda da aplicação, de 15% a 22,5%), e só o capital do rebanho: a terra não entra. Fonte da Selic: ${selicFonte()}.</p></div>`;
 }
+/* ---------- Relações de troca: calculadas com as cotações do dia; o histórico (trocas) vem do robô em cotacoes.json ---------- */
+const BOI_ARROBAS=18, TRC0={"2026-10-27":[5.74,2.041,1.301,35.7],"2026-10-28":[5.793,2.054,1.31,34.83],"2026-10-29":[5.755,2.018,1.295,37.21],"2026-11-03":[6.08,2.134,1.37,29.77],"2026-11-04":[6.047,2.122,1.362,30.48],"2026-11-05":[6.045,2.1,1.348,31.87]};
+let TRC=TRC0;
+function trocasHoje(){ const spot=+BGI.spot, mi=+(MIL.v[0]||[])[1], d=REP.v.find(x=>x[0]==='Desmama'), m=REP.v.find(x=>x[0]==='Boi magro');
+  return [spot/mi, d?BOI_ARROBAS*spot/d[4]:NaN, m?BOI_ARROBAS*spot/m[4]:NaN, d?(d[4]/d[3]/spot-1)*100:NaN]; }
+const TROCAS=[
+ ['Milho por arroba',v=>nf(v,1)+' sacas','1 @ do boi gordo compra','Maior = milho barato frente ao boi: bom momento para estocar milho e para a TIP.',1],
+ ['Bezerros por boi gordo',v=>nf(v,2)+' bezerros','1 boi gordo de '+BOI_ARROBAS+' @ paga desmamas de 8 meses','Maior = bezerro barato: bom para comprar reposição; ruim para quem vende bezerro.',2],
+ ['Bois magros por boi gordo',v=>nf(v,2)+' bois magros','1 boi gordo de '+BOI_ARROBAS+' @ paga bois magros','Maior = boi magro barato: bom para repor a engorda.',2],
+ ['Ágio da desmama',v=>(v>0?'+':'')+nf(v,1)+'%','@ da desmama sobre a @ do boi gordo','Menor = reposição mais barata em arroba.',1]];
+function trocasCard(){ const H=trocasHoje(), dias=Object.keys(TRC).sort(), vals=i=>dias.map(d=>TRC[d][i]).filter(ok);
+  return `<div class="panel"><div class="row-head"><h2>Relações de troca</h2><span class="small muted">com as cotações acima</span></div>
+  ${TROCAS.map(([n,fmt,f,dica,dec],i)=>{ const v=H[i], a=vals(i), med=a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN, mn=Math.min(...a), mx=Math.max(...a);
+    const dif=ok(v)&&ok(med)&&a.length>1?(v-med)/Math.abs(med)*100:NaN, tag=ok(dif)?(Math.abs(dif)<2?'na média':dif>0?'acima da média':'abaixo da média'):'';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row-head" style="margin:0"><b>${n}</b><b class="num" style="font-size:18px">${ok(v)?fmt(v):'—'}</b></div>
+      <div class="small muted">${f}</div>
+      <div class="small" style="margin-top:2px">${a.length>1?`<b>${tag}</b> · média ${fmt(med)} em ${a.length} dias (de ${nf(mn,dec)} a ${nf(mx,dec)})`:'a média aparece com alguns dias de cotação'}</div>
+      <div class="small muted" style="margin-top:2px">${dica}</div></div>`; }).join('')}
+  <p class="note">Boi gordo à vista (B3), milho no primeiro vencimento da B3 e reposição Nelore MT (Scot). O boi gordo de referência tem ${BOI_ARROBAS} @. O app guarda as relações de cada dia útil para comparar com a média.</p></div>`; }
 function selicCard(){ const t=ym(today()), p12=selicPer(addM(t,-13),addM(t,-1)), am=(Math.pow(1+selicAA()/100,1/12)-1)*100, usd=BGI.spot/DOL.v;
   const st_=(v,l,sub,cls='')=>`<div class="stat"><div class="v ${cls}">${v}</div><div class="l">${l}</div>${sub?`<div class="small muted">${sub}</div>`:''}</div>`;
   return `<div class="panel"><div class="row-head"><h2>Indicadores econômicos</h2><span class="small muted">Banco Central</span></div>
@@ -1914,6 +1933,7 @@ async function carregaCot(){
     const mx=a=>a.reduce((m,x)=>x[5]>m?x[5]:m,'');
     if(j.reposicao&&j.reposicao.v&&j.reposicao.v.length===4&&mx(j.reposicao.v)>=mx(REP.v)){ REP=j.reposicao; mudou=true; }
     if(j.reposicao_femea&&j.reposicao_femea.v&&j.reposicao_femea.v.length===4&&mx(j.reposicao_femea.v)>=mx(REPF.v)){ REPF=j.reposicao_femea; mudou=true; }
+    if(j.trocas&&typeof j.trocas==='object'&&Object.keys(j.trocas).length>=Object.keys(TRC).length){ TRC=j.trocas; mudou=true; }
     if(j.dolar&&+j.dolar.v>0&&j.dolar.data>=DOL.data){ DOL=j.dolar; mudou=true; }
     if(j.selic&&+j.selic.meta>0&&j.selic.mensal&&j.selic.data>=SELIC.data){ SELIC=j.selic; mudou=true; }
     if(mudou){ COT_AUTO=true; if(UI.tab==='inicio'||UI.tab==='painel') render(); } }catch(e){}
@@ -1926,6 +1946,7 @@ function renderInicio(){
   <div style="margin-top:12px">${repoHTML()}</div>
   <div style="margin-top:12px">${repoFHTML()}</div>
   <div style="margin-top:12px">${selicCard()}</div>
+  <div style="margin-top:12px">${trocasCard()}</div>
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
