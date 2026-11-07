@@ -48,7 +48,7 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "contas", "pagou", "resposta"],
+  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "contas", "pagou", "areas", "resposta"],
   properties: {
     tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
     custos: {
@@ -134,6 +134,17 @@ const SCHEMA = {
         },
       },
     },
+    areas: {
+      type: "array", description: "mudança do tamanho da área produtiva (ha) de uma parte da fazenda; vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false, required: ["parte", "fase", "ha"],
+        properties: {
+          parte: { type: "string", description: "nome do retiro, 'Sede' ou 'fazenda toda'" },
+          fase: { type: "string", enum: ["", "cria", "recria", "engorda"], description: "vazio = área produtiva total da parte; cria/recria/engorda = só a área dessa fase" },
+          ha: { type: "number", description: "hectares" },
+        },
+      },
+    },
     pagou: { type: "array", items: { type: "integer" }, description: "números das contas da lista 'Contas a pagar marcadas' que a mensagem diz que foram pagas; vazio se nenhuma" },
     resposta: { type: "string", description: "quando tipo = nao_entendi: uma frase curta pedindo o que falta" },
   },
@@ -141,7 +152,7 @@ const SCHEMA = {
 const SISTEMA = `Você lê o que um pecuarista manda pelo Telegram para o caderno da fazenda dele (cria, recria e engorda de gado de corte, em Mato Grosso).
 Uma mensagem pode trazer várias coisas ao mesmo tempo (ex.: "gastei 300 de sal e 200 de diesel, nasceram 5 bezerros, morreu 1 vaca e choveu 30 mm"). Separe cada uma no lugar certo; nada pode ficar de fora nem ser lançado duas vezes.
 tipo:
-- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos, anotacao, lembretes, alertas e pesagens (o que não houver fica vazio).
+- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos, anotacao, lembretes, alertas, pesagens e areas (o que não houver fica vazio).
 - "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Tudo o mais fica vazio; a resposta vem depois.
 - "nao_entendi": não dá para saber o que lançar. Em "resposta", peça em uma frase o que falta.
 custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
@@ -155,6 +166,7 @@ lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 1
 alertas: pedidos de aviso do preço da arroba do boi gordo ("me avisa quando o boi passar de 320" = acima 320; "quando a arroba cair abaixo de 300" = abaixo 300).
 pesagens: pesagem de animais ("pesei o lote da recria, média 280 kg", "pesei 40 garrotes do lote 3, deu 312 kg"). Um item por lote pesado, com o peso médio por cabeça (se disser o peso total e as cabeças, divida). Pesagem não é movimento nem anotação.
 contas: boleto, parcela ou fatura que ainda vai ser paga, com vencimento ("boleto do sal 4.500 vence dia 20", "parcela do trator 3.200 vence 10/12"). Não vai para custos: o custo entra quando pagar. Sem valor ou sem vencimento, não entra: peça em "resposta".
+areas: quando a mensagem disser o tamanho da área de produção (área produtiva, área de pasto) de uma parte da fazenda ("área de produção: Sede 270 ha; Santa Helena 68 ha", "a recria da Santa Faustina tem 30 hectares", "a fazenda toda tem 406 ha"). Um item por parte (e por fase, se disser a fase). Alqueire: converta para ha (1 alqueire = 4,84 ha, o alqueire goiano, salvo se disser paulista = 2,42 ha). Área NÃO vai também para anotacao.
 pagou: quando a mensagem disser que pagou uma conta da lista "Contas a pagar marcadas" (que vem junto), ponha o número dela e NÃO lance esse pagamento também em custos. Pagamento que não está na lista vai para custos, como sempre.
 resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por falta de informação, diga em uma frase o que faltou.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
@@ -169,7 +181,8 @@ const REB: Record<string, string> = { com: "comercial", po: "P.O." };
 export type Lembrete = { data: string; texto: string };
 export type Alerta = { direcao: string; valor: number };
 export type Pesagem = { retiro?: string; data: string; lote: string; cab: number; peso_medio: number };
-export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; contas?: any[]; pagou?: number[]; resposta?: string };
+export type Area = { parte: string; fase: string; ha: number };
+export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; contas?: any[]; pagou?: number[]; areas?: Area[]; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -423,6 +436,37 @@ const anterior = (lista: any[], lote: string, data: string, retiro?: string) =>
 const dias = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
 const LIMPA_ENVIADOS = 60; // dias que um lembrete já avisado fica guardado
 
+// áreas produtivas: grava no mesmo lugar dos Ajustes do app (retiros[].area, sede.area, area da fazenda toda)
+// e guarda a versão anterior em areasDesf para o botão Desfazer
+const FASES_A = ["cria", "recria", "engorda"];
+export function aplicaAreas(D: any, areas: Area[], base: string, quem: string) {
+  const rets = retirosDe(D).map((r: any) => ({ ...r, area: Number(r.area) || 0, areaFase: { ...(r.areaFase || {}) } }));
+  const sede: any = { nome: GERAL, area: 0, ...(D.sede || {}) }; sede.areaFase = { ...(sede.areaFase || {}) };
+  const antes = { area: D.area ?? 0, areaFase: D.areaFase ?? {}, retiros: D.retiros ?? null, sede: D.sede ?? null };
+  let area = Number(D.area) || 0; const areaFase: any = { ...(D.areaFase || {}) };
+  let totalDito = false; const fasesDitas = new Set<string>(); const linhas: string[] = [];
+  for (const a of areas) {
+    const ha = Math.round((Number(a.ha) || 0) * 10) / 10, fase = FASES_A.includes(a.fase) ? a.fase : "";
+    if (ha <= 0) continue;
+    const p = semAcento(String(a.parte || "")).replace(/^retiros+/, "");
+    const toda = /fazenda toda|toda a fazenda|total|fazenda inteira/.test(p);
+    const rid = toda ? "" : qualRetiro(rets, p);
+    let alvo: any, nome: string;
+    if (toda) { if (fase) { areaFase[fase] = ha; fasesDitas.add(fase); } else { area = ha; totalDito = true; } nome = "Fazenda toda"; }
+    else { alvo = rid ? rets.find((r: any) => r.id === rid) : sede; nome = rid ? alvo.nome : sede.nome || GERAL;
+      if (fase) alvo.areaFase[fase] = ha; else alvo.area = ha; }
+    linhas.push(`📐 <b>Área produtiva</b> · ${esc(nome)}${fase ? " · " + fase : ""} · <b>${nfBR(ha, ha % 1 ? 1 : 0)} ha</b>`);
+  }
+  if (!linhas.length) return null;
+  const partes = [...rets, sede];
+  // fazenda toda = soma das partes, se a mensagem não disse o total
+  if (!totalDito && partes.some((x) => x.area > 0)) area = Math.round(partes.reduce((s, x) => s + (Number(x.area) || 0), 0) * 10) / 10;
+  for (const f of FASES_A) if (!fasesDitas.has(f) && partes.some((x) => +x.areaFase[f] > 0)) areaFase[f] = partes.reduce((s, x) => s + (+x.areaFase[f] || 0), 0);
+  const novo = { ...D, area, areaFase, retiros: rets, sede,
+    areasDesf: [...(D.areasDesf || []).slice(-9), { base, antes, por: quem, em: new Date().toISOString() }] };
+  return { novo, linhas, total: area };
+}
+
 async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto: string) {
   const linha = await anota(d, conta, quem, texto);
   if (!linha) return responde(d, chat, "Não consegui salvar a anotação agora. Tente de novo.");
@@ -552,8 +596,15 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     txt.push(`✅ <b>Conta paga</b> · ${esc(c.descricao)} · <b>${brl(c.valor)}</b> · lancei como custo de hoje${tagRet(rets, c.retiro || "")}`);
   }
 
+  // áreas produtivas (vão para os Ajustes do app)
+  let nAreas = 0;
+  if (L.areas?.length) {
+    const t = aplicaAreas(cfgD, L.areas, base, quem);
+    if (t) { nAreas = t.linhas.length; txt.push(...t.linhas); txt.push(`   <i>Fazenda toda: ${nfBR(t.total, t.total % 1 ? 1 : 0)} ha. Já está nos Ajustes do app.</i>`); }
+  }
+
   const temNota = !!String(L.anotacao || "").trim();
-  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !novas.length && !temNota)
+  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !novas.length && !nAreas && !temNota)
     return responde(d, chat, esc([...avisos, L.resposta || ""].filter(Boolean).join(" ") || "Não entendi o que lançar. Escreva o valor e o que foi comprado, ou quantas cabeças e o que aconteceu."));
 
   // grava: se uma parte falhar, desfaz o que já entrou para não ficar pela metade
@@ -569,12 +620,12 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
     }
   }
-  if (lembs.length || alts.length || pes.length || novas.length || pagas.length) {
-    const ok = await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D,
+  if (lembs.length || alts.length || pes.length || novas.length || pagas.length || nAreas) {
+    const ok = await mudaCfg(d, conta.fazenda_id, (D0) => { const D = nAreas ? aplicaAreas(D0, L.areas!, base, quem)!.novo : D0; return { ...D,
       ...(novas.length || pagas.length ? { contas: [...(D.contas || []).map((x: any) => (pagas.includes(x.id) ? { ...x, paga: { data: hoje, base, por: quem } } : x)), ...novas] } : {}),
       ...(lembs.length ? { lembretes: [...(D.lembretes || []), ...lembs] } : {}),
       ...(alts.length ? { alertas: [...(D.alertas || []), ...alts] } : {}),
-      ...(pes.length ? { pesagens: [...(D.pesagens || []), ...pes] } : {}) }));
+      ...(pes.length ? { pesagens: [...(D.pesagens || []), ...pes] } : {}) }; });
     if (!ok) {
       if (custos.length) await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
       if (movs.length) await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
@@ -587,7 +638,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
   }
 
-  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length + novas.length, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
+  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length + novas.length + nAreas, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
   const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
     (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
     (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
@@ -1189,11 +1240,15 @@ async function botao(d: Deps, q: any, contaApp?: any) {
       let volta = 0;
       D.contas = (D.contas || []).map((x: any) => (x.paga?.base === id ? (volta++, (({ paga, ...r }) => r)(x)) : x));
       tirou.reabertas = volta;
+      // áreas mudadas por esta mensagem voltam ao que eram
+      const ad = (D.areasDesf || []).find((x: any) => x.base === id);
+      if (ad) { for (const k of ["area", "areaFase", "retiros", "sede"]) { if (ad.antes[k] == null) delete D[k]; else D[k] = ad.antes[k]; }
+        D.areasDesf = D.areasDesf.filter((x: any) => x.base !== id); tirou.areas = 1; }
       return Object.values(tirou).some(Boolean) ? D : null;
     });
     const nc = cs?.length || 0, nm = ms?.length || 0, pl = (n: number, um: string, v: string) => n && (n === 1 ? "1 " + um : n + " " + v);
     const partes = [pl(nc, "custo", "custos"), pl(nm, "movimento do rebanho", "movimentos do rebanho"), pl(tirou.lembretes, "lembrete", "lembretes"),
-      pl(tirou.alertas, "aviso da arroba", "avisos da arroba"), pl(tirou.pesagens, "pesagem", "pesagens"), pl(tirou.contas, "conta a pagar", "contas a pagar"), pl(tirou.reabertas, "pagamento de conta (ela voltou a ficar em aberto)", "pagamentos de contas (voltaram a ficar em aberto)"), tirouNota && "a anotação"].filter(Boolean) as string[];
+      pl(tirou.alertas, "aviso da arroba", "avisos da arroba"), pl(tirou.pesagens, "pesagem", "pesagens"), pl(tirou.contas, "conta a pagar", "contas a pagar"), pl(tirou.reabertas, "pagamento de conta (ela voltou a ficar em aberto)", "pagamentos de contas (voltaram a ficar em aberto)"), tirou.areas && "a mudança das áreas (voltaram ao que eram)", tirouNota && "a anotação"].filter(Boolean) as string[];
     if (!partes.length) return fim("Esse lançamento já não existe.");
     const lista = partes.length > 1 ? partes.slice(0, -1).join(", ") + " e " + partes.at(-1) : partes[0];
     await d.tg("editMessageText", { chat_id: chat, message_id: q.message.message_id, text: `↩ Desfeito: tirei do app ${lista}.` });
