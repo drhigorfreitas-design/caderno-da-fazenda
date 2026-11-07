@@ -17,7 +17,7 @@ const ITENS: [string, string, string][] = [
   ["reproducao", "Sêmen e protocolos de IATF", "reproducao"], ["pasto", "Adubo, semente e reforma de pasto", "pastagem"],
   ["arrendamento", "Arrendamento", "arrendamento"], ["cercas", "Cercas, curral e benfeitorias", "manutencao"],
   ["maquinas", "Manutenção de máquinas e veículos", "maquinas"], ["energia", "Energia elétrica", "administracao"],
-  ["admin", "Contador, escritório e internet", "administracao"], ["impostos", "Impostos e taxas", "impostos"],
+  ["admin", "Contador e escritório", "administracao"], ["internet", "Internet (Starlink)", "administracao"], ["mercado", "Mercado (alimentação)", "mao"], ["impostos", "Impostos e taxas", "impostos"],
   ["frete", "Frete e comissões", "outros"], ["outros", "Outros gastos", "outros"],
 ];
 const ITN = Object.fromEntries(ITENS.map((i) => [i[0], i[1]]));
@@ -170,7 +170,7 @@ areas: quando a mensagem disser o tamanho da área de produção (área produtiv
 pagou: quando a mensagem disser que pagou uma conta da lista "Contas a pagar marcadas" (que vem junto), ponha o número dela e NÃO lance esse pagamento também em custos. Pagamento que não está na lista vai para custos, como sempre.
 resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por falta de informação, diga em uma frase o que faltou.
 Tipos de custo (item): ${ITENS.map((i) => `${i[0]} = ${i[1]}`).join("; ")}.
-Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; diária = diarista.
+Dicas: diesel/gasolina/óleo = combustivel; vacina, vermífugo, antibiótico = medicacao; ração, DDG, milho, núcleo, proteinado = suplementacao; sal mineral = sal; peça, pneu, conserto de trator/caminhonete = maquinas; arame, mourão, conserto de curral = cercas; salário de funcionário fixo = peao; mercado, supermercado, rancho, compra de comida e mantimentos = mercado; Starlink, internet, mensalidade da antena = internet; contador, material de escritório = admin; diária = diarista.
 "onde": cria, recria ou engorda só se a mensagem disser claramente o setor; senão "geral" (fazenda toda).
 retiro (em cada custo, movimento e pesagem): a fazenda é dividida em retiros (os nomes vêm junto da mensagem), cada um com seu gado e suas contas. Quem manda avisa antes de qual retiro é ("despesa Santa Helena: ...", "Santa Faustina: nasceram 3 bezerros"). O retiro citado vale para os itens que vêm depois dele, até citar outro. Item sem retiro citado, ou da Sede, fica vazio: é da Sede (a fazenda principal). "Fazenda toda" é a soma dos retiros com a Sede.
 Responda só com o JSON pedido.`;

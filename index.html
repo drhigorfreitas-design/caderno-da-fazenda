@@ -480,7 +480,7 @@ const CENTRO_N={geral:'Fazenda toda (rateado)',cria:'Cria',recria:'Recria',engor
 const ITENS=[['peao','Peão / funcionário fixo','mao'],['empreiteiro','Empreiteiro','mao'],['diarista','Diarista','mao'],['combustivel','Combustível','maquinas'],
  ['medicacao','Medicamentos e vacinas','sanidade'],['suplementacao','Suplementação e ração','nutricao'],['sal','Sal mineral','nutricao'],['reproducao','Sêmen e protocolos de IATF','reproducao'],
  ['pasto','Adubo, semente e reforma de pasto','pastagem'],['arrendamento','Arrendamento','arrendamento'],['cercas','Cercas, curral e benfeitorias','manutencao'],
- ['maquinas','Manutenção de máquinas e veículos','maquinas'],['energia','Energia elétrica','administracao'],['admin','Contador, escritório e internet','administracao'],
+ ['maquinas','Manutenção de máquinas e veículos','maquinas'],['energia','Energia elétrica','administracao'],['admin','Contador e escritório','administracao'],['internet','Internet (Starlink)','administracao'],['mercado','Mercado (alimentação)','mao'],
  ['impostos','Impostos e taxas','impostos'],['frete','Frete e comissões','outros'],['outros','Outros gastos','outros']];
 const ITN=Object.fromEntries(ITENS.map(i=>[i[0],i[1]])), ITG=Object.fromEntries(ITENS.map(i=>[i[0],i[2]]));
 const GRUPO_ITEM={nutricao:'suplementacao',sanidade:'medicacao',reproducao:'reproducao',pastagem:'pasto',mao:'peao',manutencao:'cercas',maquinas:'maquinas',administracao:'admin',impostos:'impostos',arrendamento:'arrendamento',outros:'outros'};
