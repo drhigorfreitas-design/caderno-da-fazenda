@@ -123,8 +123,9 @@ const SCHEMA = {
     contas: {
       type: "array", description: "contas a pagar que ainda NÃO foram pagas (boleto, parcela, fatura com vencimento); vazio se não houver",
       items: {
-        type: "object", additionalProperties: false, required: ["descricao", "valor", "vencimento", "item", "onde", "retiro"],
+        type: "object", additionalProperties: false, required: ["descricao", "valor", "vencimento", "item", "onde", "retiro", "mensal"],
         properties: {
+          mensal: { type: "boolean", description: "true se a conta se repete todo mês (Starlink, salário, aluguel, 'todo dia 16', 'custo fixo por mês')" },
           descricao: { type: "string", description: "curta: o que é e de quem, ex.: 'Boleto sal mineral · Agropecuária X'" },
           valor: { type: "number", description: "valor em reais" },
           vencimento: { type: "string", description: "AAAA-MM-DD; se só disser o dia, é o próximo dia com esse número a partir de hoje" },
@@ -165,7 +166,7 @@ anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinaçã
 lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 15/11", "me lembra de pagar o boleto do sal dia 20", "boleto do sal vence dia 20"). data = o dia citado; se só disser o número do dia, é o próximo dia com esse número a partir de hoje; "amanhã" = hoje + 1. Lembrete sem dia não entra: peça o dia em "resposta". O que vai para lembretes não vai também para anotacao.
 alertas: pedidos de aviso do preço da arroba do boi gordo ("me avisa quando o boi passar de 320" = acima 320; "quando a arroba cair abaixo de 300" = abaixo 300).
 pesagens: pesagem de animais ("pesei o lote da recria, média 280 kg", "pesei 40 garrotes do lote 3, deu 312 kg"). Um item por lote pesado, com o peso médio por cabeça (se disser o peso total e as cabeças, divida). Pesagem não é movimento nem anotação.
-contas: boleto, parcela ou fatura que ainda vai ser paga, com vencimento ("boleto do sal 4.500 vence dia 20", "parcela do trator 3.200 vence 10/12"). Não vai para custos: o custo entra quando pagar. Sem valor ou sem vencimento, não entra: peça em "resposta".
+contas: boleto, parcela ou fatura que ainda vai ser paga, com vencimento ("boleto do sal 4.500 vence dia 20", "parcela do trator 3.200 vence 10/12"). Não vai para custos: o custo entra quando pagar. Sem valor ou sem vencimento, não entra: peça em "resposta". Conta que se repete todo mês ("Starlink 180 todo dia 16", "custo fixo de 180 por mês, vence dia 10", "salário do peão 2.500 todo dia 5") = mensal true, com o vencimento no próximo dia citado; o robô marca o mês seguinte sozinho quando ela for paga. Custo fixo mensal vai para contas, nunca para anotacao; sem o dia do mês, peça o dia em "resposta".
 areas: quando a mensagem disser o tamanho da área de produção (área produtiva, área de pasto) de uma parte da fazenda ("área de produção: Sede 270 ha; Santa Helena 68 ha", "a recria da Santa Faustina tem 30 hectares", "a fazenda toda tem 406 ha"). Um item por parte (e por fase, se disser a fase). Alqueire: converta para ha (1 alqueire = 4,84 ha, o alqueire goiano, salvo se disser paulista = 2,42 ha). Área NÃO vai também para anotacao.
 pagou: quando a mensagem disser que pagou uma conta da lista "Contas a pagar marcadas" (que vem junto), ponha o número dela e NÃO lance esse pagamento também em custos. Pagamento que não está na lista vai para custos, como sempre.
 resposta: vazio quando deu para lançar tudo; se alguma parte ficou de fora por falta de informação, diga em uma frase o que faltou.
@@ -575,13 +576,13 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   }
 
   // contas a pagar: marca as novas; as pagas viram custo agora (no lugar de um custo comum)
-  const novas: any[] = [], pagas: any[] = [], lista = abertas(cfgD);
+  const novas: any[] = [], pagas: any[] = [], proxs: any[] = [], lista = abertas(cfgD);
   for (const c of L.contas || []) {
     const valor = Math.round((Number(c.valor) || 0) * 100) / 100;
     if (valor <= 0 || !okData(c.vencimento)) { avisos.push(`A conta "${c.descricao || "?"}" ficou de fora: falta o valor ou o vencimento.`); continue; }
     const item = ITN[c.item] ? c.item : "outros", r = rid(c);
     novas.push({ id: `${base}-b${novas.length + 1}`, descricao: String(c.descricao || ITN[item]).trim(), valor, venc: c.vencimento, item, centro: ONDE[c.onde] ? c.onde : "geral",
-      ...RT(r), porId: conta.user_id, por: quem, criadoEm });
+      ...(c.mensal ? { mensal: true, dia: +c.vencimento.slice(8) } : {}), ...RT(r), porId: conta.user_id, por: quem, criadoEm });
     txt.push(`🧾 <b>Conta a pagar</b> · ${linhaConta(novas[novas.length - 1], rets)}`);
   }
   if (novas.length) avisos.push("Aviso na véspera e no dia do vencimento, com o botão Paguei.");
@@ -589,11 +590,13 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     const c = lista[n - 1];
     if (!c) continue;
     const id = `${base}-c${custos.length + 1}`, item = ITN[c.item] ? c.item : "outros", centro = ONDE[c.centro] ? c.centro : "geral";
-    custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data: hoje, valor: c.valor, item, grupo: ITG[item], centro, lote_id: null, tipo: "custeio",
-      dados: { data: hoje, valor: c.valor, item, grupo: ITG[item], tipo: "custeio", descricao: `Conta paga: ${c.descricao}`, centro, loteId: "", contaId: c.id, ...RT(c.retiro || ""), ...autor } });
+    const dp = dataPaga(c, hoje), px = proxConta(c, quem, conta.user_id);
+    if (px) proxs.push(px);
+    custos.push({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data: dp, valor: c.valor, item, grupo: ITG[item], centro, lote_id: null, tipo: "custeio",
+      dados: { data: dp, valor: c.valor, item, grupo: ITG[item], tipo: "custeio", descricao: `Conta paga: ${c.descricao}`, centro, loteId: "", contaId: c.id, ...RT(c.retiro || ""), ...autor } });
     usados.add(rets.some((r) => r.id === c.retiro) ? c.retiro : "");
     pagas.push(c.id);
-    txt.push(`✅ <b>Conta paga</b> · ${esc(c.descricao)} · <b>${brl(c.valor)}</b> · lancei como custo de hoje${tagRet(rets, c.retiro || "")}`);
+    txt.push(`✅ <b>Conta paga</b> · ${esc(c.descricao)} · <b>${brl(c.valor)}</b> · lancei como custo de ${dp === hoje ? "hoje" : dBR(dp)}${tagRet(rets, c.retiro || "")}${px ? `\n   🔁 Próxima marcada: vence ${dBR(px.venc)}` : ""}`);
   }
 
   // áreas produtivas (vão para os Ajustes do app)
@@ -622,7 +625,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   }
   if (lembs.length || alts.length || pes.length || novas.length || pagas.length || nAreas) {
     const ok = await mudaCfg(d, conta.fazenda_id, (D0) => { const D = nAreas ? aplicaAreas(D0, L.areas!, base, quem)!.novo : D0; return { ...D,
-      ...(novas.length || pagas.length ? { contas: [...(D.contas || []).map((x: any) => (pagas.includes(x.id) ? { ...x, paga: { data: hoje, base, por: quem } } : x)), ...novas] } : {}),
+      ...(novas.length || pagas.length ? { contas: [...(D.contas || []).map((x: any) => (pagas.includes(x.id) ? { ...x, paga: { data: hoje, base, por: quem } } : x)), ...novas, ...proxs] } : {}),
       ...(lembs.length ? { lembretes: [...(D.lembretes || []), ...lembs] } : {}),
       ...(alts.length ? { alertas: [...(D.alertas || []), ...alts] } : {}),
       ...(pes.length ? { pesagens: [...(D.pesagens || []), ...pes] } : {}) }; });
@@ -1043,20 +1046,31 @@ export function anoPedido(cmd: string, hoje: string) {
 
 /* ---------- contas a pagar (config.dados.contas): aviso na véspera e no dia, botão "Paguei" lança o custo ---------- */
 export const abertas = (D: any) => (D?.contas || []).filter((c: any) => !c.paga).sort((a: any, b: any) => (a.venc < b.venc ? -1 : a.venc > b.venc ? 1 : 0));
-const linhaConta = (c: any, rets: Retiro[]) => `${esc(c.descricao)} · <b>${brl(c.valor)}</b> · vence ${dBR(c.venc)}${tagRet(rets, c.retiro || "")}`;
+const linhaConta = (c: any, rets: Retiro[]) => `${esc(c.descricao)} · <b>${brl(c.valor)}</b> · vence ${dBR(c.venc)}${c.mensal ? " · 🔁 todo dia " + (c.dia || +c.venc.slice(8)) : ""}${tagRet(rets, c.retiro || "")}`;
+// conta mensal: o custo entra com a data do vencimento (o dia fixo do mês) e, paga, já marca a do mês seguinte
+export const dataPaga = (c: any, hoje: string) => (c.mensal && okData(c.venc) ? c.venc : hoje);
+export function proxConta(c: any, quem: string, porId: string) {
+  if (!c.mensal || !okData(c.venc)) return null;
+  const dia = Number(c.dia) || +c.venc.slice(8), [a, m] = c.venc.slice(0, 7).split("-").map(Number);
+  const na = m === 12 ? a + 1 : a, nm = m === 12 ? 1 : m + 1, ult = new Date(Date.UTC(na, nm, 0)).getUTCDate();
+  const venc = `${na}-${String(nm).padStart(2, "0")}-${String(Math.min(dia, ult)).padStart(2, "0")}`;
+  const { paga, id, criadoEm, ...resto } = c;
+  return { ...resto, id: `${crypto.randomUUID()}-b1`, venc, dia, mensal: true, de: id, porId, por: quem, criadoEm: new Date().toISOString() };
+}
 // lança a conta como custo (id {base}-c1, para o Desfazer) e marca como paga; devolve a conta ou o motivo
 export async function pagaConta(d: Deps, conta: any, contaId: string, quem: string) {
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
   const c = (cfg?.dados?.contas || []).find((x: any) => x.id === contaId);
   if (!c) return { erro: "Essa conta não existe mais." };
   if (c.paga) return { erro: `Essa conta já foi paga em ${dBR(c.paga.data)}.` };
-  const hoje = hojeMT(), base = crypto.randomUUID(), id = `${base}-c1`, item = ITN[c.item] ? c.item : "outros", centro = ONDE[c.centro] ? c.centro : "geral";
+  const hoje = dataPaga(c, hojeMT()), base = crypto.randomUUID(), id = `${base}-c1`, item = ITN[c.item] ? c.item : "outros", centro = ONDE[c.centro] ? c.centro : "geral";
   const dados = { data: hoje, valor: c.valor, item, grupo: ITG[item], tipo: "custeio", descricao: `Conta paga: ${c.descricao}`, centro, loteId: "", contaId,
     ...(c.retiro ? { retiro: c.retiro } : {}), criadoEm: new Date().toISOString(), porId: conta.user_id, por: quem, origem: d.origem || "telegram" };
   const { error } = await d.db.from("desembolsos").insert({ id, fazenda_id: conta.fazenda_id, owner: conta.user_id, data: hoje, valor: c.valor, item, grupo: ITG[item], centro, lote_id: null, tipo: "custeio", dados });
   if (error) { console.error("pagar conta", error); return { erro: "Não consegui lançar agora. Tente de novo." }; }
-  await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D, contas: (D.contas || []).map((x: any) => (x.id === contaId ? { ...x, paga: { data: hoje, custo: id, base, por: quem } } : x)) }));
-  return { c, base, rets: retirosDe(cfg?.dados) };
+  const prox = proxConta(c, quem, conta.user_id);
+  await mudaCfg(d, conta.fazenda_id, (D) => ({ ...D, contas: [...(D.contas || []).map((x: any) => (x.id === contaId ? { ...x, paga: { data: hojeMT(), custo: id, base, por: quem } } : x)), ...(prox ? [prox] : [])] }));
+  return { c, base, rets: retirosDe(cfg?.dados), prox };
 }
 // "contas": lista as contas a pagar, com botões Paguei e Cancelar
 async function listaContas(d: Deps, faz: string) {
@@ -1238,7 +1252,8 @@ async function botao(d: Deps, q: any, contaApp?: any) {
       }
       // conta paga por esta mensagem volta a ficar em aberto
       let volta = 0;
-      D.contas = (D.contas || []).map((x: any) => (x.paga?.base === id ? (volta++, (({ paga, ...r }) => r)(x)) : x));
+      const reab = new Set((D.contas || []).filter((x: any) => x.paga?.base === id).map((x: any) => x.id));
+      D.contas = (D.contas || []).map((x: any) => (x.paga?.base === id ? (volta++, (({ paga, ...r }) => r)(x)) : x)).filter((x: any) => !(x.de && reab.has(x.de) && !x.paga));
       tirou.reabertas = volta;
       // áreas mudadas por esta mensagem voltam ao que eram
       const ad = (D.areasDesf || []).find((x: any) => x.base === id);

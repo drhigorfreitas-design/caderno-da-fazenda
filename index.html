@@ -1484,25 +1484,31 @@ const saldo=i=>sum(S.emovs.filter(m=>m.insumoId===i.id),m=>(m.tipo==='entrada'?1
 const contasAbertas=()=>(S.config.contas||[]).filter(c=>!c.paga&&(!UI.ret||daParte(UI.ret,c))).sort((a,b)=>a.venc<b.venc?-1:1);
 function contasHTML(){ const A=contasAbertas(), h=today();
   return `<div class="panel" id="contas"><div class="row-head"><h2>Contas a pagar</h2><span class="small muted">${A.length?brl(sum(A,c=>c.valor),2)+' no total':''}</span></div>
-  ${A.length?`<div class="list">${A.map(c=>`<div class="item"><span class="t">${esc(c.descricao)}</span><span class="amt">${brl(+c.valor,2)}</span><span class="meta">vence ${dBR(c.venc)}${c.venc<h?' · <b>vencida</b>':c.venc===h?' · <b>vence hoje</b>':''} · ${esc(ITN[c.item]||'Outros gastos')}${retTxt(c)}${porTxt(c)}</span><span class="act"><button class="btn" type="button" data-pagar="${esc(c.id)}">Paguei</button> <button class="btn del" type="button" data-rm-cfg="contas:${esc(c.id)}">Excluir</button></span></div>`).join('')}</div>`:'<p class="empty">Nenhuma conta a pagar marcada.</p>'}
+  ${A.length?`<div class="list">${A.map(c=>`<div class="item"><span class="t">${esc(c.descricao)}</span><span class="amt">${brl(+c.valor,2)}</span><span class="meta">vence ${dBR(c.venc)}${c.venc<h?' · <b>vencida</b>':c.venc===h?' · <b>vence hoje</b>':''}${c.mensal?' · 🔁 todo dia '+(c.dia||+c.venc.slice(8)):''} · ${esc(ITN[c.item]||'Outros gastos')}${retTxt(c)}${porTxt(c)}</span><span class="act"><button class="btn" type="button" data-pagar="${esc(c.id)}">Paguei</button> <button class="btn del" type="button" data-rm-cfg="contas:${esc(c.id)}">Excluir</button></span></div>`).join('')}</div>`:'<p class="empty">Nenhuma conta a pagar marcada.</p>'}
   <details style="margin-top:8px"><summary>Marcar conta a pagar</summary><form class="f" id="contaF">${retFld('desembolso',{},'cta-retiro')}<div class="grid2">
     <label class="fl">Descrição<input id="cta-desc" name="descricao" required maxlength="80" placeholder="ex.: boleto do sal"></label>
     <label class="fl">Valor (R$)<input id="cta-valor" name="valor" type="number" min="0.01" step="0.01" required inputmode="decimal"></label>
     <label class="fl">Vencimento<input id="cta-venc" name="venc" type="date" required></label>
     <label class="fl">Tipo de custo<select id="cta-item" name="item">${ITENS.map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join('')}</select></label></div>
+    <label class="chk" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input id="cta-mensal" name="mensal" type="checkbox"> Repete todo mês, no mesmo dia (Starlink, salário, aluguel)</label>
     <div class="btns"><button class="btn primary" type="submit">Marcar</button></div></form></details>
-  <p class="note">Quem tem o Telegram conectado recebe aviso na véspera e no dia do vencimento, com o botão Paguei. Ao tocar em Paguei (aqui ou no Telegram), o custo entra no app com a data de hoje.</p></div>`; }
+  <p class="note">Quem tem o Telegram conectado recebe aviso na véspera e no dia do vencimento, com o botão Paguei. Ao tocar em Paguei (aqui ou no Telegram), o custo entra no app com a data de hoje; na conta que repete todo mês, com a data do vencimento, e a do mês seguinte já fica marcada.</p></div>`; }
 async function salvaConta(f){ if(!db||!writable) return toast('Entre na sua conta para salvar.');
   const valor=Math.round(Number(f.valor.value)*100)/100, descricao=f.descricao.value.trim(), venc=f.venc.value;
   if(!(valor>0)||!descricao||!venc) return toast('Preencha descrição, valor e vencimento.');
-  const x={id:crypto.randomUUID()+'-b1',descricao,valor,venc,item:f.item.value,centro:'geral',...(f.retiro&&f.retiro.value?{retiro:f.retiro.value}:{}),porId:UID,por:meuNome(),criadoEm:new Date().toISOString(),origem:'app'};
+  const x={id:crypto.randomUUID()+'-b1',descricao,valor,venc,item:f.item.value,centro:'geral',...(f.mensal&&f.mensal.checked?{mensal:true,dia:+venc.slice(8)}:{}),...(f.retiro&&f.retiro.value?{retiro:f.retiro.value}:{}),porId:UID,por:meuNome(),criadoEm:new Date().toISOString(),origem:'app'};
   try{ await db.configMod(b=>({...b,contas:[...(b.contas||[]),x]})); toast('Conta marcada'); }catch(e){ dbErr(e); } }
+/* conta mensal: o custo entra com a data do vencimento e a do mês seguinte já fica marcada (igual ao robô) */
+function proxConta(c){ if(!c.mensal||!/^\d{4}-\d{2}-\d{2}$/.test(c.venc||'')) return null;
+  const dia=+c.dia||+c.venc.slice(8), [a,m]=c.venc.slice(0,7).split('-').map(Number), na=m===12?a+1:a, nm=m===12?1:m+1, ult=new Date(Date.UTC(na,nm,0)).getUTCDate();
+  const {paga,id,criadoEm,...resto}=c;
+  return {...resto,id:crypto.randomUUID()+'-b1',venc:`${na}-${String(nm).padStart(2,'0')}-${String(Math.min(dia,ult)).padStart(2,'0')}`,dia,mensal:true,de:id,porId:UID,por:meuNome(),criadoEm:new Date().toISOString(),origem:'app'}; }
 async function pagaConta(id){ const c=(S.config.contas||[]).find(x=>x.id===id); if(!c||c.paga) return toast('Essa conta já foi paga.');
-  const item=ITN[c.item]?c.item:'outros';
-  try{ const r=await db.collection(COL.desemb).add({data:today(),valor:+c.valor,item,grupo:ITG[item],tipo:'custeio',descricao:'Conta paga: '+c.descricao,centro:c.centro||'geral',loteId:'',
+  const item=ITN[c.item]?c.item:'outros', dp=c.mensal&&c.venc?c.venc:today(), px=proxConta(c);
+  try{ const r=await db.collection(COL.desemb).add({data:dp,valor:+c.valor,item,grupo:ITG[item],tipo:'custeio',descricao:'Conta paga: '+c.descricao,centro:c.centro||'geral',loteId:'',
       ...(c.retiro?{retiro:c.retiro}:{}),contaId:c.id,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
-    await db.configMod(b=>({...b,contas:(b.contas||[]).map(x=>x.id===id?{...x,paga:{data:today(),custo:r.id,por:meuNome()}}:x)}));
-    toast('Pago: o custo entrou com a data de hoje'); }catch(e){ dbErr(e); } }
+    await db.configMod(b=>({...b,contas:[...(b.contas||[]).map(x=>x.id===id?{...x,paga:{data:today(),custo:r.id,por:meuNome()}}:x),...(px?[px]:[])]}));
+    toast(px?'Pago: custo de '+dBR(dp)+'; a próxima vence '+dBR(px.venc):'Pago: o custo entrou com a data de hoje'); }catch(e){ dbErr(e); } }
 /* fazenda toda: as contas de cada retiro lado a lado (para a contabilidade de cada dono) */
 function porRetiroHTML(J){ if(UI.ret||!retiros().length) return '';
   const dentro=x=>!!x.data&&ym(x.data)>=J.s&&ym(x.data)<=J.e, de=(RAW.desemb||[]).filter(dentro), mv=(RAW.movs||[]).filter(dentro);
