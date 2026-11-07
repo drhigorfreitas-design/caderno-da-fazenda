@@ -243,7 +243,9 @@ ol.adapt{margin:6px 0 0;padding-left:20px;font-size:14px;display:flex;flex-direc
 .mic{position:fixed;z-index:21;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(146px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;border:0;
   background:var(--gold);color:var(--gold-ink);display:grid;place-items:center;box-shadow:0 6px 18px rgb(0 0 0 / .28);cursor:pointer}
 .mic svg,.voz-mic svg{width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-@media (min-width:960px){.mic{right:28px;bottom:28px;width:64px;height:64px}.mic svg{width:30px;height:30px}}
+/* câmera da nota: mesmo botão redondo, logo acima do microfone */
+.mic.cam{bottom:calc(212px + env(safe-area-inset-bottom,0px))}
+@media (min-width:960px){.mic{right:28px;bottom:28px;width:64px;height:64px}.mic svg{width:30px;height:30px}.mic.cam{bottom:106px}}
 .voz-top{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
 .voz-mic{width:84px;height:84px;border-radius:50%;border:0;background:var(--gold);color:var(--gold-ink);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 18px rgb(0 0 0 / .2)}
 .voz-mic svg{width:38px;height:38px}
@@ -376,7 +378,7 @@ nav.tabs .nav-cap{display:none}
 label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px;width:100%;min-width:0;min-height:320px;resize:vertical}
 .entry.editando{outline:2px solid var(--capim);outline-offset:-2px}
 @media print{
-  nav.tabs,.side,.band,#fab,#micFab,.seg,[data-print],[data-exportar],#toastRoot,#sheetRoot{display:none !important}
+  nav.tabs,.side,.band,#fab,#micFab,#camFab,.seg,[data-print],[data-exportar],#toastRoot,#sheetRoot{display:none !important}
   .frame{display:block !important} body{background:#fff}
   .panel{break-inside:avoid;box-shadow:none}
   .rel-g{grid-template-columns:1fr 1fr}
@@ -443,6 +445,7 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
     </form>
   </div>
 </div>
+<button class="mic cam" id="camFab" type="button" aria-label="Foto da nota" title="Tirar foto da nota: lê e lança o custo"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button>
 <button class="mic" id="micFab" type="button" aria-label="Falar um lançamento" title="Falar um lançamento"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg></button>
 <div id="sheetRoot"></div>
 <div id="toastRoot"></div>
@@ -2181,6 +2184,9 @@ document.addEventListener('click',async e=>{
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
   if(b.id==='fab') return openPicker();
   if(b.id==='micFab') return abreVoz();
+  /* câmera: abre o Lançar custo e já pede a foto da nota (lê data, valor e tipo) */
+  if(b.id==='camFab'){ if(!sb||!FID) return toast('Entre na sua conta para ler a nota.'); if(!navigator.onLine) return toast('Sem internet: lance à mão e anexe a foto depois, em Editar.');
+    openForm('desembolso'); const inp=$('#frm #notaArq'); if(!inp) return; inp.dataset.modo='ler'; inp.value=''; inp.click(); return; }
   if(b.hasAttribute('data-voz-falar')) return vozMicToque();
   if(b.hasAttribute('data-voz-enviar')) return vozEnvia(b);
   if(b.dataset.vozBt) return vozBotao(b);
