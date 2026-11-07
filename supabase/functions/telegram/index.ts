@@ -58,7 +58,7 @@ const SCHEMA = {
         required: ["data", "valor", "item", "onde", "descricao", "retiro", "rebanho"],
         properties: {
           retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = Sede (fazenda principal), também quando citar a Sede" },
-          data: { type: "string", description: "AAAA-MM-DD da compra; vazio se não aparecer" },
+          data: { type: "string", description: "AAAA-MM-DD da compra; se disser só o mês a que o gasto se refere ('diárias de outubro', 'referente a outubro'), o último dia desse mês; vazio se não aparecer" },
           valor: { type: "number", description: "valor pago em reais" },
           item: { type: "string", enum: ITENS.map((i) => i[0]) },
           onde: { type: "string", enum: Object.keys(ONDE) },
@@ -155,7 +155,7 @@ tipo:
 - "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos, anotacao, lembretes, alertas, pesagens e areas (o que não houver fica vazio).
 - "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Tudo o mais fica vazio; a resposta vem depois.
 - "nao_entendi": não dá para saber o que lançar. Em "resposta", peça em uma frase o que falta.
-custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
+custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver; se a mensagem disser a que mês o gasto se refere, como "28 diárias em outubro" ou "o sal de setembro", use o último dia desse mês, ou hoje se for o mês atual; mês sem ano é o mais recente que já passou ou o atual), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
   rebanho do gasto: "po" só quando a mensagem disser que o gasto é do gado P.O./PO (ex.: "sêmen para as vacas PO", "ração do P.O."); "com" só quando disser que é só do comercial; senão vazio (é dos dois).
 movimentos: nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Um item por movimento. Compra ou venda de animais vai só aqui, com o valor no movimento, nunca também em custos.
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
