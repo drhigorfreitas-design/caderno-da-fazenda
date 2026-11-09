@@ -1538,7 +1538,7 @@ export async function trata(d: Deps, up: any) {
   const msg = up.message; if (!msg?.chat?.id) return;
   const chat = msg.chat.id, nomeTg = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(" ");
   let texto = String(msg.text || msg.caption || "").trim();
-  const cod = texto.match(/^(?:\/start\s+)?(\d{6})$/);
+  const cod = texto.match(/^(?:\/start\s+)?(\d{8})$/);
   if (cod) return liga(d, chat, cod[1], nomeTg);
   const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
   if (!conta) return responde(d, chat, "Olá! Para usar o robô, ligue seu Telegram pelo app: <b>Mais → Sócios → Conectar meu Telegram</b>. Depois mande aqui o código de 6 números.");

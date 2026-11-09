@@ -1,6 +1,6 @@
 -- Caderno da Fazenda: robô do Telegram
 -- Rode depois de compartilhar-fazenda.sql. Cole no SQL Editor do projeto "fazenda" e clique em Run. Pode rodar mais de uma vez.
--- Cada sócio liga o próprio Telegram pelo app (código de 6 dígitos que vale 30 minutos).
+-- Cada sócio liga o próprio Telegram pelo app (código de 8 dígitos que vale 10 minutos).
 -- O robô (função "telegram" do Supabase) usa a chave de serviço e grava na fazenda de quem mandou.
 
 -- código temporário gerado no app para ligar o Telegram
@@ -8,7 +8,7 @@ create table if not exists public.telegram_codigos (
   codigo text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   fazenda_id uuid not null references public.fazendas(id) on delete cascade,
-  expira timestamptz not null default now() + interval '30 minutes'
+  expira timestamptz not null default now() + interval '10 minutes'
 );
 
 -- conversas do Telegram já ligadas a uma pessoa e uma fazenda
@@ -46,7 +46,7 @@ begin
   end if;
   delete from public.telegram_codigos t where t.user_id = u or t.expira < now();
   loop
-    c := lpad((floor(random() * 1000000))::int::text, 6, '0');
+    c := lpad((('x' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))::bit(48)::bigint % 100000000)::text, 8, '0');
     exit when not exists (select 1 from public.telegram_codigos t where t.codigo = c);
   end loop;
   insert into public.telegram_codigos (codigo, user_id, fazenda_id) values (c, u, p_fazenda);
