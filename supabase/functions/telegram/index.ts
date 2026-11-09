@@ -1876,7 +1876,7 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
       let r = { status: 500, json: { erro: "Erro no servidor. Tente de novo." } as any };
       try {
-        const jwt = (req.headers.get("authorization") || "").replace(/^Bearers+/i, "");
+        const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
         r = await acessoApp(deps, url.searchParams.get("acesso") || "", jwt, await req.json());
       } catch (e) { console.error("acesso", e); }
       return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
