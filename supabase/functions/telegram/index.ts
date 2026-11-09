@@ -210,7 +210,7 @@ export type Deps = {
   };
   origem?: string; // de onde veio o lançamento ("telegram" ou "app", pelo microfone do app)
   verde?: { // satélite Sentinel-2 (Copernicus); sem as chaves, fica de fora
-    serie: (poly: number[][], de: string, ate: string) => Promise<{ d: string; m: number; v: number }[]>;
+    serie: (poly: number[][], de: string, ate: string) => Promise<{ d: string; m: number; v: number; bons?: number; total?: number }[]>;
     imagem: (poly: number[][], de: string, ate: string) => Promise<string>; // PNG em base64
   };
 };
@@ -1215,13 +1215,14 @@ export async function verdeDiario(d: Deps, so?: { faz: string; forca?: boolean }
     for (const id of Object.keys(C)) {
       const poly = C[id]; if (!Array.isArray(poly) || poly.length < 3) continue;
       const g = verdeG(poly), at = D.ndvi?.[id], igual = at && at.g === g;
-      if (igual && at.at === hoje && !so?.forca) continue;
+      const temPts = igual && at.pts?.length > 0;
+      if (temPts && at.at === hoje && !so?.forca) continue;
       // contorno novo ou mudado: refaz dois anos; senão, só as últimas semanas (a imagem pode chegar atrasada)
-      const de = verdeAlinha(somaDias(hoje, igual ? -20 : -VERDE_HIST));
+      const de = verdeAlinha(somaDias(hoje, temPts ? -20 : -VERDE_HIST));
       let novos;
       try { novos = await d.verde.serie(poly, de, hoje); } catch (e) { console.error("verde", id, String((e as any)?.message || e)); er++; continue; }
       const pts = verdeJunta(igual ? at.pts : [], novos, hoje);
-      const novo: any = { g, at: hoje, pts, ...(igual && at.al ? { al: at.al } : {}) };
+      const novo: any = { g, at: hoje, pts, diag: { lidas: novos.length, maxBons: Math.max(0, ...novos.map((x) => x.bons || 0)), total: novos[0]?.total || 0 }, ...(igual && at.al ? { al: at.al } : {}) };
       const Q = avisa ? verdeQueda(pts) : null;
       if (Q && dias(Q.dia, hoje) <= 15 && !(novo.al && dias(novo.al, hoje) < 30)) {
         const ap = verdeAnoPassado(pts, Q.dia);
@@ -1716,9 +1717,14 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       }) });
       if (!r.ok) throw new Error(`satélite ${r.status}: ${(await r.text()).slice(0, 300)}`);
       const j = await r.json();
+      // o contorno ocupa só parte do retângulo que a API lê
+      const la = poly.map((x) => x[0]), ln = poly.map((x) => x[1]);
+      const area = Math.abs(poly.reduce((s, x, i) => { const y = poly[(i + 1) % poly.length]; return s + x[1] * y[0] - y[1] * x[0]; }, 0)) / 2;
+      const cheio = area / ((Math.max(...la) - Math.min(...la)) * (Math.max(...ln) - Math.min(...ln)));
       return (j.data || []).flatMap((x: any) => {
         const st = x.outputs?.data?.bands?.B0?.stats; if (!st || !(st.sampleCount > 0)) return [];
-        return [{ d: String(x.interval.from).slice(0, 10), m: Number(st.mean), v: (st.sampleCount - st.noDataCount) / st.sampleCount }];
+        const bons = st.sampleCount - st.noDataCount;
+        return [{ d: String(x.interval.from).slice(0, 10), m: Number(st.mean), v: Math.min(1, bons / (st.sampleCount * cheio)), bons, total: st.sampleCount }];
       });
     },
     imagem: async (poly, de, ate) => {
