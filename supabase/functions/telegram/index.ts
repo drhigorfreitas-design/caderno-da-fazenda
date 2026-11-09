@@ -210,6 +210,7 @@ export type Deps = {
   };
   origem?: string; // de onde veio o lançamento ("telegram" ou "app", pelo microfone do app)
   focos?: () => Promise<{ lat: number; lng: number; sat: string; t: number }[]>; // focos de calor recentes (INPE)
+  chuva?: (lat: number, lng: number, de: string, ate: string) => Promise<{ d: string; mm: number | null }[]>; // chuva diária estimada (Open-Meteo)
   verde?: { // satélite Sentinel-2 (Copernicus); sem as chaves, fica de fora
     serie: (poly: number[][], de: string, ate: string) => Promise<{ d: string; m: number; v: number; bons?: number; total?: number }[]>;
     imagem: (poly: number[][], de: string, ate: string) => Promise<string>; // PNG em base64
@@ -1241,6 +1242,38 @@ export async function verdeDiario(d: Deps, so?: { faz: string; forca?: boolean }
   }
   return `verde: ${n} parte(s)${er ? `, ${er} com erro` : ""}`;
 }
+/* ---------- chuva estimada: mesmos períodos de 5 dias do verde, em config.dados.chuva = { parte: { g, at, pts: [[dia, mm], ...] } } ---------- */
+// só entra período com os 5 dias conhecidos; o que já estava fica se a busca nova não cobrir
+export function chuvaJunta(velhos: any[], diarios: { d: string; mm: number | null }[], hoje: string) {
+  const G = new Map<string, number[]>();
+  for (const x of diarios) { if (x.mm == null || !Number.isFinite(x.mm) || x.d > hoje) continue; const k = verdeAlinha(x.d); if (!G.has(k)) G.set(k, []); G.get(k)!.push(x.mm); }
+  const M = new Map<string, any>((velhos || []).map((p: any) => [p[0], p]));
+  for (const [k, v] of G) if (v.length === VERDE_PASSO) M.set(k, [k, Math.round(v.reduce((a, b) => a + b, 0) * 10) / 10]);
+  return [...M.values()].filter((p) => dias(p[0], hoje) <= VERDE_GUARDA).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+}
+export async function chuvaDiaria(d: Deps, so?: { faz: string }) {
+  if (!d.chuva) return "chuva: sem fonte";
+  const hoje = hojeMT();
+  let q = d.db.from("config").select("fazenda_id,dados");
+  if (so) q = q.eq("fazenda_id", so.faz);
+  const { data: cfgs } = await q;
+  let n = 0, er = 0;
+  for (const c of cfgs || []) {
+    if (!c.fazenda_id) continue;
+    const D = c.dados || {}, C = D.contornos || {}, N: Record<string, any> = {};
+    for (const id of Object.keys(C)) {
+      const poly = C[id]; if (!Array.isArray(poly) || poly.length < 3) continue;
+      const g = verdeG(poly), at = D.chuva?.[id], tem = at && at.g === g && at.pts?.length > 0;
+      if (tem && at.at === hoje) continue;
+      const la = poly.reduce((s: number, p: number[]) => s + p[0], 0) / poly.length, ln = poly.reduce((s: number, p: number[]) => s + p[1], 0) / poly.length;
+      let diarios;
+      try { diarios = await d.chuva(la, ln, verdeAlinha(somaDias(hoje, tem ? -25 : -VERDE_HIST)), somaDias(hoje, -1)); } catch (e) { console.error("chuva", id, String((e as any)?.message || e)); er++; continue; }
+      N[id] = { g, at: hoje, pts: chuvaJunta(tem ? at.pts : [], diarios, hoje) }; n++;
+    }
+    if (Object.keys(N).length) await mudaCfg(d, c.fazenda_id, (X) => ({ ...X, chuva: { ...(X.chuva || {}), ...N } }));
+  }
+  return `chuva: ${n} parte(s)${er ? `, ${er} com erro` : ""}`;
+}
 /* app: POST ?verde=atualiza ou ?verde=imagem, com o login do app. O contorno vem sempre do banco, nunca do pedido. */
 export async function verdeApp(d: Deps, acao: string, token: string, corpo: any): Promise<{ status: number; json: any }> {
   const uid = token && d.usuario ? await d.usuario(token) : null;
@@ -1249,7 +1282,7 @@ export async function verdeApp(d: Deps, acao: string, token: string, corpo: any)
   const { data: m } = await d.db.from("membros").select("user_id").eq("fazenda_id", fazenda).eq("user_id", uid).maybeSingle();
   if (!m) return { status: 403, json: { erro: "Você não é sócio desta fazenda." } };
   if (!d.verde) return { status: 503, json: { erro: "O satélite ainda não está ligado." } };
-  if (acao === "atualiza") return { status: 200, json: { ok: await verdeDiario(d, { faz: fazenda }) } };
+  if (acao === "atualiza") { const ok = await verdeDiario(d, { faz: fazenda }); const ch = await chuvaDiaria(d, { faz: fazenda }).catch((e) => { console.error("chuva", e); return "chuva: erro"; }); return { status: 200, json: { ok: `${ok} · ${ch}` } }; }
   if (acao !== "imagem") return { status: 400, json: { erro: "?" } };
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", fazenda).maybeSingle();
   const id = String(corpo?.parte || ""), poly = cfg?.dados?.contornos?.[id], pts = cfg?.dados?.ndvi?.[id]?.pts || [];
@@ -1798,6 +1831,13 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       return b64(new Uint8Array(await r.arrayBuffer()));
     },
   } : undefined;
+  // chuva estimada por modelo do tempo (Open-Meteo, grátis para app privado sem assinatura nem anúncio; licença CC BY 4.0)
+  const chuva = async (lat: number, lng: number, de: string, ate: string) => {
+    const r = await fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&start_date=${de}&end_date=${ate}&daily=precipitation_sum&timezone=America%2FCuiaba`, { signal: AbortSignal.timeout(30000) });
+    if (!r.ok) throw new Error(`Open-Meteo ${r.status}`);
+    const j = await r.json();
+    return (j.daily?.time || []).map((d: string, i: number) => ({ d, mm: j.daily.precipitation_sum[i] }));
+  };
   // focos de calor: o INPE publica um arquivo a cada 10 minutos; lê os últimos 9 (cerca de hora e meia)
   const INPE = "https://dataserver-coids.inpe.br/queimadas/queimadas/focos/csv/10min/";
   const focos = async () => {
@@ -1808,7 +1848,7 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
     const textos = await Promise.all(nomes.map((n) => fetch(INPE + n, { signal: AbortSignal.timeout(20000) }).then((x) => (x.ok ? x.text() : "")).catch(() => "")));
     return textos.flatMap(lerFocos);
   };
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin, verde, focos };
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin, verde, focos, chuva };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
@@ -1876,7 +1916,7 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       try { mensal = await relatorioMensal(deps); } catch (e) { console.error("relatório mensal", e); mensal = "erro no relatório mensal"; }
       // o verde do pasto vai junto; se o satélite falhar, os lembretes já saíram
       let txtVerde = "";
-      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } return new Response(`${av} · ${mensal} · ${txtVerde}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
+      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } let txtChuva = ""; try { txtChuva = await chuvaDiaria(deps); } catch (e) { console.error("chuva", e); txtChuva = "erro na chuva"; } return new Response(`${av} · ${mensal} · ${txtVerde} · ${txtChuva}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
