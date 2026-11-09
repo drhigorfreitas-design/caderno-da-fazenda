@@ -209,6 +209,7 @@ export type Deps = {
     atualizar: (id: string, attrs: Record<string, unknown>) => Promise<boolean>;
   };
   origem?: string; // de onde veio o lançamento ("telegram" ou "app", pelo microfone do app)
+  focos?: () => Promise<{ lat: number; lng: number; sat: string; t: number }[]>; // focos de calor recentes (INPE)
   verde?: { // satélite Sentinel-2 (Copernicus); sem as chaves, fica de fora
     serie: (poly: number[][], de: string, ate: string) => Promise<{ d: string; m: number; v: number; bons?: number; total?: number }[]>;
     imagem: (poly: number[][], de: string, ate: string) => Promise<string>; // PNG em base64
@@ -1257,6 +1258,67 @@ export async function verdeApp(d: Deps, acao: string, token: string, corpo: any)
   try { return { status: 200, json: { png: await d.verde.imagem(poly, dia, somaDias(dia, VERDE_PASSO - 1)), dia } }; }
   catch (e) { console.error("verde imagem", String((e as any)?.message || e)); return { status: 502, json: { erro: "O satélite não respondeu. Tente de novo." } }; }
 }
+/* ---------- aviso de fogo: focos de calor do INPE dentro da fazenda ou a até 5 km do contorno ----------
+   Só grava em config.dados.fogo quando avisa, para não mexer no banco a cada verificação.
+   fogo = { parte: { t: hora do último foco avisado, dentro: se era dentro do contorno } } */
+const FOGO_KM = 5, FOGO_PAUSA_H = 6, FOGO_IDADE_H = 3;
+export function lerFocos(csv: string) {
+  return String(csv || "").split(/\r?\n/).slice(1).flatMap((l) => {
+    const [la, ln, sat, dt] = l.split(",").map((s) => s.trim());
+    const lat = Number(la), lng = Number(ln), t = Date.parse(String(dt || "").replace(" ", "T") + "Z");
+    return la && ln && Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(t) ? [{ lat, lng, sat: sat || "", t }] : [];
+  });
+}
+// distância do foco até o contorno (0 se estiver dentro) e para que lado ele fica, olhando do meio da área
+export function focoPerto(lat: number, lng: number, poly: number[][]) {
+  const c = Math.cos(lat * Math.PI / 180), P = poly.map((p) => [(p[1] - lng) * 111.32 * c, (p[0] - lat) * 110.57]);
+  let dentro = false, km = Infinity;
+  P.forEach((a, i) => {
+    const b = P[(i + 1) % P.length];
+    if ((a[1] > 0) !== (b[1] > 0) && 0 < (b[0] - a[0]) * (0 - a[1]) / (b[1] - a[1]) + a[0]) dentro = !dentro;
+    const dx = b[0] - a[0], dy = b[1] - a[1], k = Math.max(0, Math.min(1, -(a[0] * dx + a[1] * dy) / ((dx * dx + dy * dy) || 1)));
+    km = Math.min(km, Math.hypot(a[0] + k * dx, a[1] + k * dy));
+  });
+  const mx = P.reduce((s, p) => s + p[0], 0) / P.length, my = P.reduce((s, p) => s + p[1], 0) / P.length;
+  const ang = (Math.atan2(-mx, -my) * 180 / Math.PI + 360) % 360;
+  const rumo = ["norte", "nordeste", "leste", "sudeste", "sul", "sudoeste", "oeste", "noroeste"][Math.round(ang / 45) % 8];
+  return { dentro, km: dentro ? 0 : km, rumo };
+}
+const horaMT = (ms: number) => new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Cuiaba", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(ms)).replace(", ", " às ");
+// roda a cada 15 minutos (GitHub Actions chama ?fogo=1); repetir não reenvia o mesmo foco
+export async function fogoVerifica(d: Deps, agora = Date.now()) {
+  if (!d.focos) return "fogo: sem fonte";
+  const { data: cfgs } = await d.db.from("config").select("fazenda_id,dados");
+  const comContorno = (cfgs || []).filter((c: any) => c.fazenda_id && Object.values(c.dados?.contornos || {}).some((p: any) => Array.isArray(p) && p.length >= 3));
+  if (!comContorno.length) return "fogo: nenhuma fazenda com contorno";
+  const todos = (await d.focos()).filter((f) => agora - f.t <= FOGO_IDADE_H * 36e5);
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  let enviados = 0;
+  for (const c of comContorno) {
+    const D = c.dados, linhas: string[] = [], novo: Record<string, any> = {};
+    for (const id of Object.keys(D.contornos)) {
+      const poly = D.contornos[id]; if (!Array.isArray(poly) || poly.length < 3) continue;
+      const ant = D.fogo?.[id];
+      const perto = todos.filter((f) => !(ant && f.t <= Date.parse(ant.t))).map((f) => ({ ...f, ...focoPerto(f.lat, f.lng, poly) })).filter((f) => f.km <= FOGO_KM);
+      if (!perto.length) continue;
+      perto.sort((a, b) => a.km - b.km);
+      const f = perto[0], tem = perto.some((x) => x.dentro);
+      // o mesmo fogo aparece várias vezes: depois de avisar, só repete em 6 horas ou se ele entrou na fazenda
+      if (ant && agora - Date.parse(ant.t) < FOGO_PAUSA_H * 36e5 && !(tem && !ant.dentro)) continue;
+      const lugares = new Set(perto.map((x) => x.lat.toFixed(2) + "," + x.lng.toFixed(2))).size;
+      const onde = tem ? `<b>DENTRO da ${esc(nomeParte(D, id))}</b>` : `a cerca de <b>${f.km.toFixed(1).replace(".", ",")} km da ${esc(nomeParte(D, id))}</b>, ao ${f.rumo}`;
+      linhas.push(`Foco ${onde}${lugares > 1 ? ` (${lugares} pontos)` : ""}. Visto em ${horaMT(Math.max(...perto.map((x) => x.t)))}. <a href="https://www.google.com/maps?q=${f.lat},${f.lng}">Ver no mapa</a>`);
+      novo[id] = { t: new Date(Math.max(...perto.map((x) => x.t))).toISOString(), dentro: tem };
+    }
+    if (!linhas.length) continue;
+    const chats = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
+    if (!chats.length) continue;
+    const txt = `🔥 <b>Foco de calor perto da fazenda</b>\n${linhas.join("\n")}\n<i>O satélite vê calor: pode ser queimada de vizinho ou falso alarme, e a posição é aproximada. Confirme no local.</i>`;
+    for (const x of chats) { await d.tg("sendMessage", { chat_id: x.chat_id, text: txt, parse_mode: "HTML", disable_web_page_preview: true }); enviados++; }
+    await mudaCfg(d, c.fazenda_id, (X) => ({ ...X, fogo: { ...(X.fogo || {}), ...novo } }));
+  }
+  return `fogo: ${todos.length} foco(s) lidos, ${enviados} aviso(s)`;
+}
 // "lembretes": lista o que está marcado, com botão para cancelar
 async function listaLembretes(d: Deps, faz: string) {
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
@@ -1736,7 +1798,17 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       return b64(new Uint8Array(await r.arrayBuffer()));
     },
   } : undefined;
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin, verde };
+  // focos de calor: o INPE publica um arquivo a cada 10 minutos; lê os últimos 9 (cerca de hora e meia)
+  const INPE = "https://dataserver-coids.inpe.br/queimadas/queimadas/focos/csv/10min/";
+  const focos = async () => {
+    const r = await fetch(INPE, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error("INPE " + r.status);
+    const nomes = [...new Set((await r.text()).match(/focos_10min_\d{8}_\d{4}\.csv/g) || [])].sort().slice(-9);
+    if (!nomes.length) throw new Error("INPE sem arquivos");
+    const textos = await Promise.all(nomes.map((n) => fetch(INPE + n, { signal: AbortSignal.timeout(20000) }).then((x) => (x.ok ? x.text() : "")).catch(() => "")));
+    return textos.flatMap(lerFocos);
+  };
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin, verde, focos };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
@@ -1778,6 +1850,10 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
         r = await vozApp(deps, url.searchParams.get("voz") || "", jwt, await req.json());
       } catch (e) { console.error("voz", e); }
       return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
+    }
+    if (url.searchParams.has("fogo")) {
+      // chamado a cada 15 minutos pelo GitHub Actions; repetir não reenvia o mesmo foco
+      try { return new Response(await fogoVerifica(deps)); } catch (e) { console.error("fogo", e); return new Response("fogo: fonte fora do ar"); }
     }
     if (url.searchParams.has("verde")) {
       // chamado pelo app (aba Mapa): busca as leituras depois de salvar um contorno, ou a imagem do verde

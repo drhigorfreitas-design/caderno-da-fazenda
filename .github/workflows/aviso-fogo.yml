@@ -1,0 +1,19 @@
+name: Aviso de fogo
+# A cada 15 minutos o robô confere os focos de calor do INPE perto dos contornos da fazenda.
+# Repetir não reenvia o mesmo foco. O GitHub pode atrasar estas execuções em horários de pico.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fogo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conferir os focos
+        run: |
+          resp=$(curl -s -m 120 -w '\n%{http_code}' "https://siolfbiubwjwvbeqekut.supabase.co/functions/v1/telegram?fogo=1")
+          code=$(echo "$resp" | tail -n1); corpo=$(echo "$resp" | head -n -1)
+          echo "HTTP $code: $corpo"
+          [ "$code" = "200" ] || exit 1
