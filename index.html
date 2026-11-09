@@ -383,6 +383,37 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
   .panel{break-inside:avoid;box-shadow:none}
   .rel-g{grid-template-columns:1fr 1fr}
 }
+/* Mapa de satélite */
+#mapaBox{height:min(62vh,560px);margin-top:12px;border-radius:14px;overflow:hidden;background:#20301f;isolation:isolate;z-index:0}
+#mapaBox .map-msg{color:#fff;padding:24px;text-align:center}
+.map-bar{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.map-lista{display:grid;gap:10px;margin-top:12px}
+.map-parte{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.map-parte b{display:flex;align-items:center;gap:8px}
+.map-dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 0 1px rgb(0 0 0 / .35)}
+.leaflet-tooltip.map-rot{background:rgb(10 20 10 / .78);color:#fff;border:0;box-shadow:none;font:700 12px var(--body);padding:3px 8px;border-radius:8px;white-space:nowrap}
+.leaflet-tooltip.map-rot::before{display:none}
+:root{--vd-a:#2f7d3b;--vd-b:#8b6fd6}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--vd-a:#4fa53b;--vd-b:#9580e0}}
+:root[data-theme="dark"]{--vd-a:#4fa53b;--vd-b:#9580e0}
+.vd{flex:1 1 100%;min-width:0;border-top:1px solid var(--line);padding-top:10px;display:grid;gap:8px}
+.vd-num{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.vd-res{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.vd-leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.vd-leg i{display:inline-block;width:18px;height:0;border-top:2px solid var(--vd-a);vertical-align:middle;margin-right:5px}
+.vd-leg i.b{border-top:2px dashed var(--vd-b)}
+.vd-g{position:relative;touch-action:pan-y}
+.vd-g svg{display:block;width:100%;height:auto;overflow:visible}
+.vd-g text{font-size:10px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.vd-tip{position:absolute;top:0;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.35;padding:5px 8px;border-radius:8px;white-space:nowrap;z-index:2}
+.vd-esc{height:8px;border-radius:4px;background:linear-gradient(90deg,#965a32,#cda555,#e1dc6e,#6eb446,#146e32)}
+.vd-escala{display:grid;gap:3px;font-size:11px;color:var(--muted)}
+.vd-rot{display:flex;justify-content:space-between}
+.vd b{display:inline}
+.vd table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.vd td,.vd th{text-align:left;padding:3px 0;border-bottom:1px solid var(--line)}
+.vd summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.map-pt{width:22px;height:22px;border-radius:50%;background:#fff;border:4px solid var(--map-cor,#ffd23f);box-shadow:0 1px 4px rgb(0 0 0 / .6)}
 </style>
 </head>
 <body>
@@ -405,6 +436,7 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
   <section class="view" id="v-rebanho" hidden></section>
   <section class="view" id="v-suplementacao" hidden></section>
   <section class="view" id="v-notas" hidden></section>
+  <section class="view" id="v-mapa" hidden></section>
 </div>
 <aside class="side" id="side" aria-label="Atividade"></aside>
 </div></div>
@@ -424,6 +456,7 @@ label.fl textarea{font:16px/1.55 var(--body);color:var(--ink);background:var(--b
     <button type="button" class="tab-extra" data-tab="engorda"><svg viewBox="0 0 24 24"><path d="M3 20l5-7 4 4 4-8 5 11"/><path d="M3 20h18"/></svg>Engorda</button>
     <button type="button" class="tab-extra" data-tab="relatorios"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>Relatórios</button>
     <button type="button" class="tab-extra" data-tab="notas"><svg viewBox="0 0 24 24"><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z"/><path d="M6 3v18M10 8h5M10 12h5M10 16h3"/></svg>Bloco de notas</button>
+    <button type="button" class="tab-extra" data-tab="mapa"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Mapa</button>
     <button type="button" class="tab-more" data-more><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>Mais</button>
   </div>
   <div class="nav-bottom">
@@ -525,7 +558,7 @@ function filtraCol(k){ const a=RAW[k]||[]; if(!RET_COLS.has(k)||!retiros().lengt
   return k==='fech'?juntaFech(a):a; }
 function aplicaRetiro(){ if(UI.ret&&!retAtual()) UI.ret=''; Object.keys(COL).forEach(k=>{ if(RAW[k]) S[k]=filtraCol(k); }); }
 const retTxt=x=>!UI.ret&&retiros().length?' · 🏠 '+esc(retNome(x.retiro)):'';
-const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao','notas'];
+const TABS=['inicio','calc','painel','cria','recria','engorda','relatorios','custos','rebanho','suplementacao','notas','mapa'];
 let DIRTY=false;
 let db=null, writable=true;
 
@@ -1690,7 +1723,7 @@ let PEDE_INST=null; window.addEventListener('beforeinstallprompt',e=>{e.preventD
 function openMore(){ $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Mais"><div class="row-head"><h2>Indicadores</h2><button class="btn link" type="button" data-close>Fechar</button></div>
   <div class="types"><button type="button" data-tab="painel">Fazenda toda<span>Resultado, @ produzidas e margem</span></button><button type="button" data-tab="cria">Cria<span>Reprodução e bezerros</span></button><button type="button" data-tab="recria">Recria<span>Ganho e custo da recria</span></button><button type="button" data-tab="engorda">Engorda<span>Lotes e resultado</span></button><button type="button" data-tab="relatorios">Relatórios<span>Gráficos mês a mês e metas</span></button></div>
   <div class="row-head" style="margin-top:16px"><h2>Mais</h2></div>
-  <div class="types"><button type="button" data-tab="notas">Bloco de notas<span>Anotações de cada mês do ano</span></button>${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-socios>Sócios<span>Convide quem cuida da fazenda com você</span></button><button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
+  <div class="types"><button type="button" data-tab="mapa">Mapa<span>Satélite e contorno de cada parte</span></button><button type="button" data-tab="notas">Bloco de notas<span>Anotações de cada mês do ano</span></button>${PEDE_INST?'<button type="button" data-instalar>Instalar o app<span>Ícone na tela do celular, abre mesmo sem internet</span></button>':''}<button type="button" data-socios>Sócios<span>Convide quem cuida da fazenda com você</span></button><button type="button" data-exportar>Exportar para Excel<span>Todos os dados numa planilha</span></button><button type="button" data-ajustes>Ajustes<span>Área, safra, preços e fases</span></button><button type="button" data-logout>Sair<span>Encerrar a sessão</span></button></div><div class="row-head"><span class="small muted">Tema</span>${themeToggle()}</div></div></div>`; marcaTema(); }
 function suplFaseHTML(k){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&m.fase===k&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
   const kg=sum(fs,x=>x.kg), c=sum(fs,x=>x.custo), cd=sum(fs,x=>x.cd), v=fs.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), pr=calc(UI.per,k).prodArr;
@@ -1733,7 +1766,7 @@ function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.
   el.innerHTML=`<div class="seg">${partes().map(r=>`<button type="button" data-ret="${esc(r.id)}" aria-pressed="${UI.ret===r.id}">${esc(r.nome)}</button>`).join('')}<button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`; }
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
   const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
-  ({notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
+  ({mapa:renderMapa,notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   try{history.replaceState(null,'','#'+t);}catch(e){} render(); window.scrollTo(0,0); }
@@ -1946,6 +1979,113 @@ async function carregaCot(){
     if(j.dolar&&+j.dolar.v>0&&j.dolar.data>=DOL.data){ DOL=j.dolar; mudou=true; }
     if(j.selic&&+j.selic.meta>0&&j.selic.mensal&&j.selic.data>=SELIC.data){ SELIC=j.selic; mudou=true; }
     if(mudou){ COT_AUTO=true; if(UI.tab==='inicio'||UI.tab==='painel') render(); } }catch(e){}
+}
+/* ---------- mapa: contornos em config.dados.contornos {parte:[[lat,lng],...]} ---------- */
+const MAPA={map:null,grupo:null,edGrupo:null,vdGrupo:null,vd:null,ed:null,ret:null};
+const MAP_COR={sh:'#ffd23f',sf:'#5ad8ff',sede:'#ff8a5c'}, MAP_INI=[-16.26,-56.64];
+const mapCor=id=>MAP_COR[id]||'#ffffff';
+const contornos=()=>S.config.contornos||{};
+const mapaPartes=()=>partes().length?partes():[sedeCfg()];
+let leafletP=null; /* carrega uma vez só: duas cópias da biblioteca entram em conflito */
+const carregaLeaflet=()=>leafletP||(leafletP=new Promise((ok,er)=>{
+  if(!document.getElementById('leafletCss')){ const c=document.createElement('link'); c.id='leafletCss'; c.rel='stylesheet'; c.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(c); }
+  const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'; s.onload=()=>ok(window.L); s.onerror=()=>{s.remove(); leafletP=null; er(new Error('leaflet'));}; document.head.appendChild(s);}));
+/* área em hectares (plano local, boa para fazendas) */
+function haPoly(p){ if(!p||p.length<3) return 0; const R=6378137,rad=Math.PI/180,c=Math.cos(p.reduce((s,x)=>s+x[0],0)/p.length*rad); let a=0;
+  p.forEach((x,i)=>{const y=p[(i+1)%p.length]; a+=x[1]*rad*R*c*y[0]*rad*R-y[1]*rad*R*c*x[0]*rad*R;}); return Math.abs(a)/2/1e4; }
+function renderMapa(){
+  if(!$('#mapaBox')){ if(MAPA.map){ MAPA.map.remove(); MAPA.map=null; } MAPA.ed=null; MAPA.vd=null;
+    $('#v-mapa').innerHTML=`<div class="page-title"><h2>Mapa</h2></div><p class="note" style="margin:4px 0 0">Imagem de satélite da fazenda. A foto de fundo é atualizada pelo provedor de tempos em tempos e pode ter mais de um ano.</p><div class="panel map-bar" id="mapaBar" hidden></div><div id="mapaBox" role="application" aria-label="Mapa de satélite da fazenda"></div><div class="map-lista" id="mapaLista"></div>`; }
+  mapaLista(); mapaBarra();
+  /* os contornos podem chegar do banco depois de o mapa abrir: enquadra quando chegarem */
+  if(MAPA.map){ mapaDesenha(); if(!MAPA.ed&&(MAPA.ret!==UI.ret||(!MAPA.fit&&Object.values(contornos()).some(p=>p&&p.length>=3)))) mapaEnquadra(); return; }
+  carregaLeaflet().then(L=>{ const box=$('#mapaBox'); if(!box||MAPA.map) return;
+    const m=L.map(box,{maxZoom:19}); MAPA.map=m; MAPA.fit=false;
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:18,attribution:'Imagem: Esri, Maxar, Earthstar Geographics'}).addTo(m);
+    MAPA.vdGrupo=L.layerGroup().addTo(m); MAPA.grupo=L.layerGroup().addTo(m); MAPA.edGrupo=L.layerGroup().addTo(m);
+    m.on('click',e=>mapaToque(e.latlng)); mapaEnquadra(); mapaDesenha();
+  }).catch(()=>{ const box=$('#mapaBox'); if(box) box.innerHTML='<p class="map-msg">Não consegui abrir o mapa. Ele precisa de internet: confira a conexão e abra a aba de novo.</p>'; });
+}
+function mapaEnquadra(id){ if(!MAPA.map) return; MAPA.ret=UI.ret; const C=contornos(), sel=id||UI.ret, um=sel&&C[sel]&&C[sel].length>=3?[C[sel]]:null;
+  const todos=um||Object.values(C).filter(p=>p&&p.length>=3); MAPA.fit=todos.length>0; if(!todos.length) return MAPA.map.setView(MAP_INI,11);
+  MAPA.map.fitBounds(L.latLngBounds(todos.flat()),{padding:[28,28],animate:false}); }
+function mapaDesenha(){ if(!MAPA.map) return; MAPA.grupo.clearLayers(); const C=contornos();
+  mapaPartes().forEach(r=>{ const p=C[r.id]; if(!p||p.length<3||(MAPA.ed&&MAPA.ed.id===r.id)) return; const apagada=UI.ret&&UI.ret!==r.id;
+    L.polygon(p,{color:mapCor(r.id),weight:apagada?2:3,opacity:apagada?.55:1,fillOpacity:apagada?.03:.1,interactive:false}).bindTooltip(esc(r.nome)+' · '+nf(haPoly(p),1)+' ha',{permanent:true,direction:'center',className:'map-rot'}).addTo(MAPA.grupo); });
+  mapaEdDesenha(); }
+function mapaEdDesenha(){ if(!MAPA.map) return; MAPA.edGrupo.clearLayers(); const E=MAPA.ed; if(!E) return; const cor=mapCor(E.id);
+  if(E.pts.length>=3) L.polygon(E.pts,{color:cor,weight:3,dashArray:'6 6',fillOpacity:.12,interactive:false}).addTo(MAPA.edGrupo);
+  else if(E.pts.length===2) L.polyline(E.pts,{color:cor,weight:3,dashArray:'6 6',interactive:false}).addTo(MAPA.edGrupo);
+  E.pts.forEach((pt,i)=>{ const mk=L.marker(pt,{draggable:true,keyboard:false,icon:L.divIcon({className:'',html:`<div class="map-pt" style="--map-cor:${cor}"></div>`,iconSize:[22,22],iconAnchor:[11,11]})});
+    mk.on('dragstart',()=>E.hist.push(E.pts.map(x=>[...x]))); mk.on('dragend',()=>{const q=mk.getLatLng(); E.pts[i]=[q.lat,q.lng]; mapaEdDesenha(); mapaBarra();}); mk.addTo(MAPA.edGrupo); }); }
+/* canto novo: com 3 ou mais, entra no lado mais próximo do toque */
+function mapaToque(q){ const E=MAPA.ed; if(!E) return; E.hist.push(E.pts.map(x=>[...x])); const n=[q.lat,q.lng];
+  if(E.pts.length<3) E.pts.push(n);
+  else { const P=E.pts.map(x=>MAPA.map.latLngToLayerPoint(x)), T=MAPA.map.latLngToLayerPoint(q); let mel=0,d=Infinity;
+    P.forEach((a,i)=>{ const b=P[(i+1)%P.length], k=L.LineUtil.pointToSegmentDistance(T,a,b); if(k<d){d=k;mel=i;} }); E.pts.splice(mel+1,0,n); }
+  mapaEdDesenha(); mapaBarra(); }
+function mapaBarra(){ const el=$('#mapaBar'); if(!el) return; const E=MAPA.ed; el.hidden=!E; if(!E) return el.innerHTML=''; const r=mapaPartes().find(x=>x.id===E.id), n=E.pts.length;
+  el.innerHTML=`<b>${E.novo?'Desenhando':'Ajustando'}: ${esc(r?r.nome:'')}</b><span class="note">Toque em cada canto da área, seguindo a cerca. Arraste uma bolinha para corrigir. ${n} ${n===1?'canto':'cantos'}${n>=3?' · '+nf(haPoly(E.pts),1)+' ha':''}</span>
+  <div class="btns"><button class="btn primary" type="button" data-mapa="salvar" ${n<3?'disabled':''}>Salvar</button><button class="btn" type="button" data-mapa="desfazer" ${E.hist.length?'':'disabled'}>Desfazer</button><button class="btn" type="button" data-mapa="cancelar">Cancelar</button></div>`; }
+function mapaLista(){ const el=$('#mapaLista'); if(!el) return; const C=contornos(), ed=!!MAPA.ed;
+  el.innerHTML=mapaPartes().map(r=>{ const p=C[r.id], tem=p&&p.length>=3, cad=+r.area||0;
+    return `<div class="panel map-parte"><div><b><span class="map-dot" style="background:${mapCor(r.id)}"></span>${esc(r.nome)}</b><div class="small muted">${tem?nf(haPoly(p),1)+' ha no mapa':'Sem contorno'}${cad?' · '+nf(cad,1)+' ha produtivos nos Ajustes':''}</div></div>
+    <div class="btns">${tem?`<button class="btn" type="button" data-mapa="ver" data-id="${esc(r.id)}" ${ed?'disabled':''}>Ver</button>`:''}<button class="btn${tem?'':' primary'}" type="button" data-mapa="editar" data-id="${esc(r.id)}" ${ed?'disabled':''}>${tem?'Ajustar':'Desenhar'}</button>${tem?`<button class="btn del" type="button" data-mapa="apagar" data-id="${esc(r.id)}" ${ed?'disabled':''}>Apagar</button>`:''}</div>${tem?verdeCard(r.id):''}</div>`; }).join('');
+  el.querySelectorAll('.vd-g').forEach(verdeLiga); }
+/* ---------- verde do pasto: leituras do satélite em config.dados.ndvi {parte:{at,pts:[[dia,ndvi,fração boa],...]}} ---------- */
+const vdDia=s=>Date.parse(s+'T12:00:00Z')/864e5, vdBR=s=>s.slice(8,10)+'/'+s.slice(5,7)+'/'+s.slice(0,4), vd2=n=>n.toFixed(2).replace('.',',');
+const VD_MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function vdAntes(pts,dia){ const a=vdDia(dia)-365; let m=null,d=11; pts.forEach(p=>{const k=Math.abs(vdDia(p[0])-a); if(k<d){d=k;m=p;}}); return m; }
+function verdeCard(id){ const N=(S.config.ndvi||{})[id], pts=N&&N.pts||[];
+  if(!pts.length) return `<div class="vd"><div class="small muted">${MAPA.vdBusca===id?'Buscando as leituras do satélite…':(N?'O satélite ainda não trouxe uma leitura limpa desta área.':'As leituras do verde chegam logo depois de salvar o contorno, ou na próxima busca diária do robô.')}</div></div>`;
+  const u=pts[pts.length-1], ap=vdAntes(pts,u[0]), idade=Math.round(vdDia(today())-vdDia(u[0])), ver=MAPA.vd&&MAPA.vd.id===id;
+  const cmp=ap?(u[1]-ap[1]>=.03?'mais verde que no ano passado':ap[1]-u[1]>=.03?'menos verde que no ano passado':'parecido com o ano passado'):'';
+  const hojeD=vdDia(today()), linhas=[...pts].reverse().slice(0,8);
+  return `<div class="vd"><div class="vd-res"><span class="vd-num">${vd2(u[1])}</span><span class="small"><b>Verde do pasto</b>${cmp?'<br>'+cmp:''}</span></div>
+  <div class="small muted">Leitura de ${vdBR(u[0])}${ap?' · ano passado: '+vd2(ap[1]):''}${idade>20?' · nuvens: sem leitura limpa há '+idade+' dias':''}</div>
+  <div class="vd-leg"><span><i></i>Últimos 12 meses</span><span><i class="b"></i>Ano anterior</span></div>
+  <div class="vd-g" data-id="${esc(id)}">${verdeGraf(pts,hojeD)}</div>
+  <div class="btns"><button class="btn" type="button" data-mapa="verde" data-id="${esc(id)}" ${MAPA.vdImg===id?'disabled':''}>${MAPA.vdImg===id?'Buscando imagem…':ver?'Tirar o verde do mapa':'Ver o verde no mapa'}</button></div>
+  ${ver?`<div class="vd-escala"><div class="vd-esc"></div><div class="vd-rot"><span>seco</span><span>muito verde</span></div><div class="small muted">Imagem de ${vdBR(MAPA.vd.dia)}. Partes vazias: nuvem, sombra ou água.</div></div>`:''}
+  <details><summary>Ver as últimas leituras</summary><table><tr><th>Dia</th><th>Verde</th><th>Ano passado</th></tr>${linhas.map(p=>{const a=vdAntes(pts,p[0]);return `<tr><td>${vdBR(p[0])}</td><td>${vd2(p[1])}</td><td>${a?vd2(a[1]):'–'}</td></tr>`;}).join('')}</table></details>
+  <div class="small muted">De 0 a 1: quanto mais perto de 1, mais verde. Mede o verde, não a quantidade de capim, e a mata dentro do contorno puxa a média para cima.</div></div>`; }
+const VD_W=340,VD_H=150,VD_E=26,VD_D=8,VD_T=8,VD_B=20;
+const vdX=(d,fim)=>VD_E+(d-(fim-365))/365*(VD_W-VD_E-VD_D), vdY=m=>VD_T+(1-Math.max(0,Math.min(1,m)))*(VD_H-VD_T-VD_B);
+/* corta a linha quando faltam leituras por mais de 45 dias: não inventa o que o satélite não viu */
+function vdPath(L,fim){ let s='',ant=null; L.forEach(([d,m])=>{ s+=(ant===null||d-ant>45?'M':'L')+vdX(d,fim).toFixed(1)+' '+vdY(m).toFixed(1); ant=d; }); return s; }
+function verdeGraf(pts,fim){ const ini=fim-365, A=[],B=[]; pts.forEach(p=>{const d=vdDia(p[0]); if(d>=ini&&d<=fim) A.push([d,p[1]]); else if(d>=ini-365&&d<ini) B.push([d+365,p[1]]);});
+  let g=''; [0,.25,.5,.75,1].forEach(v=>{const y=vdY(v).toFixed(1); g+=`<line x1="${VD_E}" x2="${VD_W-VD_D}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${VD_E-5}" y="${+y+3}" text-anchor="end">${v?vd2(v):'0'}</text>`;});
+  const h=new Date(fim*864e5); for(let k=0;k<12;k+=3){ const dt=new Date(Date.UTC(h.getUTCFullYear(),h.getUTCMonth()-k,1)), d=dt.getTime()/864e5; if(d<ini) continue; g+=`<text x="${vdX(d,fim).toFixed(1)}" y="${VD_H-5}" text-anchor="middle">${VD_MES[dt.getUTCMonth()]}</text>`; }
+  const u=A[A.length-1];
+  return `<svg viewBox="0 0 ${VD_W} ${VD_H}" role="img" aria-label="Verde do pasto nos últimos 12 meses comparado com o ano anterior">${g}
+  <path d="${vdPath(B,fim)}" fill="none" stroke="var(--vd-b)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="${vdPath(A,fim)}" fill="none" stroke="var(--vd-a)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  ${u?`<circle cx="${vdX(u[0],fim).toFixed(1)}" cy="${vdY(u[1]).toFixed(1)}" r="4" fill="var(--vd-a)" stroke="var(--surface)" stroke-width="2"/>`:''}
+  <g class="vd-mira" hidden><line y1="${VD_T}" y2="${VD_H-VD_B}" stroke="var(--muted)" stroke-width="1"/></g></svg><div class="vd-tip" hidden></div>`; }
+/* passar o dedo ou o mouse no gráfico mostra a leitura mais próxima */
+function verdeLiga(box){ const N=(S.config.ndvi||{})[box.dataset.id], pts=N&&N.pts||[], fim=vdDia(today()), svg=box.querySelector('svg'), mira=box.querySelector('.vd-mira'), lin=mira.querySelector('line'), tip=box.querySelector('.vd-tip');
+  const mostra=e=>{ const r=svg.getBoundingClientRect(), x=(e.clientX-r.left)/r.width*VD_W, dia=(fim-365)+(x-VD_E)/(VD_W-VD_E-VD_D)*365; let m=null,d=16; pts.forEach(p=>{const k=Math.abs(vdDia(p[0])-dia); if(k<d){d=k;m=p;}});
+    if(!m) return some(); const X=vdX(vdDia(m[0]),fim); lin.setAttribute('x1',X); lin.setAttribute('x2',X); mira.hidden=false; mira.removeAttribute('hidden'); const a=vdAntes(pts,m[0]);
+    tip.textContent=vdBR(m[0])+': '+vd2(m[1])+(a?' · ano passado '+vd2(a[1]):''); tip.hidden=false; const pw=tip.offsetWidth, px=X/VD_W*r.width; tip.style.left=Math.max(0,Math.min(r.width-pw,px-pw/2))+'px'; };
+  const some=()=>{ mira.setAttribute('hidden',''); tip.hidden=true; };
+  box.addEventListener('pointermove',mostra); box.addEventListener('pointerdown',mostra); box.addEventListener('pointerleave',some); box.addEventListener('pointercancel',some); }
+async function verdeApi(acao,corpo){ const {data}=await sb.auth.getSession(), t=data&&data.session&&data.session.access_token; if(!t) throw new Error('Entre de novo no app.');
+  let r; try{ r=await fetch(SB_URL+'/functions/v1/telegram?verde='+acao,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fazenda:FID,...corpo})}); }catch(e){ throw new Error('Sem internet.'); }
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.erro||'Não deu certo. Tente de novo.'); return j; }
+async function verdeMapa(id){ if(!MAPA.map) return toast('O mapa ainda está abrindo.'); if(MAPA.vd&&MAPA.vd.id===id){ MAPA.vdGrupo.clearLayers(); MAPA.vd=null; return mapaLista(); }
+  MAPA.vdImg=id; mapaLista();
+  try{ const j=await verdeApi('imagem',{parte:id}), p=contornos()[id]; if(!MAPA.map||!p) return; MAPA.vdGrupo.clearLayers(); L.imageOverlay('data:image/png;base64,'+j.png,L.latLngBounds(p),{opacity:.92}).addTo(MAPA.vdGrupo); MAPA.vd={id,dia:j.dia}; mapaEnquadra(id); }
+  catch(e){ toast(e.message); }
+  MAPA.vdImg=null; mapaLista(); }
+async function mapaAcao(b){ const a=b.dataset.mapa, id=b.dataset.id, E=MAPA.ed;
+  if(a==='ver') return mapaEnquadra(id);
+  if(a==='verde') return verdeMapa(id);
+  if(a==='editar'){ if(!db||!writable) return toast('Sem permissão para salvar.'); if(!MAPA.map) return toast('O mapa ainda está abrindo.'); const p=contornos()[id]; MAPA.ed={id,pts:(p||[]).map(x=>[...x]),hist:[],novo:!p}; if(p) mapaEnquadra(id); mapaLista(); mapaDesenha(); mapaBarra(); $('#mapaBar').scrollIntoView({block:'nearest'}); return; }
+  if(a==='desfazer'&&E&&E.hist.length){ E.pts=E.hist.pop(); mapaEdDesenha(); return mapaBarra(); }
+  if(a==='cancelar'){ MAPA.ed=null; mapaLista(); mapaDesenha(); return mapaBarra(); }
+  if(a==='salvar'&&E){ if(E.pts.length<3) return; const pts=E.pts.map(([la,ln])=>[+la.toFixed(6),+ln.toFixed(6)]); b.disabled=true;
+    try{ await db.configMod(c=>({...c,contornos:{...(c.contornos||{}),[E.id]:pts}})); const sid=E.id; MAPA.ed=null; toast('Contorno salvo'); if(MAPA.vd&&MAPA.vd.id===sid){ MAPA.vdGrupo.clearLayers(); MAPA.vd=null; } MAPA.vdBusca=sid; renderMapa(); verdeApi('atualiza',{}).catch(()=>{}).finally(()=>{ MAPA.vdBusca=null; if(UI.tab==='mapa') mapaLista(); }); }catch(e){ b.disabled=false; dbErr(e); } return; }
+  if(a==='apagar'){ if(arma(b)) return; try{ await db.configMod(c=>{ const n={...(c.contornos||{})}; delete n[id]; return {...c,contornos:n}; }); toast('Contorno apagado'); if(MAPA.vd&&MAPA.vd.id===id){ MAPA.vdGrupo.clearLayers(); MAPA.vd=null; } renderMapa(); }catch(e){ dbErr(e); } }
 }
 function renderInicio(){
   const de=[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).slice(0,5);
@@ -2191,6 +2331,7 @@ document.addEventListener('click',async e=>{
   if(b.hasAttribute('data-voz-enviar')) return vozEnvia(b);
   if(b.dataset.vozBt) return vozBotao(b);
   if(b.hasAttribute('data-close')) return closeSheet();
+  if(b.dataset.mapa) return mapaAcao(b);
   if(b.dataset.entry){UI.entry[UI.tab]=b.dataset.entry; UI.eo={}; DIRTY=false; return render();}
   if(b.hasAttribute('data-ac-ok')){ AC_SENHA=null; return render(); }
   if(b.dataset.acSenha){ if(arma(b)) return; const a=(ACESSOS||[]).find(x=>x.user_id===b.dataset.acSenha), senha=senhaProv(); b.disabled=true;

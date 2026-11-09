@@ -2,6 +2,7 @@
 // Recebe foto de nota fiscal, texto ou anotação de um sócio, pede ao Claude para ler
 // e lança na fazenda dele: custo em "desembolsos" ou anotação no bloco de notas do mês.
 // Segredos (Edge Functions → Secrets): TELEGRAM_BOT_TOKEN e ANTHROPIC_API_KEY.
+// Verde do pasto (satélite): CDSE_CLIENT_ID e CDSE_CLIENT_SECRET, do Copernicus Data Space.
 // SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY o próprio Supabase fornece.
 // Depois de publicar, abra .../functions/v1/telegram?setup=1 uma vez para ligar o webhook.
 import Anthropic from "npm:@anthropic-ai/sdk";
@@ -208,6 +209,10 @@ export type Deps = {
     atualizar: (id: string, attrs: Record<string, unknown>) => Promise<boolean>;
   };
   origem?: string; // de onde veio o lançamento ("telegram" ou "app", pelo microfone do app)
+  verde?: { // satélite Sentinel-2 (Copernicus); sem as chaves, fica de fora
+    serie: (poly: number[][], de: string, ate: string) => Promise<{ d: string; m: number; v: number }[]>;
+    imagem: (poly: number[][], de: string, ate: string) => Promise<string>; // PNG em base64
+  };
 };
 
 /* ---------- respostas ---------- */
@@ -1165,6 +1170,92 @@ export async function avisosDiarios(d: Deps) {
   }
   return `${n} aviso(s) enviados`;
 }
+/* ---------- verde do pasto (NDVI do Sentinel-2): uma leitura por parte da fazenda a cada 5 dias ----------
+   Fica em config.dados.ndvi = { parte: { g: contorno usado, at: dia da busca, al: dia do último alerta, pts: [[dia, ndvi, fração boa], ...] } }.
+   Só entram leituras com pelo menos 60% da área sem nuvem. */
+const VERDE_ANCORA = "2020-01-01", VERDE_PASSO = 5, VERDE_HIST = 760, VERDE_GUARDA = 1100, VERDE_BOM = 0.6;
+const verdeAlinha = (s: string) => somaDias(VERDE_ANCORA, Math.floor(dias(VERDE_ANCORA, s) / VERDE_PASSO) * VERDE_PASSO);
+const verdeG = (p: number[][]) => p.map((x) => x.join(",")).join(";");
+const verde2 = (n: number) => n.toFixed(2).replace(".", ",");
+// junta o que veio do satélite ao que já estava: a leitura nova do mesmo dia substitui a antiga; dia que ficou nublado sai
+export function verdeJunta(velhos: any[], novos: { d: string; m: number; v: number }[], hoje: string) {
+  const M = new Map<string, any>((velhos || []).map((p: any) => [p[0], p]));
+  for (const n of novos) { if (n.v >= VERDE_BOM && Number.isFinite(n.m)) M.set(n.d, [n.d, Math.round(n.m * 1000) / 1000, Math.round(n.v * 100) / 100]); else M.delete(n.d); }
+  return [...M.values()].filter((p) => dias(p[0], hoje) <= VERDE_GUARDA).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+}
+// queda rápida: as duas últimas leituras (para uma só nublada não dar alarme falso) abaixo de 20% da média de 20 a 45 dias antes
+export function verdeQueda(pts: any[]) {
+  if (!pts || pts.length < 4) return null;
+  const u = pts[pts.length - 1], p = pts[pts.length - 2];
+  if (dias(p[0], u[0]) > 25) return null;
+  const base = pts.filter((x) => { const k = dias(x[0], p[0]); return k >= 20 && k <= 45; });
+  if (base.length < 2) return null;
+  const ref = base.reduce((s, x) => s + x[1], 0) / base.length, alto = Math.max(u[1], p[1]);
+  if (ref <= 0 || alto > ref * 0.8 || ref - alto < 0.08) return null;
+  return { antes: ref, agora: u[1], pct: Math.round((1 - u[1] / ref) * 100), dia: u[0] };
+}
+const verdeAnoPassado = (pts: any[], dia: string) => {
+  const alvo = somaDias(dia, -365); let mel: any = null, d = 11;
+  for (const p of pts) { const k = Math.abs(dias(p[0], alvo)); if (k < d) { d = k; mel = p; } }
+  return mel;
+};
+const nomeParte = (D: any, id: string) => (id === "sede" ? (D?.sede?.nome || "Sede") : retirosDe(D).find((r) => r.id === id)?.nome || id);
+// busca as leituras novas e, se pedido, avisa no Telegram; forca = busca de novo mesmo já tendo buscado hoje
+export async function verdeDiario(d: Deps, so?: { faz: string; forca?: boolean }) {
+  if (!d.verde) return "verde: sem chaves";
+  const hoje = hojeMT(), avisa = !so;
+  let q = d.db.from("config").select("fazenda_id,dados");
+  if (so) q = q.eq("fazenda_id", so.faz);
+  const { data: cfgs } = await q;
+  const { data: contas } = avisa ? await d.db.from("telegram_contas").select("chat_id,fazenda_id") : { data: [] as any[] };
+  let n = 0, er = 0;
+  for (const c of cfgs || []) {
+    if (!c.fazenda_id) continue;
+    const D = c.dados || {}, C = D.contornos || {}, N: Record<string, any> = {};
+    for (const id of Object.keys(C)) {
+      const poly = C[id]; if (!Array.isArray(poly) || poly.length < 3) continue;
+      const g = verdeG(poly), at = D.ndvi?.[id], igual = at && at.g === g;
+      if (igual && at.at === hoje && !so?.forca) continue;
+      // contorno novo ou mudado: refaz dois anos; senão, só as últimas semanas (a imagem pode chegar atrasada)
+      const de = verdeAlinha(somaDias(hoje, igual ? -20 : -VERDE_HIST));
+      let novos;
+      try { novos = await d.verde.serie(poly, de, hoje); } catch (e) { console.error("verde", id, String((e as any)?.message || e)); er++; continue; }
+      const pts = verdeJunta(igual ? at.pts : [], novos, hoje);
+      const novo: any = { g, at: hoje, pts, ...(igual && at.al ? { al: at.al } : {}) };
+      const Q = avisa ? verdeQueda(pts) : null;
+      if (Q && dias(Q.dia, hoje) <= 15 && !(novo.al && dias(novo.al, hoje) < 30)) {
+        const ap = verdeAnoPassado(pts, Q.dia);
+        const txt = `🌾 <b>Pasto secando rápido: ${esc(nomeParte(D, id))}</b>\nO verde caiu ${Q.pct}% em cerca de um mês (de ${verde2(Q.antes)} para ${verde2(Q.agora)}). Leitura de ${dBR(Q.dia)}.` +
+          (ap ? `\nNo ano passado, nesta época: ${verde2(ap[1])}.` : "") + `\n<i>O satélite mede o verde, não a quantidade de capim. Vale conferir no campo.</i>`;
+        const chats = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
+        for (const x of chats) await d.tg("sendMessage", { chat_id: x.chat_id, text: txt, parse_mode: "HTML" });
+        if (chats.length) novo.al = hoje;
+      }
+      N[id] = novo; n++;
+    }
+    if (Object.keys(N).length) {
+      await mudaCfg(d, c.fazenda_id, (X) => ({ ...X, ndvi: { ...(X.ndvi || {}), ...N } }));
+    }
+  }
+  return `verde: ${n} parte(s)${er ? `, ${er} com erro` : ""}`;
+}
+/* app: POST ?verde=atualiza ou ?verde=imagem, com o login do app. O contorno vem sempre do banco, nunca do pedido. */
+export async function verdeApp(d: Deps, acao: string, token: string, corpo: any): Promise<{ status: number; json: any }> {
+  const uid = token && d.usuario ? await d.usuario(token) : null;
+  if (!uid) return { status: 401, json: { erro: "Entre de novo no app." } };
+  const fazenda = String(corpo?.fazenda || "");
+  const { data: m } = await d.db.from("membros").select("user_id").eq("fazenda_id", fazenda).eq("user_id", uid).maybeSingle();
+  if (!m) return { status: 403, json: { erro: "Você não é sócio desta fazenda." } };
+  if (!d.verde) return { status: 503, json: { erro: "O satélite ainda não está ligado." } };
+  if (acao === "atualiza") return { status: 200, json: { ok: await verdeDiario(d, { faz: fazenda }) } };
+  if (acao !== "imagem") return { status: 400, json: { erro: "?" } };
+  const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", fazenda).maybeSingle();
+  const id = String(corpo?.parte || ""), poly = cfg?.dados?.contornos?.[id], pts = cfg?.dados?.ndvi?.[id]?.pts || [];
+  if (!Array.isArray(poly) || poly.length < 3 || !pts.length) return { status: 404, json: { erro: "Ainda não há leitura desta parte." } };
+  const dia = pts[pts.length - 1][0];
+  try { return { status: 200, json: { png: await d.verde.imagem(poly, dia, somaDias(dia, VERDE_PASSO - 1)), dia } }; }
+  catch (e) { console.error("verde imagem", String((e as any)?.message || e)); return { status: 502, json: { erro: "O satélite não respondeu. Tente de novo." } }; }
+}
 // "lembretes": lista o que está marcado, com botão para cancelar
 async function listaLembretes(d: Deps, faz: string) {
   const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
@@ -1587,7 +1678,59 @@ if (typeof Deno !== "undefined") {
     },
     atualizar: async (id: string, attrs: Record<string, unknown>) => { const { error } = await db.auth.admin.updateUserById(id, attrs as any); if (error) console.error("atualizar usuário", error); return !error; },
   };
-  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin };
+  // satélite (Copernicus): o token dura uns 10 minutos; pedir muitos é limitado, então reaproveita
+  const cdseId = Deno.env.get("CDSE_CLIENT_ID") || "", cdseSegredo = Deno.env.get("CDSE_CLIENT_SECRET") || "";
+  let cdseTok = { v: "", ate: 0 };
+  const cdseToken = async () => {
+    if (cdseTok.v && Date.now() < cdseTok.ate) return cdseTok.v;
+    const r = await fetch("https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "client_credentials", client_id: cdseId, client_secret: cdseSegredo }) });
+    if (!r.ok) throw new Error("token do satélite: " + r.status);
+    const j = await r.json();
+    cdseTok = { v: j.access_token, ate: Date.now() + (Number(j.expires_in || 300) - 60) * 1000 };
+    return cdseTok.v;
+  };
+  // contorno: [lat,lng] no app; o satélite pede [lng,lat] com o anel fechado
+  const geo = (p: number[][]) => ({ type: "Polygon", coordinates: [[...p, p[0]].map(([la, ln]) => [ln, la])] });
+  // tamanho em pixels para ficar perto de 10 m por pixel
+  const pixels = (p: number[][], max = 2000) => {
+    const la = p.map((x) => x[0]), ln = p.map((x) => x[1]), meio = (Math.min(...la) + Math.max(...la)) / 2;
+    const h = (Math.max(...la) - Math.min(...la)) * 110574, w = (Math.max(...ln) - Math.min(...ln)) * 111320 * Math.cos(meio * Math.PI / 180);
+    const k = Math.min(1, max / (Math.max(w, h) / 10));
+    return { width: Math.max(8, Math.round(w / 10 * k)), height: Math.max(8, Math.round(h / 10 * k)) };
+  };
+  const RUIM = "[0,1,3,6,7,8,9,10,11]"; // sem dado, saturado, sombra, água, indefinido, nuvens, cirrus, neve
+  const EV_SERIE = `//VERSION=3
+function setup(){return{input:[{bands:["B04","B08","SCL","dataMask"]}],output:[{id:"data",bands:1,sampleType:"FLOAT32"},{id:"dataMask",bands:1}]}}
+function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.indexOf(s.SCL)<0;return{data:[t>0?(s.B08-s.B04)/t:0],dataMask:[ok?1:0]}}`;
+  const EV_IMAGEM = `//VERSION=3
+function setup(){return{input:[{bands:["B04","B08","SCL","dataMask"]}],output:{bands:4}}}
+var C=[[0.1,[150,90,50]],[0.3,[205,165,85]],[0.5,[225,220,110]],[0.7,[110,180,70]],[0.9,[20,110,50]]];
+function cor(n){if(n<=C[0][0])return C[0][1];for(var i=1;i<C.length;i++){if(n<=C[i][0]){var a=C[i-1],b=C[i],k=(n-a[0])/(b[0]-a[0]);return[0,1,2].map(function(j){return a[1][j]+(b[1][j]-a[1][j])*k})}}return C[C.length-1][1]}
+function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.indexOf(s.SCL)<0;var c=cor(t>0?(s.B08-s.B04)/t:0);return[c[0]/255,c[1]/255,c[2]/255,ok?1:0]}`;
+  const verde: Deps["verde"] = cdseId && cdseSegredo ? {
+    serie: async (poly, de, ate) => {
+      const r = await fetch("https://sh.dataspace.copernicus.eu/statistics/v1", { method: "POST", headers: { authorization: `Bearer ${await cdseToken()}`, "content-type": "application/json" }, body: JSON.stringify({
+        input: { bounds: { geometry: geo(poly) }, data: [{ type: "sentinel-2-l2a", dataFilter: { mosaickingOrder: "leastCC" } }] },
+        aggregation: { timeRange: { from: de + "T00:00:00Z", to: ate + "T23:59:59Z" }, aggregationInterval: { of: "P5D", lastIntervalBehavior: "SHORTEN" }, ...pixels(poly), evalscript: EV_SERIE },
+      }) });
+      if (!r.ok) throw new Error(`satélite ${r.status}: ${(await r.text()).slice(0, 300)}`);
+      const j = await r.json();
+      return (j.data || []).flatMap((x: any) => {
+        const st = x.outputs?.data?.bands?.B0?.stats; if (!st || !(st.sampleCount > 0)) return [];
+        return [{ d: String(x.interval.from).slice(0, 10), m: Number(st.mean), v: (st.sampleCount - st.noDataCount) / st.sampleCount }];
+      });
+    },
+    imagem: async (poly, de, ate) => {
+      const r = await fetch("https://sh.dataspace.copernicus.eu/api/v1/process", { method: "POST", headers: { authorization: `Bearer ${await cdseToken()}`, "content-type": "application/json", accept: "image/png" }, body: JSON.stringify({
+        input: { bounds: { geometry: geo(poly) }, data: [{ type: "sentinel-2-l2a", dataFilter: { timeRange: { from: de + "T00:00:00Z", to: ate + "T23:59:59Z" }, mosaickingOrder: "leastCC" } }] },
+        output: { ...pixels(poly, 1024), responses: [{ identifier: "default", format: { type: "image/png" } }] }, evalscript: EV_IMAGEM,
+      }) });
+      if (!r.ok) throw new Error(`satélite ${r.status}: ${(await r.text()).slice(0, 300)}`);
+      return b64(new Uint8Array(await r.arrayBuffer()));
+    },
+  } : undefined;
+  const deps: Deps = { token, tg, baixa, le, pensa, db, guarda, link, usuario, transcreve, envia, cotacao, planilha, baixaNota, zip, admin, verde };
   const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, apikey, x-client-info", "access-control-allow-methods": "POST, OPTIONS" };
 
   Deno.serve(async (req) => {
@@ -1630,6 +1773,16 @@ if (typeof Deno !== "undefined") {
       } catch (e) { console.error("voz", e); }
       return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
     }
+    if (url.searchParams.has("verde")) {
+      // chamado pelo app (aba Mapa): busca as leituras depois de salvar um contorno, ou a imagem do verde
+      if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+      let r = { status: 500, json: { erro: "Erro no servidor. Tente de novo." } as any };
+      try {
+        const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+        r = await verdeApp(deps, url.searchParams.get("verde") || "", jwt, await req.json());
+      } catch (e) { console.error("verde", e); }
+      return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
+    }
     if (url.searchParams.has("resumo")) {
       // chamado toda segunda pelo GitHub Actions; manda no máximo uma vez por semana
       try { return new Response(await resumoSemanal(deps)); } catch (e) { console.error("resumo", e); return new Response("erro", { status: 500 }); }
@@ -1639,7 +1792,9 @@ if (typeof Deno !== "undefined") {
       // no dia 1º, manda antes o relatório do mês que acabou
       let mensal = "";
       try { mensal = await relatorioMensal(deps); } catch (e) { console.error("relatório mensal", e); mensal = "erro no relatório mensal"; }
-      try { return new Response(`${await avisosDiarios(deps)} · ${mensal}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
+      // o verde do pasto vai junto; se o satélite falhar, os lembretes já saíram
+      let txtVerde = "";
+      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } return new Response(`${av} · ${mensal} · ${txtVerde}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
