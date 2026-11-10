@@ -33,6 +33,7 @@ const CATS: Record<string, string> = { matrizes: "Matrizes", descarte: "Matrizes
   po_bezerro: "P.O. Bezerro", po_bezerra: "P.O. Bezerra", po_novilha: "P.O. Novilha", po_garrote: "P.O. Garrote" };
 const NASC = ["bezerros", "po_bezerro", "po_bezerra"];
 const TIPOS_MOV: Record<string, string> = { nascimento: "Nascimento", compra: "Compra", venda: "Venda", morte: "Morte", transferencia: "Mudança de categoria" };
+const FRIG_CATS = ["m25_36", "m36", "descarte"]; // gado gordo: venda sem dizer o modo vai como frigorífico (igual ao app)
 const MESF = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 /* ---------- utilidades ---------- */
@@ -73,7 +74,7 @@ const SCHEMA = {
       type: "array", description: "um item por movimento de animais; vazio se não houver",
       items: {
         type: "object", additionalProperties: false,
-        required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "preco_arroba", "valor", "obs", "retiro"],
+        required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "modo_venda", "rendimento", "preco_arroba", "preco_cabeca", "valor", "obs", "retiro"],
         properties: {
           retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = Sede (fazenda principal), também quando citar a Sede" },
           mov: { type: "string", enum: Object.keys(TIPOS_MOV) },
@@ -81,8 +82,11 @@ const SCHEMA = {
           categoria: { type: "string", enum: Object.keys(CATS), description: "categoria dos animais (na mudança de categoria: a de origem)" },
           para: { type: "string", enum: ["", ...Object.keys(CATS)], description: "só na mudança de categoria: a de destino; senão vazio" },
           cab: { type: "integer", description: "número de cabeças" },
-          peso_medio: { type: "number", description: "kg vivo por cabeça; 0 se não disser" },
+          peso_medio: { type: "number", description: "kg vivo por cabeça; se disser só o peso total da balança, divida pelas cabeças; 0 se não disser" },
+          modo_venda: { type: "string", enum: ["", "carcaca", "vivo", "cabeca"], description: "só na venda: carcaca = frigorífico/abate, paga pela @ de carcaça ou disse rendimento; vivo = por @ ou kg de peso vivo (bezerro, garrote, gado para outro produtor); cabeca = preço por cabeça; vazio se não der para saber ou não for venda" },
+          rendimento: { type: "number", description: "só na venda para frigorífico: rendimento de carcaça em % (ex.: 55); 0 se não disser" },
           preco_arroba: { type: "number", description: "só na venda: R$ por arroba; 0 se não disser" },
+          preco_cabeca: { type: "number", description: "só na venda por cabeça: R$ por cabeça; 0 se não disser" },
           valor: { type: "number", description: "compra: total pago; venda: total recebido; 0 se não disser ou nos outros tipos" },
           obs: { type: "string", description: "curta: sexo dos bezerros, causa da morte, comprador, vendedor… vazio se nada" },
         },
@@ -519,15 +523,26 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       if (m.mov === "transferencia") x.para = m.para;
       let valor: number | null = null;
       if (m.mov === "venda") {
-        x.precoArroba = Number(m.preco_arroba) > 0 ? +m.preco_arroba : 0;
-        valor = Number(m.valor) > 0 ? +m.valor : (x.precoArroba as number) && peso ? cab * peso / kgA * (x.precoArroba as number) : 0;
+        // frigorífico: @ de carcaça (15 kg) = peso vivo × rendimento ÷ 15; vivo: @ de kgA vivo; por cabeça: só o preço da cabeça
+        const rend = Number(m.rendimento) >= 30 && Number(m.rendimento) <= 70 ? +m.rendimento : 0, pc = Number(m.preco_cabeca) > 0 ? +m.preco_cabeca : 0;
+        const modo = ["carcaca", "vivo", "cabeca"].includes(m.modo_venda) ? m.modo_venda : rend ? "carcaca" : pc ? "cabeca" : FRIG_CATS.includes(categoria) ? "carcaca" : "vivo";
+        x.modo = modo;
+        if (modo === "cabeca") { x.precoCab = pc; valor = Number(m.valor) > 0 ? +m.valor : cab * pc; }
+        else {
+          x.precoArroba = Number(m.preco_arroba) > 0 ? +m.preco_arroba : 0;
+          if (rend) x.rend = rend;
+          else if (modo === "carcaca" && !(Number(m.valor) > 0)) avisos.push(`Faltou o rendimento de carcaça da venda: calculei com 50% (${kgA} kg vivo por @). Se foi outro, toque em Desfazer e mande de novo com o rendimento.`);
+          const arr = modo === "carcaca" && rend ? cab * peso * rend / 100 / 15 : cab * peso / kgA;
+          valor = Number(m.valor) > 0 ? +m.valor : (x.precoArroba as number) && peso ? arr * (x.precoArroba as number) : 0;
+        }
       }
       if (m.mov === "compra") valor = Number(m.valor) > 0 ? +m.valor : 0;
       if (valor != null) x.valor = Math.round(valor * 100) / 100;
       movs.push({ id: `${base}-m${movs.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab,
         valor: valor == null ? null : x.valor, dados: { ...x, ...RT(r), ...autor } });
       txt.push(`🐄 <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
-        ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${tagRet(rets, r)}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
+        ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.rend ? ` · ${nfBR(x.rend as number)}% rend.` : ""}` +
+        `${x.precoArroba ? ` · ${brl(x.precoArroba as number)}/@${x.modo === "carcaca" ? " carcaça" : ""}` : ""}${x.precoCab ? ` · ${brl(x.precoCab as number)}/cab.` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${tagRet(rets, r)}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
     }
   }
 

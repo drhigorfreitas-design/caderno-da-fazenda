@@ -510,6 +510,14 @@ const INS_PAS=new Set(['nutricao','sanidade','reproducao','pastagem']);
 /* % sobre o desembolso das fazendas mais rentáveis (Benchmarking Inttegra 2020/21) */
 const REF_TOP=[['Insumos do rebanho (nutrição, sanidade, reprodução)',['nutricao','sanidade','reproducao'],42.2],['Mão de obra permanente',['mao'],15.2],['Manutenção da fazenda',['manutencao'],12.7],['Pastagem',['pastagem'],10.3],['Parque de máquinas',['maquinas'],10.1],['Administração',['administracao'],5.3],['Taxas e impostos',['impostos'],3.4],['Arrendamento / custo da terra',['arrendamento'],null],['Outros',['outros'],0.8]];
 const TIPOS_MOV={nascimento:'Nascimento',compra:'Compra',venda:'Venda',morte:'Morte',transferencia:'Mudança de categoria'};
+/* venda: frigorífico paga a @ de carcaça (15 kg) = peso vivo × rendimento ÷ 15; vivo usa a @ de peso vivo do app (kgA); por cabeça só o preço da cabeça.
+   Categorias de gado gordo já vêm como frigorífico; venda antiga sem modo = vivo (como era). */
+const MODOS_VENDA={carcaca:'Frigorífico (@ de carcaça)',vivo:'Vivo (@ de peso vivo)',cabeca:'Por cabeça'};
+const FRIG_CATS=['m25_36','m36','descarte'];
+const modoPadrao=c=>FRIG_CATS.includes(c)?'carcaca':'vivo';
+const rendUltimo=()=>{const v=[...S.movs].filter(x=>x.tipo==='venda'&&x.modo==='carcaca'&&+x.rend>0).sort((a,b)=>a.data<b.data?1:-1)[0]; return v?+v.rend:'';};
+/* arrobas que o comprador pagou: de carcaça no frigorífico, de peso vivo nos outros */
+const arrVenda=(cab,peso,modo,rend)=>modo==='carcaca'&&rend>0?cab*peso*rend/100/15:cab*peso/kgA();
 const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const COL={fech:'fechamentos',movs:'movimentos',desemb:'desembolsos',estacoes:'estacoes',engorda:'engorda',insumos:'insumos',emovs:'estoque_movs',form:'formulacoes',adapt:'adaptacoes'};
 const FASES=[['cria','Cria'],['recria','Recria'],['engorda','Engorda']]; const FN=Object.fromEntries(FASES); const CENTROS=FASES.map(f=>f[0]);
@@ -628,6 +636,8 @@ function calc(per=UI.per,fase=null){
   R.vendasKg=kg(vend)+kg(tOut); R.vendasCab=cb(vend)+cb(tOut); R.comprasKg=kg(comp)+kg(tIn);
   R.mortes=cb(mv.filter(x=>x.tipo==='morte'&&inF(x.categoria)));
   R.vendasArr=R.vendasKg/kgA(); R.precoArr=R.receita/R.vendasArr; R.precoKg=R.receita/R.vendasKg;
+  /* preço da @ como o frigorífico fala (@ de carcaça), só das vendas com rendimento */
+  const vF=vend.filter(x=>x.modo==='carcaca'&&+x.rend>0); R.precoFrig=sum(vF,x=>x.valor)/sum(vF,x=>arrVenda(+x.cab||0,pesoMov(x),'carcaca',+x.rend));
   R.meses=J.meses; R.anual=12/J.meses;
   let share=fase?0:1;
   if(J.ok){ const n=J.fechs.length;
@@ -785,7 +795,7 @@ function detalhe(R,comExtra=true){
     ${ind('Resultado por hectare ao ano',brl(R.resHa),{f:'resultado ÷ área produtiva',ref:'alvo acima de R$ 1.200',st:ok(R.resHa)?st(R.resHa>=1200):null})}
     ${ind('Resultado sobre o valor do rebanho',pct(R.resValReb),{f:'resultado ÷ valor inicial do rebanho',ref:'alvo 25% · Selic '+nf(selicAA(),2)+'%',st:ok(R.resValReb)?st(R.resValReb>=selicAA()):null})}
     ${f?'':ind('Produção sobre o patrimônio',pct(R.prodPatr),{f:'@ produzidas × preço ÷ valor inicial do rebanho',ref:'alvo 15%',st:ok(R.prodPatr)?st(R.prodPatr>=15):null})}
-    ${ind('Preço médio de venda',brl(R.precoArr,2)+'/@',{ref:brl(R.precoKg,2)+'/kg vivo'})}
+    ${ind('Preço médio de venda',brl(R.precoArr,2)+'/@',{f:'@ de '+kgA()+' kg vivo, a mesma régua do custo da @ produzida',ref:brl(R.precoKg,2)+'/kg vivo'+(ok(R.precoFrig)?' · frigorífico '+brl(R.precoFrig,2)+'/@ de carcaça':'')})}
     ${ind('Resultado por @ produzida',brl(R.resArr,2),{f:'preço de venda − desembolso por @'})}
     ${ind('Margem sobre a venda',pct(R.margem),{f:'resultado por @ produzida ÷ preço de venda',ref:'meta acima de 35%',st:ok(R.margem)?st(R.margem>=35):null})}
   </div>
@@ -1703,7 +1713,7 @@ async function exportaExcel(){
   const n=v=>ok(+v)?+v:(v==null||v===''?'':v), ord=(a,k)=>[...a].sort((x,y)=>(x[k]||'')<(y[k]||'')?-1:1), insN=id=>(S.insumos.find(i=>i.id===id)||{}).nome||'';
   const abas=[
    ['Fechamentos',ord(S.fech,'mes').flatMap(f=>CATS.filter(([c])=>cabOf(f,c)>0).map(([c,cn])=>({'Mês':f.mes,...(retiros().length?{'Retiro':f._junto?'Fazenda toda':retNome(f.retiro)}:{}),'Categoria':cn,'Fase':FN[faseOf(c)],'Cabeças':cabOf(f,c),'Peso médio (kg)':pesoOf(f,c),'@ total':Math.round(cabOf(f,c)*pesoOf(f,c)/kgA()*10)/10})))],
-   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,...(retiros().length?{'Retiro':retNome(x.retiro)}:{}),'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Preço da @':n(x.precoArroba),'Valor (R$)':n(x.valor),'Observação':x.obs||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
+   ['Movimentos',ord(S.movs,'data').map(x=>({'Data':x.data,...(retiros().length?{'Retiro':retNome(x.retiro)}:{}),'Tipo':TIPOS_MOV[x.tipo]||x.tipo,'Categoria':CN[x.categoria]||'','Para':CN[x.para]||'','Cabeças':n(x.cab),'Peso médio (kg)':n(x.pesoMedio),'Venda':x.tipo==='venda'?(MODOS_VENDA[x.modo]||MODOS_VENDA.vivo):'','Rendimento (%)':n(x.rend),'Preço da @':n(x.precoArroba),'Preço por cabeça':n(x.precoCab),'Valor (R$)':n(x.valor),'Observação':x.obs||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
    ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,...(retiros().length?{'Retiro':retNome(x.retiro)}:{}),'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Rebanho':REB.find(r=>r[0]===rebOf(x))[1].replace(/^Só o /,''),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
    ['Lotes engorda',ord(S.engorda,'dataEntrada').map(l=>({'Lote':l.nome,'Sistema':l.sistema,'Cabeças':n(l.cab),'Entrada':l.dataEntrada,'Peso entrada (kg)':n(l.pesoEntrada),'Valor entrada/cab (R$)':n(l.aquisicao),'Nutrição R$/dia':n(l.nutricaoDia),'Operacional R$/dia':n(l.operacionalDia),'Saída':l.dataSaida||'','Peso saída (kg)':n(l.pesoSaida),'Carcaça (kg)':n(l.carcaca),'Preço da @ venda':n(l.precoVenda)}))],
    ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
@@ -1788,7 +1798,11 @@ const FORMS={
   movimento:{t:'Movimento do rebanho',d:'Nascer, comprar, vender, morrer',html:()=>`${sel('Tipo','tipo',Object.entries(TIPOS_MOV))}<div class="grid2">${fld('Data','data','date','required',today())}${selCat('Categoria','categoria')}</div>
     <div data-show="transferencia" hidden>${selCat('Para a categoria','para','m8_12')}</div>
     <div class="grid2">${fld('Cabeças','cab','number','min="1" required')}${fld('Peso médio (kg vivo)','pesoMedio','number','step="any" min="0"')}</div>
-    <div data-show="venda" hidden><div class="grid2">${fld('Preço da @ (R$)','precoArroba','number','step="0.01" min="0"')}${fld('Valor total (R$)','valorV','number','step="0.01" min="0"')}</div><div class="calc" id="calc">Preencha cabeças, peso e preço para calcular.</div></div>
+    <div data-show="venda" hidden>${sel('Como foi vendido?','modo',Object.entries(MODOS_VENDA))}
+      <div class="grid2"><div data-modo="carcaca">${fld('Rendimento de carcaça (%)','rend','number','step="0.1" min="30" max="70"',rendUltimo())}</div>
+      <div data-modo="carcaca vivo">${fld('Preço da @ (R$)','precoArroba','number','step="0.01" min="0"')}</div>
+      <div data-modo="cabeca" hidden>${fld('Preço por cabeça (R$)','precoCab','number','step="0.01" min="0"')}</div>
+      ${fld('Valor total (R$)','valorV','number','step="0.01" min="0"')}</div><div class="calc" id="calc">Preencha cabeças, peso e preço para calcular.</div></div>
     <div data-show="transferencia" hidden><p class="note">Se a categoria de destino for de outra fase (ex.: bezerros desmamados indo para a recria), o app conta como venda de uma fase e compra da outra. Informe o peso médio na passagem.</p></div>
     <div data-show="compra" hidden>${fld('Valor total pago (R$), com frete e comissão','valorC','number','step="0.01" min="0"')}</div>
     ${fld('Observação','obs','text','placeholder="Comprador, causa da morte…"')}`},
@@ -2176,8 +2190,18 @@ function wireForm(k,o,inline){
   if(k==='fechamento'){ f.mes.addEventListener('change',()=>{ if(f.mes.value) $('#fechRows').innerHTML=fechRows(f.mes.value); });
     f.addEventListener('input',()=>{ const t=$('#poVacaTot'); if(t) t.innerHTML=poVacaTxt(sum(PO_VACAS,k=>+(f['cab_'+k]?.value)||0)); }); }
   if(k==='movimento'){ let manual=false; const sync=()=>{f.querySelectorAll('[data-show]').forEach(d=>d.hidden=d.dataset.show!==f.tipo.value); if(f.tipo.value==='nascimento'&&!NASC.includes(f.categoria.value)) f.categoria.value='bezerros';};
+    let modoMan=false; const syncModo=()=>f.querySelectorAll('[data-modo]').forEach(d=>d.hidden=!d.dataset.modo.split(' ').includes(f.modo.value));
+    f.modo.value=modoPadrao(f.categoria.value); syncModo();
+    f.modo.addEventListener('change',()=>{modoMan=true; manual=false; syncModo();});
+    f.categoria.addEventListener('change',()=>{ if(!modoMan){ f.modo.value=modoPadrao(f.categoria.value); syncModo(); } });
     f.tipo.addEventListener('change',sync); sync(); f.valorV.addEventListener('input',()=>manual=true);
-    f.addEventListener('input',e=>{ if(f.tipo.value!=='venda') return; const c=+f.cab.value,p=+f.pesoMedio.value,pr=+f.precoArroba.value; if(c&&p){const a=c*p/kgA(); if(pr&&!manual&&e.target!==f.valorV) f.valorV.value=(a*pr).toFixed(2); $('#calc').textContent=`${nf(a,1)} @ no total, ${nf(p/kgA(),2)} @ por cabeça`;}}); }
+    const conta=e=>{ if(f.tipo.value!=='venda') return; const c=+f.cab.value,p=+f.pesoMedio.value,m=f.modo.value,rd=+f.rend.value,auto=!manual&&e?.target!==f.valorV;
+      if(m==='cabeca'){ const pc=+f.precoCab.value; if(c&&pc&&auto) f.valorV.value=(c*pc).toFixed(2); $('#calc').textContent=c&&pc?`${nf(c)} cab. × ${brl(pc,2)} = ${brl(c*pc,2)}`:'Preencha cabeças e preço por cabeça para calcular.'; return; }
+      if(m==='carcaca'&&!rd){ $('#calc').textContent='Preencha o rendimento de carcaça (ex.: 52 a 55%).'; return; }
+      const pr=+f.precoArroba.value; if(!(c&&p)){ $('#calc').textContent='Preencha cabeças, peso e preço para calcular.'; return; }
+      const a=arrVenda(c,p,m,rd); if(pr&&auto) f.valorV.value=(a*pr).toFixed(2);
+      $('#calc').textContent=m==='carcaca'?`${nf(p*rd/100,1)} kg de carcaça por cabeça · ${nf(a/c,2)} @ por cabeça · ${nf(a,1)} @ no total`:`${nf(a,1)} @ no total, ${nf(a/c,2)} @ por cabeça (${kgA()} kg vivo por @)`; };
+    f.addEventListener('input',conta); f.addEventListener('change',conta); }
   if(!inline) setTimeout(()=>f.querySelector('input,select')?.focus(),50);
 }
 async function submitForm(f){
@@ -2193,7 +2217,9 @@ async function submitForm(f){
     await db.doc(COL.fech+'/'+(ex?ex.id:ret?ret+'_'+v.mes:v.mes)).set({mes:v.mes,cats,...(ret?{retiro:ret}:{}),criadoEm:(ex&&ex.criadoEm)||new Date().toISOString()}); }
   if(k==='movimento'){ const d={tipo:v.tipo,data:v.data,categoria:v.categoria,cab:N(v.cab),pesoMedio:N(v.pesoMedio)||0,obs:v.obs||''};
     if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
-    if(v.tipo==='venda'){ d.precoArroba=N(v.precoArroba)||0; d.valor=N(v.valorV)||0; }
+    if(v.tipo==='venda'){ d.modo=v.modo||'vivo'; d.valor=N(v.valorV)||0;
+      if(d.modo==='cabeca') d.precoCab=N(v.precoCab)||0; else d.precoArroba=N(v.precoArroba)||0;
+      if(d.modo==='carcaca'){ d.rend=N(v.rend)||0; if(!(d.rend>=30&&d.rend<=70)) throw {code:'form',msg:'Preencha o rendimento de carcaça (entre 30 e 70%).'}; } }
     if(v.tipo==='compra') d.valor=N(v.valorC)||0; await add(COL.movs,d); }
   if(k==='desembolso'){ const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde),rebanho:v.rebanho||'',...(v.nota?{nota:v.nota}:{})}; lembraOnde(v.item,v.onde);
     if(ed) await db.doc(COL.desemb+'/'+ed).update({...d,...rv}); else await add(COL.desemb,d); }
