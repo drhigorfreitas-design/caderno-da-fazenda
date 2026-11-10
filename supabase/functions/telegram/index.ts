@@ -32,7 +32,8 @@ const CATS: Record<string, string> = { matrizes: "Matrizes", descarte: "Matrizes
   po_vaca_cria: "P.O. Vaca com cria", po_vaca_solteira: "P.O. Vaca solteira", po_vaca_prenha: "P.O. Vaca prenha", po_touro: "P.O. Touro",
   po_bezerro: "P.O. Bezerro", po_bezerra: "P.O. Bezerra", po_novilha: "P.O. Novilha", po_garrote: "P.O. Garrote" };
 const NASC = ["bezerros", "po_bezerro", "po_bezerra"];
-const TIPOS_MOV: Record<string, string> = { nascimento: "Nascimento", compra: "Compra", venda: "Venda", morte: "Morte", transferencia: "Mudança de categoria" };
+const TIPOS_MOV: Record<string, string> = { nascimento: "Nascimento", compra: "Compra", venda: "Venda", morte: "Morte", transferencia: "Mudança de categoria", transfParte: "Transferência de gado" };
+const TP = "transfParte"; // gado que passa de uma parte para outra (retiro = origem, paraRet = destino; "" = Sede)
 const FRIG_CATS = ["m25_36", "m36", "descarte"]; // gado gordo: venda sem dizer o modo vai como frigorífico (igual ao app)
 const MESF = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
@@ -74,13 +75,14 @@ const SCHEMA = {
       type: "array", description: "um item por movimento de animais; vazio se não houver",
       items: {
         type: "object", additionalProperties: false,
-        required: ["mov", "data", "categoria", "para", "cab", "peso_medio", "modo_venda", "rendimento", "preco_arroba", "preco_cabeca", "valor", "obs", "retiro"],
+        required: ["mov", "data", "categoria", "para", "para_parte", "cab", "peso_medio", "modo_venda", "rendimento", "preco_arroba", "preco_cabeca", "valor", "obs", "retiro"],
         properties: {
           retiro: { type: "string", description: "nome do retiro se a mensagem disser que este item é de um retiro (ex.: 'despesa Santa Helena ...'); vazio = Sede (fazenda principal), também quando citar a Sede" },
           mov: { type: "string", enum: Object.keys(TIPOS_MOV) },
           data: { type: "string", description: "AAAA-MM-DD; vazio se a mensagem não disser (usa hoje)" },
           categoria: { type: "string", enum: Object.keys(CATS), description: "categoria dos animais (na mudança de categoria: a de origem)" },
           para: { type: "string", enum: ["", ...Object.keys(CATS)], description: "só na mudança de categoria: a de destino; senão vazio" },
+          para_parte: { type: "string", description: "só na transfParte (gado levado de uma parte da fazenda para outra, ex.: da Sede para o arrendamento do João): nome da parte de destino ('Sede' se voltar para a Sede); o retiro é a de origem. Senão vazio" },
           cab: { type: "integer", description: "número de cabeças" },
           peso_medio: { type: "number", description: "kg vivo por cabeça; se disser só o peso total da balança, divida pelas cabeças; 0 se não disser" },
           modo_venda: { type: "string", enum: ["", "carcaca", "vivo", "cabeca"], description: "só na venda: carcaca = frigorífico/abate, paga pela @ de carcaça ou disse rendimento; vivo = por @ ou kg de peso vivo (bezerro, garrote, gado para outro produtor); cabeca = preço por cabeça; vazio se não der para saber ou não for venda" },
@@ -249,7 +251,7 @@ const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret 
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n🧾 <b>Contas a pagar:</b> <i>boleto do sal 4.500 vence dia 20</i>. Aviso na véspera e no dia, com o botão Paguei. Mande <b>contas</b> para ver todas.\n📎 Para o contador: <b>planilha</b> (do mês), <b>notas</b> (fotos das notas do mês), <b>planilha do ano</b> (Imposto de Renda).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n🤝 <b>Pastos arrendados:</b> <i>transferi 80 garrotes de 250 kg da Sede para o arrendamento do João</i> · <i>trouxe 40 garrotes de 330 kg do João para a Sede</i>. No dia do pagamento eu marco a conta do aluguel (média de cabeças do mês anterior × valor por cabeça).\n\n🧾 <b>Contas a pagar:</b> <i>boleto do sal 4.500 vence dia 20</i>. Aviso na véspera e no dia, com o botão Paguei. Mande <b>contas</b> para ver todas.\n📎 Para o contador: <b>planilha</b> (do mês), <b>notas</b> (fotos das notas do mês), <b>planilha do ano</b> (Imposto de Renda).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -521,6 +523,12 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       const peso = Number(m.peso_medio) > 0 ? Math.round(Number(m.peso_medio)) : 0, r = rid(m);
       const x: Record<string, unknown> = { tipo: m.mov, data, categoria, cab, pesoMedio: peso, obs: String(m.obs || "").trim() };
       if (m.mov === "transferencia") x.para = m.para;
+      if (m.mov === TP) {
+        const dest = /sede/.test(semAcento(m.para_parte || "")) ? "" : qualRetiro(rets, m.para_parte || "");
+        if (dest === r || (!dest && !/sede/.test(semAcento(m.para_parte || "")))) { avisos.push(`A transferência de ${cab} cab. ficou de fora: diga de onde sai e para onde vai (ex.: da Sede para o arrendamento do João).`); continue; }
+        x.paraRet = dest;
+        if (!peso) avisos.push("Sem o peso médio da transferência o GMD não sai: se tiver, mande de novo com o peso.");
+      }
       let valor: number | null = null;
       if (m.mov === "venda") {
         // frigorífico: @ de carcaça (15 kg) = peso vivo × rendimento ÷ 15; vivo: @ de kgA vivo; por cabeça: só o preço da cabeça
@@ -541,6 +549,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       movs.push({ id: `${base}-m${movs.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, data, tipo: m.mov, categoria, cab,
         valor: valor == null ? null : x.valor, dados: { ...x, ...RT(r), ...autor } });
       txt.push(`🐄 <b>${TIPOS_MOV[m.mov]}</b> · ${nfBR(cab)} cab. · ${esc(CATS[categoria])}${m.mov === "transferencia" ? " → " + esc(CATS[m.para]) : ""}` +
+        (m.mov === TP ? ` · ${esc(nomeRet(rets, r))} → ${esc(nomeRet(rets, x.paraRet as string))}` : "") +
         ` · ${dBR(data)}${peso ? ` · ${nfBR(peso)} kg` : ""}${x.rend ? ` · ${nfBR(x.rend as number)}% rend.` : ""}` +
         `${x.precoArroba ? ` · ${brl(x.precoArroba as number)}/@${x.modo === "carcaca" ? " carcaça" : ""}` : ""}${x.precoCab ? ` · ${brl(x.precoCab as number)}/cab.` : ""}${x.valor ? " · " + brl(x.valor as number) : ""}${tagRet(rets, r)}${x.obs ? `\n   <i>${esc(x.obs as string)}</i>` : ""}`);
     }
@@ -690,45 +699,52 @@ async function todos(d: Deps, tabela: string, fazenda: string, desde = "") {
 // mesmo cálculo do app: último fechamento + movimentos depois dele
 function rebanhoHoje(fechs: any[], movs: any[]) {
   const base = [...fechs].filter((f) => f.mes && f.cats).sort((a, b) => (a.mes < b.mes ? -1 : 1)).pop();
-  if (!base) return null;
-  const cats: Record<string, number> = {};
-  Object.keys(CATS).forEach((c) => (cats[c] = Number(base.cats[c]?.cab) || 0));
-  movs.filter((x) => String(x.data || "").slice(0, 7) > base.mes).forEach((x) => {
+  // sem fechamento: só conta se o gado entrou por transferência (pasto arrendado começa do zero)
+  if (!base && !movs.some((x) => x.interno)) return null;
+  const bm = base?.mes || "", cats: Record<string, number> = {};
+  Object.keys(CATS).forEach((c) => (cats[c] = Number(base?.cats[c]?.cab) || 0));
+  movs.filter((x) => String(x.data || "").slice(0, 7) > bm).forEach((x) => {
     const n = Number(x.cab) || 0;
     if (x.tipo === "nascimento" || x.tipo === "compra") cats[x.categoria] = (cats[x.categoria] || 0) + n;
     else if (x.tipo === "venda" || x.tipo === "morte") cats[x.categoria] = (cats[x.categoria] || 0) - n;
     else if (x.tipo === "transferencia" && cats[x.para] != null) { cats[x.categoria] -= n; cats[x.para] += n; }
   });
   Object.keys(cats).forEach((c) => (cats[c] = Math.max(0, Math.round(cats[c]))));
-  return { mes: base.mes, cats, total: Object.values(cats).reduce((a, b) => a + b, 0) };
+  return { mes: bm, cats, total: Object.values(cats).reduce((a, b) => a + b, 0) };
 }
 
 // rebanho da fazenda toda hoje: soma o de cada parte (retiros e Sede), cada uma com o seu último fechamento + movimentos depois;
 // parte que ainda não tem fechamento entra com o saldo dos movimentos lançados depois do fechamento mais antigo das outras
 function rebanhoTotal(fechs: any[], movs: any[], rets: Retiro[]) {
-  let total = 0, base = "";
+  let total = 0, base = "", tem = false;
   const sem: Grupo[] = [];
   for (const g of grupos(rets)) {
-    const R = rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
-    if (R) { total += R.total; if (!base || R.mes < base) base = R.mes; } else sem.push(g);
+    const R = rebanhoHoje(fechs.filter(g.f), movsG(movs, g, rets));
+    if (R) { total += R.total; tem = true; if (R.mes && (!base || R.mes < base)) base = R.mes; } else sem.push(g);
   }
-  if (!base) return null;
-  sem.forEach((g) => movs.filter(g.f).filter((x) => String(x.data || "").slice(0, 7) > base).forEach((x) => {
+  if (!tem) return null;
+  sem.forEach((g) => movsG(movs, g, rets).filter((x) => String(x.data || "").slice(0, 7) > base).forEach((x) => {
     const n = Number(x.cab) || 0;
     if (x.tipo === "nascimento" || x.tipo === "compra") total += n; else if (x.tipo === "venda" || x.tipo === "morte") total -= n;
   }));
   return { mes: base, cats: null as any, total: Math.max(0, Math.round(total)) };
 }
 /* ---------- grupos dos resumos: um por retiro e a Sede (lançamentos sem retiro) ---------- */
-type Grupo = { nome: string; sem?: boolean; f: (x: any) => boolean };
+type Grupo = { nome: string; sem?: boolean; id?: string; arr?: boolean; f: (x: any) => boolean };
 function grupos(rets: Retiro[], ...listas: any[][]): Grupo[] {
   if (!rets.length) return [{ nome: "", f: () => true }];
   const ids = new Set(rets.map((r) => r.id));
-  const G: Grupo[] = rets.map((r) => ({ nome: r.nome, f: (x: any) => x.retiro === r.id }));
-  G.push({ nome: GERAL, sem: true, f: (x: any) => !ids.has(x.retiro) });
+  const G: Grupo[] = rets.map((r: any) => ({ nome: r.nome, id: r.id, arr: !!r.arr, f: (x: any) => x.retiro === r.id }));
+  G.push({ nome: GERAL, sem: true, id: "", f: (x: any) => !ids.has(x.retiro) });
   return G;
 }
-const tituloG = (g: Grupo) => (g.nome ? `🏠 <b>${esc(g.sem ? g.nome : "Retiro " + g.nome)}</b>\n` : "");
+// movimentos de uma parte para contar cabeças: a transferência de gado sai da origem (como venda) e entra no destino (como compra)
+function movsG(movs: any[], g: Grupo, rets: Retiro[]) {
+  if (g.id == null) return movs.filter((x) => x.tipo !== TP);
+  const ids = new Set(rets.map((r) => r.id)), daqui = (v: string) => (g.id ? v === g.id : !ids.has(v));
+  return movs.flatMap((x) => (x.tipo !== TP ? (g.f(x) ? [x] : []) : [...(daqui(x.retiro) ? [{ ...x, tipo: "venda", interno: true }] : []), ...(daqui(x.paraRet || "") ? [{ ...x, tipo: "compra", interno: true }] : [])]));
+}
+const tituloG = (g: Grupo) => (g.nome ? `🏠 <b>${esc(g.sem ? g.nome : (g.arr ? "Arrendamento " : "Retiro ") + g.nome)}</b>\n` : "");
 const somaV = (a: any[]) => a.reduce((s, x) => s + (Number(x.valor) || 0), 0);
 // "5 nascimentos · 1 morte · 20 vendidos (R$ ...)"
 function rebTxt(movs: any[], comValor: boolean) {
@@ -769,7 +785,7 @@ export async function resumoSemanal(d: Deps) {
     const blocos: string[] = [];
     const retsS = retirosDe(cfg?.dados), RT = rebanhoTotal(fechs, movs, retsS);
     for (const g of grupos(retsS)) {
-      const sm = semana.filter(g.f), gs = gastos.filter(g.f), R = !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+      const sm = semana.filter(g.f), gs = gastos.filter(g.f), R = !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movsG(movs, g, retsS));
       if (g.nome && !sm.length && !gs.length && !R) continue; // retiro sem nada lançado ainda
       const tot = somaV(gs), top = topItens(gs, 3).map(([k, v]) => `${ITN[k] || "Outros"} ${brl(v)}`), reb = rebTxt(sm, true);
       blocos.push(tituloG(g) +
@@ -816,7 +832,7 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
     const blocos: string[] = [], faltaFech: string[] = [];
     const RT = rebanhoTotal(fechs, movs, rets);
     for (const g of grupos(rets)) {
-      const dm = doMes.filter(g.f), gs = gastos.filter(g.f), ga = gastosAnt.filter(g.f), R = !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+      const dm = doMes.filter(g.f), gs = gastos.filter(g.f), ga = gastosAnt.filter(g.f), R = !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movsG(movs, g, rets));
       const pg = Pm.filter(g.f).sort((a: any, b: any) => (a.data < b.data ? -1 : 1));
       if (g.nome && fechs.some((f) => g.f(f)) && !fechs.some((f) => f.mes === mes && g.f(f))) faltaFech.push(g.nome);
       if (g.nome && !dm.length && !gs.length && !R && !pg.length) continue; // retiro sem nada lançado ainda
@@ -1136,6 +1152,36 @@ async function mandaBackup(d: Deps, faz: string, chats: number[], nomeFaz: strin
   return n;
 }
 
+/* ---------- pastos arrendados (retiros com arr: true, precoCab = R$/cab/mês, dia = dia do pagamento) ----------
+   O pagamento do dia X paga o mês anterior inteiro, pela média das cabeças de cada dia. Os avisos não rodam no fim de semana:
+   se o dia caiu num sábado, a conta é marcada no primeiro dia útil depois (alugMes guarda o mês já cobrado). */
+const mesAnt = (mes: string) => { const [a, m] = mes.split("-").map(Number); return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, "0")}`; };
+export function arrDevidos(rets: any[], hoje: string) {
+  const mesH = hoje.slice(0, 7), ult = +fimMes(mesH).slice(8);
+  return rets.filter((r) => r.arr && Number(r.precoCab) > 0 && Number(r.dia) > 0)
+    .map((r) => ({ r, mes: mesAnt(mesH), venc: `${mesH}-${String(Math.min(Number(r.dia), ult)).padStart(2, "0")}` }))
+    .filter((v) => hoje >= v.venc && v.r.alugMes !== v.mes);
+}
+// cabeças da parte num dia: último fechamento até o dia + movimentos (com transferências) depois dele
+function cabNoDia(F: any[], M: any[], d: string) {
+  const b = F.filter((f) => f.mes && fimMes(f.mes) <= d).sort((a, c) => (a.mes < c.mes ? -1 : 1)).pop(), de = b ? fimMes(b.mes) : "";
+  let n = b ? Object.values(b.cats || {}).reduce((s: number, v: any) => s + (Number(v?.cab) || 0), 0) : 0;
+  for (const x of M) if (x.data > de && x.data <= d) { const k = Number(x.cab) || 0; if (x.tipo === "nascimento" || x.tipo === "compra") n += k; else if (x.tipo === "venda" || x.tipo === "morte") n -= k; }
+  return Math.max(0, n);
+}
+export function aluguelMedia(fechs: any[], movs: any[], rets: any[], id: string, mes: string) {
+  const g: Grupo = { nome: "", id, f: (x: any) => x.retiro === id }, F = fechs.filter(g.f), M = movsG(movs, g, rets), fim = fimMes(mes);
+  let s = 0, n = 0;
+  for (let d = `${mes}-01`; d <= fim; d = somaDias(d, 1)) { s += cabNoDia(F, M, d); n++; }
+  return n ? s / n : 0;
+}
+export function contaAluguel(r: any, mes: string, venc: string, media: number) {
+  const m1 = Math.round(media * 10) / 10, valor = Math.round(m1 * Number(r.precoCab) * 100) / 100;
+  if (!(valor > 0)) return null; // sem gado lá no mês: nada a pagar
+  return { id: `${crypto.randomUUID()}-b1`, descricao: `Aluguel do pasto ${r.nome} · ${MESF[+mes.slice(5) - 1].toLowerCase()}: média ${nfBR(m1, m1 % 1 ? 1 : 0)} cab. × ${brl(Number(r.precoCab))}`,
+    valor, venc, item: "arrendamento", centro: "geral", retiro: r.id, auto: "arrendamento", porId: "", por: "robô", criadoEm: new Date().toISOString() };
+}
+
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
 export async function avisosDiarios(d: Deps) {
   const hoje = hojeMT();
@@ -1152,6 +1198,16 @@ export async function avisosDiarios(d: Deps) {
     const alt = cot ? (D.alertas || []).filter((a: any) => (a.direcao === "abaixo" ? cot!.spot <= a.valor : cot!.spot >= a.valor)) : [];
     const velhos = (D.lembretes || []).some((x: any) => x.enviado && dias(x.enviado, hoje) > LIMPA_ENVIADOS);
     const amanha = somaDias(hoje, 1), rets = retirosDe(D);
+    // aluguel dos pastos arrendados: no dia do pagamento marca a conta do mês anterior (média de cabeças de cada dia × R$/cab.)
+    const devidos = arrDevidos(rets, hoje);
+    if (devidos.length) {
+      const [fechs, movs] = await Promise.all([todos(d, "fechamentos", c.fazenda_id), todos(d, "movimentos", c.fazenda_id)]);
+      const novas = devidos.map(({ r, mes, venc }) => contaAluguel(r, mes, venc, aluguelMedia(fechs, movs, rets, r.id, mes)));
+      const ok = await mudaCfg(d, c.fazenda_id, (X) => ({ ...X,
+        retiros: retirosDe(X).map((r: any) => (devidos.some((v) => v.r.id === r.id) ? { ...r, alugMes: devidos.find((v) => v.r.id === r.id)!.mes } : r)),
+        contas: [...(X.contas || []), ...novas.filter(Boolean)] }));
+      if (ok) D.contas = [...(D.contas || []), ...novas.filter(Boolean)];
+    }
     const cv = abertas(D).filter((c: any) => (c.venc === amanha && !c.avisos?.v) || (c.venc <= hoje && !c.avisos?.d));
     if (!lem.length && !alt.length && !velhos && !cv.length) continue;
     const daFaz = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
@@ -1395,7 +1451,7 @@ export async function contexto(d: Deps, faz: string) {
   const RN = (x: any) => (rets.length ? rets.find((r) => r.id === x.retiro)?.nome || GERAL : "");
   const G: Grupo[] = [...grupos(rets).filter((g) => g.nome), { nome: "fazenda toda (total)", f: () => true }];
   const reb = G.map((g) => {
-    const R: any = g.nome === "fazenda toda (total)" ? rebanhoTotal(fechs, movs, rets) : rebanhoHoje(fechs.filter(g.f), movs.filter(g.f));
+    const R: any = g.nome === "fazenda toda (total)" ? rebanhoTotal(fechs, movs, rets) : rebanhoHoje(fechs.filter(g.f), movsG(movs, g, rets));
     const nome = `${g.nome === "fazenda toda (total)" || g.sem ? g.nome : "retiro " + g.nome}: `;
     return R ? `${nome}total ${R.total} cabeças (fechamento de ${R.mes} + movimentos depois)` +
       (R.cats ? "; " + Object.entries(R.cats).filter(([, v]) => v).map(([k, v]) => `${CN(k)} ${v}`).join("; ") : "") : `${nome}nenhum fechamento de mês lançado ainda`;
