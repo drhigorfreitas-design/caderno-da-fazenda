@@ -548,7 +548,7 @@ const CFG0={nome:FAZ,usuario:'Dr. Higor',kgArroba:30,area:0,safraMes:7,selic:15,
 const S={fech:[],movs:[],desemb:[],estacoes:[],engorda:[],insumos:[],emovs:[],form:[],adapt:[],config:{...CFG0},membros:[],convites:[]};
 /* fazenda compartilhada: FID = fazenda aberta (null = banco antigo, um dono por registro); MEMB = fazendas de quem está logado */
 let FID=null, MEMB=[], MEU_EMAIL='';
-const UI={tab:'inicio',per:'safra',fase:'total',entry:{},eo:{},relFase:'total',notaMes:'',ret:(()=>{try{return localStorage.getItem('retiro')||'';}catch(e){return '';}})()};
+const UI={tab:'inicio',per:'safra',fase:'total',entry:{},eo:{},relFase:'total',notaMes:'',ret:(()=>{try{return localStorage.getItem('retiro')||'';}catch(e){return '';}})(),semArr:(()=>{try{return localStorage.getItem('semArr')==='1';}catch(e){return false;}})()};
 /* ---------- partes da fazenda: os retiros e a Sede (fazenda principal = lançamentos sem retiro). A tela mostra uma parte (UI.ret) ou a fazenda toda (UI.ret='') ----------
    RAW guarda tudo o que veio do banco; S guarda só o que a tela mostra. Cada lançamento leva "retiro" nos dados. */
 const RAW={};
@@ -578,8 +578,13 @@ const valRef=x=>(+x.cab||0)*pesoRef(x)/kgA()*preco(x.categoria);
 function movsDaParte(a,id){ const out=[]; a.forEach(x=>{ if(x.tipo!==TP){ if(daParte(id,x)) out.push(x); return; }
   if(origemTP(x)===id) out.push({...x,tipo:'venda',interno:'saida',valor:valRef(x),pesoMedio:pesoRef(x)});
   if(destinoTP(x)===id) out.push({...x,tipo:'compra',interno:'entrada',retiro:id===SEDE?'':id,valor:valRef(x),pesoMedio:pesoRef(x)}); }); return out; }
+/* fazenda toda "sem arrendamentos" (botão no topo): só retiros e Sede; transferência própria ↔ arrendamento vira saída/entrada */
+const proprio=x=>!ehArr(x.retiro);
+const movsProprios=a=>a.flatMap(x=>{ if(x.tipo!==TP) return proprio(x)?[x]:[]; const o=!ehArr(origemTP(x)), d=!ehArr(destinoTP(x)); if(o===d) return o?[x]:[];
+  return [{...x,tipo:o?'venda':'compra',interno:o?'saida':'entrada',valor:valRef(x),pesoMedio:pesoRef(x)}]; });
 function filtraCol(k){ const a=RAW[k]||[]; if(!RET_COLS.has(k)||!retiros().length) return a;
   if(UI.ret) return k==='movs'?movsDaParte(a,UI.ret):a.filter(x=>daParte(UI.ret,x));
+  if(UI.semArr&&arrs().length) return k==='fech'?juntaFech(a.filter(proprio)):k==='movs'?movsProprios(a):a.filter(proprio);
   return k==='fech'?juntaFech(a):a; }
 function aplicaRetiro(){ if(UI.ret&&!retAtual()) UI.ret=''; Object.keys(COL).forEach(k=>{ if(RAW[k]) S[k]=filtraCol(k); }); }
 const retTxt=x=>!UI.ret&&retiros().length?' · 🏠 '+esc(retNome(x.retiro)):'';
@@ -678,8 +683,15 @@ function calc(per=UI.per,fase=null){
     R.desembMatriz=R.despesas/R.matrizesMed/J.meses;
   }
   R.pctVar=R.var/R.despesas*100; R.pctInsPas=R.insPas/R.despesas*100;
+  /* fazenda toda com pastos arrendados: os índices por hectare usam só as áreas próprias (o gado do arrendamento não está nos hectares da fazenda) */
+  if(!UI.ret&&arrs().length&&!UI.semArr&&!soPropria.ativo){ const P=soPropria(()=>calc(per,fase)); ['arrHa','uaHa','cabHa','resHa'].forEach(k=>R[k]=P[k]); R.soPropria=true; }
   return R;
 }
+/* roda uma conta só com as áreas próprias (retiros e Sede): tira o que é dos arrendamentos; transferência própria ↔ arrendamento vira saída/entrada */
+function soPropria(fn){ const sv={fech:S.fech,movs:S.movs,desemb:S.desemb};
+  S.fech=juntaFech((RAW.fech||[]).filter(proprio)); S.desemb=(RAW.desemb||[]).filter(proprio); S.movs=movsProprios(RAW.movs||[]);
+  soPropria.ativo=true; try{ return fn(); } finally{ soPropria.ativo=false; Object.assign(S,sv); } }
+const lastFechProprio=()=>{ if(UI.ret||!arrs().length||UI.semArr) return lastFech(); return soPropria(()=>lastFech()); };
 function quadrante(R){ if(!ok(R.pctDesVenda)||!ok(R.pctInsPas)) return 0; const x=R.pctDesVenda<70, y=R.pctInsPas>50; return x&&y?1:x?2:y?3:4; }
 
 /* ---------- render: comuns ---------- */
@@ -772,12 +784,12 @@ function detalhe(R,comExtra=true){
     ${cats.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoria</th><th>Cab.</th><th>Peso kg</th><th>@</th></tr></thead><tbody>${cats.map(([k,n])=>`<tr><td>${n}</td><td>${nf(cabOf(last,k))}</td><td>${nf(pesoOf(last,k))}</td><td>${nf(cabOf(last,k)*pesoOf(last,k)/kgA())}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhum animal desta fase no último fechamento.</p>'}</div>`:''}
   <div class="panel"><h2>Produção</h2>
     ${ind('Produção',nf(R.prodArr,0)+' @',{f:'estoque final − inicial − entradas + saídas',ref:nf(R.prodKg,0)+' kg PV'})}
-    ${ind('Arrobas por hectare ao ano',nf(R.arrHa,2)+' @/ha',{f:'produção em @ ÷ área produtiva',ref:'meta 25',st:ok(R.arrHa)?st(R.arrHa>=25):null})}
+    ${ind('Arrobas por hectare ao ano',nf(R.arrHa,2)+' @/ha',{f:'produção em @ ÷ área produtiva'+(R.soPropria?' · só áreas próprias':''),ref:'meta 25',st:ok(R.arrHa)?st(R.arrHa>=25):null})}
     ${ind('GMD global',nf(R.gmd,3)+' kg/dia',{f:'produção kg ÷ rebanho médio ÷ dias'})}
     ${ind('Taxa de desfrute',pct(R.desfrute),{f:'produção em @ ÷ estoque inicial em @'})}
     ${ind(f?'Saídas (vendas e passagem de fase)':'Taxa de vendas e abates',pct(R.taxaVendas),{f:'cabeças que saíram ÷ rebanho inicial',ref:nf(R.vendasCab)+' cab.'})}
     ${ind('Rebanho médio',nf(R.rebMed,0)+' cab.',{f:'média dos fechamentos mensais',ref:nf(R.uaMed,0)+' UA'})}
-    ${ind('Lotação',nf(R.uaHa,2)+' UA/ha',{f:'UA média ÷ área (1 UA = 450 kg)',ref:nf(R.cabHa,2)+' cab/ha · média BR 0,6 · bench 1,5',st:ok(R.uaHa)?st(R.uaHa>=1.5):null})}
+    ${ind('Lotação',nf(R.uaHa,2)+' UA/ha',{f:'UA média ÷ área (1 UA = 450 kg)'+(R.soPropria?' · só áreas próprias, sem os arrendamentos':''),ref:nf(R.cabHa,2)+' cab/ha · média BR 0,6 · bench 1,5',st:ok(R.uaHa)?st(R.uaHa>=1.5):null})}
     ${ind('Mortalidade',pct(R.mortalidade,2),{f:'mortes ÷ rebanho médio',ref:nf(R.mortes)+' cab.'})}
   </div>
   <div class="panel"><h2>Custo</h2>
@@ -805,7 +817,7 @@ function detalhe(R,comExtra=true){
     ${ind('Variação do rebanho',brl(R.varReb),{f:'valor do estoque final − inicial, a preço de referência'})}
     ${f?'':ind('Variação dos insumos',brl(R.varIns),{f:'estoque de insumos final − inicial'})}
     ${ind('<b>Resultado da operação</b>',brl(R.resFinal),{f:f?'caixa + variação do rebanho':'caixa + variação do rebanho + variação dos insumos',st:ok(R.resFinal)?st(R.resFinal>=0):null})}
-    ${ind('Resultado por hectare ao ano',brl(R.resHa),{f:'resultado ÷ área produtiva',ref:'alvo acima de R$ 1.200',st:ok(R.resHa)?st(R.resHa>=1200):null})}
+    ${ind('Resultado por hectare ao ano',brl(R.resHa),{f:'resultado ÷ área produtiva'+(R.soPropria?' · só áreas próprias':''),ref:'alvo acima de R$ 1.200',st:ok(R.resHa)?st(R.resHa>=1200):null})}
     ${ind('Resultado sobre o valor do rebanho',pct(R.resValReb),{f:'resultado ÷ valor inicial do rebanho',ref:'alvo 25% · Selic '+nf(selicAA(),2)+'%',st:ok(R.resValReb)?st(R.resValReb>=selicAA()):null})}
     ${f?'':ind('Produção sobre o patrimônio',pct(R.prodPatr),{f:'@ produzidas × preço ÷ valor inicial do rebanho',ref:'alvo 15%',st:ok(R.prodPatr)?st(R.prodPatr>=15):null})}
     ${ind('Preço médio de venda',brl(R.precoArr,2)+'/@',{f:'@ de '+kgA()+' kg vivo, a mesma régua do custo da @ produzida',ref:brl(R.precoKg,2)+'/kg vivo'+(ok(R.precoFrig)?' · frigorífico '+brl(R.precoFrig,2)+'/@ de carcaça':'')})}
@@ -1278,10 +1290,11 @@ function arrHTML(){ if(!ehArr(UI.ret)&&!UI.arrAberto) return ''; /* só com "Arr
     <tbody>${lin.map(([n,f])=>`<tr><td>${n}</td>${L.map(x=>`<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     <p class="note">Aluguel: o pagamento de cada mês usa a média de cabeças de todos os dias do mês anterior × o valor por cabeça (o robô marca a conta no dia do pagamento). GMD: peso de saída − peso de entrada, das entradas mais antigas para as mais novas; para o gado que ainda está lá, usa a pesagem mais recente. Resultado = saídas e vendas + gado que está lá − entradas − custos, com o gado avaliado pelo preço de referência da @ (Ajustes).</p></div>`; }
 function indicesHTML(){
-  const P=partes(), cols=[];
+  const P=partes().filter(r=>!(r.arr&&UI.semArr&&!UI.ret)), cols=[];
   if(P.length){ P.forEach(r=>cols.push({id:r.id,n:r.nome,I:indicesDe((RAW.fech||[]).filter(x=>daParte(r.id,x)),movsDaParte(RAW.movs||[],r.id),+r.area||0)}));
-    cols.push({id:'',n:'Fazenda toda',I:indicesDe(juntaFech(RAW.fech||[]),RAW.movs||[],+S.config.area||sum(P,r=>r.area))});
-    cols[cols.length-1].I.cheio=cols.slice(0,-1).every(c=>c.I.cheio); }
+    const sA=!!(UI.semArr&&arrs().length); cols.push({id:'',n:sA?'Fazenda toda (sem arrend.)':'Fazenda toda',I:indicesDe(sA?juntaFech((RAW.fech||[]).filter(proprio)):juntaFech(RAW.fech||[]),sA?movsProprios(RAW.movs||[]):RAW.movs||[],+S.config.area||sum(P,r=>r.area))});
+    cols[cols.length-1].I.cheio=cols.slice(0,-1).every(c=>c.I.cheio);
+    if(arrs().length){ const own=P.filter(r=>!r.arr), I2=indicesDe(juntaFech((RAW.fech||[]).filter(x=>!ehArr(x.retiro))),[],+S.config.area||sum(own,r=>r.area)); cols[cols.length-1].I.uaHa=I2.uaHa; } }
   else cols.push({id:'',n:fazNome(),I:indicesDe(S.fech,S.movs,area())});
   const {s,t}=jan12(), vazio=cols.every(c=>!c.I.mesF&&!c.I.nasc&&!c.I.mortes&&!c.I.vendas&&!c.I.compras);
   const th=c=>`<th${P.length&&c.id===UI.ret?' style="color:var(--ink)"':''}>${esc(c.n)}</th>`;
@@ -1738,7 +1751,7 @@ function saudacao(){ const h=new Date().getHours(), n=meuNome(); return (h<12?'B
 function bandInfo(){
   const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0, painel=UI.tab==='inicio'||UI.tab==='painel';
   document.body.dataset.tab=UI.tab; $('#band').classList.toggle('slim',!painel);
-  const rt=retAtual(), nomeVista=fazNome()+(rt?' · '+(rt.id===SEDE?'':rt.arr?'Arrendamento ':'Retiro ')+rt.nome:'');
+  const rt=retAtual(), nomeVista=fazNome()+(rt?' · '+(rt.id===SEDE?'':rt.arr?'Arrendamento ':'Retiro ')+rt.nome:UI.semArr&&arrs().length?' · sem arrendamentos':'');
   $('#welcome').textContent=painel?saudacao():nomeVista;
   $('#bandSub').innerHTML='<b>'+esc(nomeVista)+'</b>'+(last?' · '+nf(cab)+' cab. em '+nf(ua)+' UA'+(A?' em '+nf(A)+' ha':''):' · comece pelo fechamento do rebanho');
   const nm=meuNome()||'Sócio'; $('#who').innerHTML=`<span class="av">${esc(nm.replace(/^(dr|dra)\.?\s+/i,'').charAt(0).toUpperCase()||'F')}</span><div><b>${esc(nm)}</b><small>${esc(fazNome())}</small></div><button class="out" type="button" data-logout>Sair</button>`;
@@ -1746,7 +1759,7 @@ function bandInfo(){
 function statRow(){
   const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0;
   const c=(ic,v,l)=>`<div class="stat-c"><span class="ico">${svgI(ic)}</span><div><b>${v}</b><small>${l}</small></div></div>`;
-  return `<div class="statrow">${c('boi',last?nf(cab):'—','Cabeças hoje')}${c('ua',last?nf(ua):'—','UA hoje (450 kg)')}${c('pasto',last&&A?nf(ua/A,2):'—','Lotação UA/ha')}${c('cal',last?mLabel(last.mes):'—','Último fechamento')}</div>`;
+  return `<div class="statrow">${c('boi',last?nf(cab):'—','Cabeças hoje')}${c('ua',last?nf(ua):'—','UA hoje (450 kg)')}${c('pasto',(()=>{const lp=lastFechProprio(); return lp&&A?nf(fKg(lp)/450/A,2):'—';})(),'Lotação UA/ha')}${c('cal',last?mLabel(last.mes):'—','Último fechamento')}</div>`;
 }
 function donutFases(RT,RF){
   const R=54, C=2*Math.PI*R, J=RT.J; let off=0, segs='';
@@ -1856,6 +1869,7 @@ function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.
   /* "Arrendamentos" abre (ou fecha) a linha com os parceiros; fica aberta enquanto um deles estiver escolhido */
   const emArr=ehArr(UI.ret), aberto=emArr||UI.arrAberto;
   el.innerHTML=`<div class="seg">${partes().filter(r=>!r.arr).map(bt).join('')}<button type="button" data-arrtoggle aria-pressed="${emArr}" aria-expanded="${!!aberto}">Arrendamentos ${aberto?'▴':'▾'}</button><button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`+
+    (!UI.ret&&A.length?`<div style="margin-top:6px;text-align:right"><button type="button" class="btn" data-semarr aria-pressed="${!UI.semArr}" title="Liga ou desliga os pastos arrendados nas contas da fazenda toda">${UI.semArr?'☐ Arrendamentos fora da conta':'☑ Arrendamentos somados'}</button></div>`:'')+
     (aberto?`<div class="seg seg-arr" style="margin-top:6px">${A.length?A.map(bt).join(''):'<span class="small muted" style="align-self:center;padding:0 8px">Nenhum parceiro ainda</span>'}<button type="button" data-arredit>${A.length?'✎ Editar':'+ Cadastrar'}</button></div>`:''); }
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
   const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
@@ -2485,6 +2499,7 @@ document.addEventListener('click',async e=>{
     try{ await acessoApi(b.dataset.acAcao,{user_id:b.dataset.acBloq}); await carregaAcessos(); render(); toast(b.dataset.acAcao==='bloquear'?'Acesso bloqueado':'Acesso liberado'); }
     catch(x){ b.disabled=false; toast(x.message); } return; }
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if('semarr' in b.dataset){ UI.semArr=!UI.semArr; try{localStorage.setItem('semArr',UI.semArr?'1':'0');}catch(x){} aplicaRetiro(); toast(UI.semArr?'Fazenda toda sem os arrendamentos':'Fazenda toda com os arrendamentos'); return render(); }
   if('arrtoggle' in b.dataset){ if(!ehArr(UI.ret)) UI.arrAberto=!UI.arrAberto; return render(); }
   if('arredit' in b.dataset) return abreArrendamentos();
   if(b.dataset.arrdel){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const id=b.dataset.arrdel;
