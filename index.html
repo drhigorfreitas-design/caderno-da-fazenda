@@ -1098,16 +1098,17 @@ function renderAjustes(){
       <div class="grid2">${CATS.map(([k,n])=>`<label class="fl">${n} (R$/@)<input id="cfg-p-${k}" name="p_${k}" type="number" step="0.01" min="0" value="${esc(preco(k))}"></label>`).join('')}</div>
     </details>
     <div class="btns"><button class="btn primary" type="submit">Salvar ajustes</button></div>
-  </form>${semRetiroHTML()}</div>${arrAjustesHTML()}`;
+  </form>${semRetiroHTML()}</div>`;
 }
-/* cadastro dos pastos arrendados: nome do parceiro, R$ por cabeça/mês e dia do pagamento (o robô lança a conta pela média de cabeças) */
+/* cadastro dos pastos arrendados (janelinha aberta pelo "Editar" do topo): nome do parceiro, R$ por cabeça/mês e dia do pagamento */
+function abreArrendamentos(){ $('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Arrendamentos"><div class="row-head"><h2>Arrendamentos</h2><button class="btn link" type="button" data-close>Fechar</button></div>${arrAjustesHTML()}</div></div>`; }
 function arrAjustesHTML(){ if(!retiros().length) return '';
   const lin=(r,k)=>`<div class="grid3" style="margin-bottom:8px">
     <label class="fl">Parceiro<input name="an_${k}" value="${esc(r.nome||'')}" maxlength="40" placeholder="Nome do parceiro"></label>
     <label class="fl">R$ por cabeça/mês<input name="ap_${k}" type="number" step="0.01" min="0" value="${esc(r.precoCab||'')}"></label>
     <label class="fl">Dia do pagamento<input name="ad_${k}" type="number" step="1" min="1" max="31" value="${esc(r.dia||'')}"></label></div>`;
-  return `<div class="panel" id="arrAj"><h2>Pastos arrendados</h2>
-  <p class="note">Cada parceiro vira uma parte da fazenda, com rebanho, custos e resultado próprios. Leve o gado com <b>Movimento → Transferência de gado</b>. No dia do pagamento o robô marca a conta do aluguel: média de cabeças do mês × valor por cabeça.</p>
+  return `<div id="arrAj">
+  <p class="note">Cada parceiro vira uma parte da fazenda, com rebanho, custos e resultado próprios. Leve o gado com <b>Movimento → Transferência de gado</b>. No dia do pagamento o robô marca a conta do aluguel: média de cabeças do mês anterior × valor por cabeça.</p>
   <form class="f" id="arrF" style="margin-top:10px">${arrs().map(r=>lin(r,r.id)+(arrUsado(r.id)?'':`<div class="btns" style="margin:-4px 0 10px"><button class="btn" type="button" data-arrdel="${esc(r.id)}">Excluir ${esc(r.nome)}</button></div>`)).join('')}
     <p class="small muted" style="margin:6px 0">${arrs().length?'Novo arrendamento (opcional)':'Primeiro arrendamento'}</p>${lin({},'novo')}
     <div class="btns"><button class="btn primary" type="submit">Salvar arrendamentos</button></div></form></div>`; }
@@ -1260,7 +1261,8 @@ function arrResumo(r){ const id=r.id, F=(RAW.fech||[]).filter(f=>daParte(id,f)),
   const estV=sum(G.est,e=>e.n*((e.p||G.pE||0)+(G.ganhoP||0))/kgA()*preco(e.c)), arr=(G.kg+G.kgP)/kgA();
   const ant=addM(ym(hoje),-1);
   return {r,cab:cabNoDia(F,M,hoje),al:aluguelMes(id,ant),alAt:aluguelMes(id,ym(hoje)),ant,G,custos,aluguel,cabMes:cabDias/30,arr,res:sai+estV-ent-custos,ini}; }
-function arrHTML(){ const A=arrs().filter(r=>!UI.ret||UI.ret===r.id); if(!A.length) return '';
+function arrHTML(){ if(!ehArr(UI.ret)&&!UI.arrAberto) return ''; /* só com "Arrendamentos" aberto no topo */
+  const A=arrs().filter(r=>!ehArr(UI.ret)||UI.ret===r.id); if(!A.length) return '';
   const L=A.map(arrResumo), g=(v,d=3)=>ok(v)?nf(v,d)+' kg/dia':'—';
   const lin=[['Cabeças hoje',x=>nf(x.cab)],
     ['Aluguel de '+mLabel(L[0].ant),x=>x.r.precoCab?`${brl(x.al.valor)}<br><span class="small muted">média ${nf(x.al.med,1)} cab. × ${brl(+x.r.precoCab,2)}</span>`:'<span class="small muted">falta o R$/cab. em Ajustes</span>'],
@@ -1851,8 +1853,10 @@ function renderFase(k){
 }
 function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.hidden=!R.length||!db; if(el.hidden) return;
   const bt=r=>`<button type="button" data-ret="${esc(r.id)}" aria-pressed="${UI.ret===r.id}">${esc(r.nome)}</button>`, A=arrs();
-  el.innerHTML=`<div class="seg">${partes().filter(r=>!r.arr).map(bt).join('')}<button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`+
-    (A.length?`<div class="seg seg-arr" style="margin-top:6px"><span class="small muted" style="align-self:center;padding:0 6px">Arrendados</span>${A.map(bt).join('')}</div>`:''); }
+  /* "Arrendamentos" abre (ou fecha) a linha com os parceiros; fica aberta enquanto um deles estiver escolhido */
+  const emArr=ehArr(UI.ret), aberto=emArr||UI.arrAberto;
+  el.innerHTML=`<div class="seg">${partes().filter(r=>!r.arr).map(bt).join('')}<button type="button" data-arrtoggle aria-pressed="${emArr}" aria-expanded="${!!aberto}">Arrendamentos ${aberto?'▴':'▾'}</button><button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`+
+    (aberto?`<div class="seg seg-arr" style="margin-top:6px">${A.length?A.map(bt).join(''):'<span class="small muted" style="align-self:center;padding:0 8px">Nenhum parceiro ainda</span>'}<button type="button" data-arredit>${A.length?'✎ Editar':'+ Cadastrar'}</button></div>`:''); }
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
   const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
   ({mapa:renderMapa,notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
@@ -2446,7 +2450,7 @@ function dbErr(e){ if(e?.code==='form') return toast(e.msg||'Confira os campos d
 document.addEventListener('click',async e=>{
   const b=e.target.closest('button,[data-close]'); if(!b) return; if(b.matches('.sheet-bg')&&e.target!==b) return;
   if(b.dataset.tab) return showTab(b.dataset.tab);
-  if('ret' in b.dataset&&b.closest('#retbar')){ await salvaNotaPendente(); UI.ret=b.dataset.ret; try{localStorage.setItem('retiro',UI.ret);}catch(x){} closeSheet(); UI.eo={}; DIRTY=false; aplicaRetiro(); return render(); }
+  if('ret' in b.dataset&&b.closest('#retbar')){ await salvaNotaPendente(); UI.ret=b.dataset.ret; if(!ehArr(UI.ret)) UI.arrAberto=false; try{localStorage.setItem('retiro',UI.ret);}catch(x){} closeSheet(); UI.eo={}; DIRTY=false; aplicaRetiro(); return render(); }
   if(b.dataset.per){UI.per=b.dataset.per;try{localStorage.setItem('per2',UI.per);}catch(x){} return render();}
   if(b.dataset.themeSet) return setTema(b.dataset.themeSet);
   if(b.hasAttribute('data-logout')) return sair();
@@ -2481,9 +2485,11 @@ document.addEventListener('click',async e=>{
     try{ await acessoApi(b.dataset.acAcao,{user_id:b.dataset.acBloq}); await carregaAcessos(); render(); toast(b.dataset.acAcao==='bloquear'?'Acesso bloqueado':'Acesso liberado'); }
     catch(x){ b.disabled=false; toast(x.message); } return; }
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if('arrtoggle' in b.dataset){ if(!ehArr(UI.ret)) UI.arrAberto=!UI.arrAberto; return render(); }
+  if('arredit' in b.dataset) return abreArrendamentos();
   if(b.dataset.arrdel){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const id=b.dataset.arrdel;
     if(arrUsado(id)) return toast('Esse arrendamento já tem lançamentos: não dá para excluir.'); if(arma(b)) return;
-    try{ await db.configMod(c=>({...c,retiros:(Array.isArray(c.retiros)?c.retiros:RET0).filter(r=>r.id!==id)})); if(UI.ret===id){ UI.ret=''; aplicaRetiro(); } toast('Arrendamento excluído'); render(); }catch(e){ dbErr(e); } return; }
+    try{ await db.configMod(c=>({...c,retiros:(Array.isArray(c.retiros)?c.retiros:RET0).filter(r=>r.id!==id)})); if(UI.ret===id){ UI.ret=''; aplicaRetiro(); } toast('Arrendamento excluído'); render(); abreArrendamentos(); }catch(e){ dbErr(e); } return; }
   if(b.hasAttribute('data-migra')){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const r=($('#migraRet')||{}).value; if(!r) return; if(arma(b)) return;
     const L=semRetiro(); b.disabled=true; b.textContent='Passando…'; let n=0;
     try{ for(const x of L.filter(x=>x.k!=='pesagens')){ await db.doc(COL[x.k]+'/'+x.id).update({retiro:r}); n++; }
@@ -2545,7 +2551,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
         if(novo.nome){ if(nomes.includes(novo.nome.toLowerCase())||L.some(r=>r.arr&&r.nome.toLowerCase()===novo.nome.toLowerCase())) throw {code:'form',msg:'Já existe uma parte com esse nome.'};
           const n=Math.max(0,...L.filter(r=>/^a\d+$/.test(r.id)).map(r=>+r.id.slice(1)))+1; L=[...L,{id:'a'+n,nome:novo.nome,arr:true,precoCab:novo.precoCab,dia:novo.dia,donos:[],area:0,areaFase:{}}]; }
         return {...c,retiros:L}; });
-      toast(novo.nome?'Arrendamento criado: escolha "'+novo.nome+'" no topo da tela':'Arrendamentos salvos'); render(); }catch(e){ dbErr(e); } return; }
+      UI.arrAberto=true; closeSheet(); toast(novo.nome?'Parceiro '+novo.nome+' cadastrado':'Arrendamentos salvos'); render(); }catch(e){ dbErr(e); } return; }
   if(f.id==='cfg'){ if(!db||!writable) return toast('Sem permissão para salvar.'); const precos={},fases={},areaFase={}; CK.forEach(k=>{precos[k]=Number(f['p_'+k].value)||0; fases[k]=f['f_'+k].value||FASE_PADRAO[k];}); CENTROS.forEach(k=>areaFase[k]=Number(f['a_'+k].value)||0);
     const retirosN=retiros().map(r=>({...r,nome:(f['rn_'+r.id]?.value||'').trim()||r.nome,area:Number(f['ra_'+r.id]?.value)||0,
       areaFase:Object.fromEntries(CENTROS.map(k=>[k,Number(f['rf_'+r.id+'_'+k]?.value)||0])),
