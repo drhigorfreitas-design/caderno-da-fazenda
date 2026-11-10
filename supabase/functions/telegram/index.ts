@@ -831,8 +831,10 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
     const P = D.pesagens || [], Pm = P.filter((p: any) => p.data >= ini && p.data <= fim);
     const blocos: string[] = [], faltaFech: string[] = [];
     const RT = rebanhoTotal(fechs, movs, rets);
+    let cabArr = 0; // cabeças nos pastos arrendados (para o total sem eles)
     for (const g of grupos(rets)) {
       const dm = doMes.filter(g.f), gs = gastos.filter(g.f), ga = gastosAnt.filter(g.f), R = !g.nome ? null : rebanhoHoje(fechs.filter(g.f), movsG(movs, g, rets));
+      if (g.arr && R) cabArr += R.total;
       const pg = Pm.filter(g.f).sort((a: any, b: any) => (a.data < b.data ? -1 : 1));
       if (g.nome && fechs.some((f) => g.f(f)) && !fechs.some((f) => f.mes === mes && g.f(f))) faltaFech.push(g.nome);
       if (g.nome && !dm.length && !gs.length && !R && !pg.length) continue; // retiro sem nada lançado ainda
@@ -860,13 +862,17 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
     if (!blocos.length) blocos.push(`🐄 <b>Rebanho no mês:</b> nenhum movimento lançado\n💸 <b>Custos: ${brl(0)}</b>\n`);
     if (!fechs.some((f) => f.mes === mes) && !faltaFech.length) faltaFech.push("");
     const totM = somaV(gastos), vendM = somaV(doMes.filter((x) => x.tipo === "venda")), compM = somaV(doMes.filter((x) => x.tipo === "compra"));
+    // o mesmo total só com as áreas próprias (sem o que foi lançado nos pastos arrendados)
+    const arrIds = new Set(rets.filter((r: any) => r.arr).map((r) => r.id)), prop = (x: any) => !arrIds.has(x.retiro);
+    const totP = somaV(gastos.filter(prop)), vendP = somaV(doMes.filter((x) => x.tipo === "venda" && prop(x))), compP = somaV(doMes.filter((x) => x.tipo === "compra" && prop(x)));
     const contasMes = abertas(D).filter((c: any) => c.venc.slice(0, 7) <= hoje.slice(0, 7))
       .map((c: any) => `   • ${dBR(c.venc).slice(0, 5)} · ${esc(c.descricao)} · ${brl(c.valor)}${c.venc < hoje ? " ⚠️ vencida" : ""}`);
     const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
       .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
     const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
       blocos.join("\n") +
-      `\n📊 <b>Total da fazenda:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${RT ? ` · ${nfBR(RT.total)} cabeças hoje` : ""}\n` +
+      `\n📊 <b>Total da fazenda${arrIds.size ? " (com os arrendamentos)" : ""}:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${RT ? ` · ${nfBR(RT.total)} cabeças hoje` : ""}\n` +
+      (arrIds.size ? `📊 <b>Sem os arrendamentos</b> (só áreas próprias): custos ${brl(totP)}${vendP || compP ? ` · vendas ${brl(vendP)} · compras ${brl(compP)} · saldo <b>${brl(vendP - compP - totP)}</b>` : ""}${RT ? ` · ${nfBR(Math.max(0, RT.total - cabArr))} cabeças hoje` : ""}\n` : "") +
       (contasMes.length ? `\n🧾 <b>Contas a pagar em ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${contasMes.join("\n")}\n` : "") +
       (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
       (faltaFech.length ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app${faltaFech[0] ? ` (${esc(faltaFech.join(" e "))})` : ""}: contar o gado e o peso de cada categoria. Com ele saem produção, GMD e lotação do mês.\n` : "") +
