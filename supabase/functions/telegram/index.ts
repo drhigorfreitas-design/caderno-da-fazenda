@@ -224,7 +224,8 @@ export type Deps = {
   transcreve?: (bytes: Uint8Array, nome: string) => Promise<string | null>; // áudio → texto (OpenAI); ausente se não houver a chave
   envia?: (chat: number, nome: string, bytes: Uint8Array, legenda: string, tipo?: string) => Promise<any>; // manda um arquivo (backup, planilha)
   planilha?: (abas: Aba[]) => Uint8Array; // monta o arquivo Excel
-  baixaNota?: (caminho: string) => Promise<Uint8Array | null>; // foto da nota guardada no Storage
+  baixaNota?: (caminho: string) => Promise<Uint8Array | null>;
+  busca?: (url: string) => Promise<Response>; // fetch (troca nos testes) // foto da nota guardada no Storage
   zip?: (arquivos: Record<string, Uint8Array>) => Uint8Array; // junta as fotos num .zip
   cotacao?: () => Promise<{ data: string; spot: number } | null>; // arroba do boi gordo (cotacoes.json do app)
   db: any; // cliente supabase com a chave de serviço
@@ -1252,6 +1253,48 @@ export function contaAluguel(r: any, mes: string, venc: string, media: number) {
     valor, venc, item: "arrendamento", centro: "geral", retiro: r.id, auto: "arrendamento", porId: "", por: "robô", criadoEm: new Date().toISOString() };
 }
 
+/* ---------- boletim semanal do boi do IMEA (MT): sai toda segunda às 17h; o robô baixa o PDF e manda o arquivo para todos os chats (sem custo:
+   não passa pelo Claude). Junto vai o indicador do boi gordo Cepea/B3 do dia (via Notícias Agrícolas) e o preço da última venda da fazenda. ---------- */
+const IMEA_REF = { n: 922, dia: "2026-11-09" }; // boletim conhecido: a numeração sobe 1 por semana
+const IMEA_URL = (n: number) => `https://publicacoes.imea.com.br/relatorio-de-mercado/bs-bovinoculturadecorte/${n}`;
+/* indicador do boi gordo Cepea/B3 (SP, à vista) do último fechamento */
+export function cepeaDe(html: string) {
+  const m = html.match(/<table class="cot-fisicas">[\s\S]*?<td>(\d{2}\/\d{2}\/\d{4})<\/td>\s*<td>([\d.]+,\d+)<\/td>\s*<td>([-+]?[\d.]*,?\d*)%?<\/td>/);
+  return m ? { data: m[1], v: Number(m[2].replace(/\./g, "").replace(",", ".")), varia: m[3] } : null;
+}
+export async function imeaSemanal(d: Deps) {
+  if (!d.envia) return "imea: sem envio de arquivo";
+  const busca = d.busca || fetch, hoje = hojeMT();
+  const n0 = IMEA_REF.n + Math.floor(dias(IMEA_REF.dia, hoje) / 7);
+  let n = 0, pdf: Uint8Array | null = null;
+  for (const k of [n0 + 1, n0]) {
+    try { const r = await busca(IMEA_URL(k)); if (r.ok && /pdf/i.test(r.headers.get("content-type") || "")) { n = k; pdf = new Uint8Array(await r.arrayBuffer()); break; } } catch (e) { console.error("imea", k, e); }
+  }
+  if (!pdf) return "imea: sem boletim novo";
+  // uma vez por boletim (marca em telegram_updates, como o resumo semanal)
+  const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -(990000000 + n) });
+  if (ja) return `imea: boletim ${n} já enviado`;
+  let cep: any = null;
+  try { cep = cepeaDe(await (await busca("https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/boi-gordo-indicador-esalq-bmf")).text()); } catch (e) { console.error("cepea", e); }
+  const linhaCep = cep ? `\n📌 <b>Indicador do boi Cepea/B3</b> (SP, à vista): <b>${brl(cep.v)}/@</b> em ${cep.data}${cep.varia ? ` (${cep.varia}%)` : ""}` : "";
+  const diaB = somaDias(IMEA_REF.dia, 7 * (n - IMEA_REF.n));
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const porFaz: Record<string, number[]> = {};
+  (contas || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
+  let env = 0;
+  for (const [faz, chats] of Object.entries(porFaz)) {
+    // última venda da fazenda com rendimento de carcaça: o preço da @ que dá para comparar com o boi gordo do IMEA
+    let linhaV = "";
+    try {
+      const v = (await todos(d, "movimentos", faz)).filter((x: any) => x.tipo === "venda" && !x.interno && x.modo === "carcaca" && +x.rend > 0 && +x.pesoMedio > 0 && +x.cab > 0 && +x.valor > 0)
+        .sort((a: any, b: any) => (a.data < b.data ? 1 : -1))[0];
+      if (v) linhaV = `\n🐂 Sua última venda (${dBR(v.data)}): <b>${brl(+v.valor / (+v.cab * +v.pesoMedio * +v.rend / 100 / 15))}/@</b> de carcaça, com ${String(v.rend).replace(".", ",")}% de rendimento`;
+    } catch (e) { console.error("imea venda", e); }
+    const legenda = `🐄 <b>Boletim do boi IMEA nº ${n}</b> · ${dBR(diaB)}\nPreços de MT, abates, exportação e custos: abra o arquivo.${linhaCep}${linhaV}\n<i>Fonte: IMEA e Cepea/Esalq.</i>`;
+    for (const chat of chats) { await d.envia(chat, `Boletim-boi-IMEA-${n}.pdf`, pdf, legenda.slice(0, 1020), "application/pdf"); env++; }
+  }
+  return `imea: boletim ${n} enviado para ${env} conversa(s)`;
+}
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
 /* ---------- ingredientes da mistura (DDG, milho, núcleo): mesma conta do app ----------
    Entram pela Entrada (compra) e saem quando a mistura vai para o cocho, na proporção da formulação.
@@ -2187,7 +2230,7 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       try { mensal = await relatorioMensal(deps); } catch (e) { console.error("relatório mensal", e); mensal = "erro no relatório mensal"; }
       // o verde do pasto vai junto; se o satélite falhar, os lembretes já saíram
       let txtVerde = "";
-      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } let txtChuva = ""; try { txtChuva = await chuvaDiaria(deps); } catch (e) { console.error("chuva", e); txtChuva = "erro na chuva"; } return new Response(`${av} · ${mensal} · ${txtVerde} · ${txtChuva}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
+      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } let txtChuva = ""; try { txtChuva = await chuvaDiaria(deps); } catch (e) { console.error("chuva", e); txtChuva = "erro na chuva"; } let txtImea = ""; try { txtImea = await imeaSemanal(deps); } catch (e) { console.error("imea", e); txtImea = "erro no imea"; } return new Response(`${av} · ${mensal} · ${txtVerde} · ${txtChuva} · ${txtImea}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
