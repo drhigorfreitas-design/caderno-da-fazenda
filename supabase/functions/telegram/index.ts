@@ -1295,6 +1295,78 @@ export async function imeaSemanal(d: Deps) {
   }
   return `imea: boletim ${n} enviado para ${env} conversa(s)`;
 }
+/* ---------- boi físico para o app (cartão do boi gordo no Início): IMEA por região e município (lista pública do app do IMEA) + indicador Cepea/B3.
+   Grátis (não usa o Claude). Guarda 1 hora na memória da função para não buscar a cada abertura do app. ---------- */
+const IMEA_COT = "https://api1.imea.com.br/api/v2/mobile/cadeias/2/cotacoes";
+const IMEA_IND: Record<string, string> = { "708192508809576456": "bv", "708192508809576454": "bp", "708192508809576457": "vv", "708192508809576455": "vp" }; // boi/vaca à vista e a prazo (R$/@)
+export function imeaCotacoes(lista: any) {
+  const L: any[] = Array.isArray(lista) ? lista : Array.isArray(lista?.data) ? lista.data : [];
+  const por: Record<string, any> = {}; let data = "";
+  for (const x of L) {
+    const k = IMEA_IND[String(x?.IndicadorFinalId)]; if (!k || !x.Localidade || !(Number(x.Valor) > 0)) continue;
+    const loc = String(x.Localidade), o = (por[loc] ||= { loc, tipo: String(x.TipoLocalidadeId || "") });
+    o[k] = Math.round(Number(x.Valor) * 100) / 100; o[k + "x"] = Number(x.Variacao) || 0;
+    const dp = String(x.DataPublicacao || "").slice(0, 10); if (dp > data) data = dp;
+  }
+  return { data, linhas: Object.values(por) };
+}
+let MERC_CACHE: { at: number; json: any } | null = null;
+export async function mercadoApp(d: Deps, token: string): Promise<{ status: number; json: any }> {
+  const uid = token && d.usuario ? await d.usuario(token) : null;
+  if (!uid) return { status: 401, json: { erro: "Entre de novo no app." } };
+  const json = await pegaMercado(d);
+  if (!json.imea && !json.cepea) return { status: 502, json: { erro: "O IMEA e o Cepea não responderam agora." } };
+  return { status: 200, json };
+}
+/* boi físico do dia no Telegram: IMEA (municípios da fazenda, MT, as 7 regiões; boi e vaca, à vista e a prazo) + Cepea/B3.
+   Vai uma vez por data de publicação do IMEA, no primeiro horário do robô (7h ou 19h45) depois que o IMEA publica. Grátis. */
+const MUN_PADRAO = ["Poconé", "Nossa Senhora do Livramento"];
+const REGIOES = ["Centro-Sul", "Médio-Norte", "Nordeste", "Noroeste", "Norte", "Oeste", "Sudeste"];
+const pctV = (v: any) => (Number.isFinite(+v) ? `${+v >= 0 ? "+" : ""}${(+v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : "");
+const r2 = brl;
+export function mercadoTexto(m: any, muns: string[]) {
+  const L: any[] = m.imea?.linhas || [], de = (n: string) => L.find((x) => x.loc === n), C = m.cepea;
+  const bv = (x: any) => `<b>${r2(x.bv)}</b> (${pctV(x.bvx)})`;
+  const linhaLoc = (x: any, nome = x.loc) => `• <b>${esc(nome)}</b>\n   Boi: ${bv(x)} à vista${x.bp ? ` · ${r2(x.bp)} a prazo` : ""}` +
+    (x.vv ? `\n   Vaca: ${r2(x.vv)} (${pctV(x.vvx)}) à vista${x.vp ? ` · ${r2(x.vp)} a prazo` : ""}` : "");
+  const ms = muns.map(de).filter((x) => x && x.bv), mt = de("Mato Grosso");
+  const regs = REGIOES.map(de).filter((x) => x && x.bv).sort((a: any, b: any) => b.bv - a.bv);
+  const ref = ms[0] || de("Centro-Sul") || mt;
+  let t = `🐂 <b>Boi gordo hoje</b>${m.imea?.data ? ` · IMEA de ${dBR(m.imea.data)}` : ""}\n`;
+  if (ms.length) t += `\n<b>Seus municípios</b>\n${ms.map((x) => linhaLoc(x)).join("\n")}\n`;
+  if (mt) t += `\n<b>Média de Mato Grosso</b>\n${linhaLoc(mt, "Mato Grosso")}\n`;
+  if (regs.length) t += `\n<b>Boi à vista por região</b>\n${regs.map((x: any) => `• ${esc(x.loc)}: ${r2(x.bv)} (${pctV(x.bvx)})`).join("\n")}\n`;
+  if (C) t += `\n📌 <b>Cepea/B3 (SP, à vista)</b>: <b>${r2(C.v)}/@</b> em ${C.data}${C.varia ? ` (${C.varia}%)` : ""}\n`;
+  if (C && ref) t += `${esc(ref.loc)} está ${r2(C.v - ref.bv)} (${((C.v - ref.bv) / C.v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%) abaixo de SP.\n`;
+  return t + `\n<i>IMEA: boi comum, sem premiação China, R$/@. Fontes: IMEA e Cepea/Esalq.</i>`;
+}
+async function pegaMercado(d: Deps) {
+  if (MERC_CACHE && Date.now() - MERC_CACHE.at < 3600e3) return MERC_CACHE.json;
+  const busca = d.busca || fetch, json: any = { imea: null, cepea: null };
+  try { const r = await busca(IMEA_COT); if (r.ok) { const c = imeaCotacoes(await r.json()); if (c.linhas.length) json.imea = c; } } catch (e) { console.error("imea cotações", e); }
+  try { json.cepea = cepeaDe(await (await busca("https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/boi-gordo-indicador-esalq-bmf")).text()); } catch (e) { console.error("cepea", e); }
+  if (json.imea && json.cepea) MERC_CACHE = { at: Date.now(), json };
+  return json;
+}
+export async function mercadoDiario(d: Deps) {
+  const m = await pegaMercado(d);
+  if (!m.imea?.data) return "boi do dia: IMEA não respondeu";
+  // uma vez por data do IMEA (marca em telegram_updates)
+  const marca = -(970000000 + dias("2020-01-01", m.imea.data));
+  const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: marca });
+  if (ja) return "boi do dia: já enviado";
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const porFaz: Record<string, number[]> = {};
+  (contas || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
+  let n = 0;
+  for (const [faz, chats] of Object.entries(porFaz)) {
+    const { data: cfg } = await d.db.from("config").select("dados").eq("fazenda_id", faz).maybeSingle();
+    const mu = cfg?.dados?.municipioImea, muns = Array.isArray(mu) && mu.length ? mu : typeof mu === "string" && mu ? [mu] : MUN_PADRAO;
+    const t = mercadoTexto(m, muns);
+    for (const chat of chats) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
+  }
+  return `boi do dia enviado para ${n} conversa(s)`;
+}
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
 /* ---------- ingredientes da mistura (DDG, milho, núcleo): mesma conta do app ----------
    Entram pela Entrada (compra) e saem quando a mistura vai para o cocho, na proporção da formulação.
@@ -2209,6 +2281,13 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       // chamado a cada 15 minutos pelo GitHub Actions; repetir não reenvia o mesmo foco
       try { return new Response(await fogoVerifica(deps)); } catch (e) { console.error("fogo", e); return new Response("fogo: fonte fora do ar"); }
     }
+    if (url.searchParams.has("mercado")) {
+      // chamado pelo app (cartão do boi gordo): boi físico do IMEA por região e o indicador Cepea
+      if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+      let r = { status: 500, json: { erro: "Erro no servidor. Tente de novo." } as any };
+      try { r = await mercadoApp(deps, (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "")); } catch (e) { console.error("mercado", e); }
+      return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
+    }
     if (url.searchParams.has("verde")) {
       // chamado pelo app (aba Mapa): busca as leituras depois de salvar um contorno, ou a imagem do verde
       if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -2230,7 +2309,7 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
       try { mensal = await relatorioMensal(deps); } catch (e) { console.error("relatório mensal", e); mensal = "erro no relatório mensal"; }
       // o verde do pasto vai junto; se o satélite falhar, os lembretes já saíram
       let txtVerde = "";
-      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } let txtChuva = ""; try { txtChuva = await chuvaDiaria(deps); } catch (e) { console.error("chuva", e); txtChuva = "erro na chuva"; } let txtImea = ""; try { txtImea = await imeaSemanal(deps); } catch (e) { console.error("imea", e); txtImea = "erro no imea"; } return new Response(`${av} · ${mensal} · ${txtVerde} · ${txtChuva} · ${txtImea}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
+      try { const av = await avisosDiarios(deps); try { txtVerde = await verdeDiario(deps); } catch (e) { console.error("verde", e); txtVerde = "erro no verde"; } let txtChuva = ""; try { txtChuva = await chuvaDiaria(deps); } catch (e) { console.error("chuva", e); txtChuva = "erro na chuva"; } let txtImea = ""; try { txtImea = await imeaSemanal(deps); } catch (e) { console.error("imea", e); txtImea = "erro no imea"; } try { txtImea += " · " + await mercadoDiario(deps); } catch (e) { console.error("boi do dia", e); txtImea += " · erro no boi do dia"; } return new Response(`${av} · ${mensal} · ${txtVerde} · ${txtChuva} · ${txtImea}`); } catch (e) { console.error("avisos", e); return new Response("erro", { status: 500 }); }
     }
     if (req.method !== "POST" || req.headers.get("x-telegram-bot-api-secret-token") !== segredo) return new Response("ok");
     try { await trata(deps, await req.json()); } catch (e) { console.error("falha", e); }
