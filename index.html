@@ -1632,7 +1632,25 @@ function renderSupl(){
   const ps=supl().filter(i=>!ehIng(i)), IL=ingrs(), EI=IL.map(estIng);
   $('#v-suplementacao').innerHTML=`
   <div class="page-title"><h2>Suplementação</h2></div>
+  <div class="row-head"><h2>Produtos e estoque</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto ou ingrediente</button><button class="btn" type="button" data-open="entrada">Entrada</button></div></div>
+  ${IL.length?`<div class="panel"><h3 style="margin:0 0 6px">Ingredientes das misturas</h3><div class="list">${EI.map(({g,kg,kgDia,dias})=>{const pu=precoUlt(g), fim=ok(dias)?addD(today(),Math.floor(dias)):'';
+      return `<div class="item"><span class="t">${esc(g.nome)} <span class="chip">Ingrediente</span>${ok(dias)&&dias<15?' <span class="chip warn">Comprar</span>':''}</span><span class="amt ${kg<0?'neg':''}">${kgOuT(kg)}</span>
+      <span class="meta">${nf(saldo(g),1)} ${esc(g.unidade)} · ${ok(pu)?brl(pu,2)+'/kg na última compra':'sem compra com valor'}${ok(kgDia)?` · sai ${kgOuT(kgDia)} por dia`:' · sem fornecimento nos últimos 30 dias'}</span>
+      <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${dias<0?'acabou':nf(Math.max(0,dias))+' dias'}${dias>=0?'<br>até '+dBR(fim):''}</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${g.id}">Editar</button></span></div>`;}).join('')}</div>
+    <p class="note" style="margin-top:8px">Entram pela <b>Entrada</b> (compra) e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação. Os dias usam o que foi para o cocho nos últimos 30 dias: lance o fornecimento toda semana para a conta ficar certa.</p></div>`:''}
+  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), mi=mixIngs(i), kgDia=taxaDia(r.map(x=>({data:x.m.data,kg:x.kg,dias:+x.m.dias||1}))), dias=mi.length?NaN:saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
+      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${mi.length?'<span class="small muted">sai dos ingredientes</span>':nf(saldo(i),1)+' '+esc(i.unidade)}</span>
+      <span class="meta">${mi.length?mi.map(x=>esc(x.ing.nome)+' '+nf(x.frac*100,1)+'%').join(' + ')+' · ':''}${ok(pk)?brl(pk,2)+'/kg':'sem preço'}${i.formulacaoId?' (formulação)':''} · ${metaTxt(i)}${r.length?` · últimos 30 dias: ${i.metaTipo==='g'?nf(real.g)+' g/cab/dia':pct(real.pv,2)+' PV'}`:''}${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
+      <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${nf(dias)} dias</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${i.id}">Editar</button></span></div>`;}).join('')
+    :'<p class="empty">Cadastre os suplementos (sal mineral, proteinado, ração) com o peso da embalagem e a meta de consumo. Eles aparecem também no estoque de insumos do Financeiro.</p>'}</div>
+    <p class="note" style="margin-top:8px">Os dias de estoque usam o consumo dos últimos 30 dias. Mistura feita na fazenda: cadastre os ingredientes (DDG, milho, núcleo) como <b>Ingrediente da mistura</b> e dê entrada só nas compras deles; a mistura pronta não precisa de entrada, porque sai dos ingredientes quando vai para o cocho.</p></div>
+
   ${entryHTML('suplementacao')}
+  <h2>Fornecimentos</h2>
+  <div class="panel"><div class="list">${fs.length?[...fs].sort((a,b)=>a.m.data<b.m.data?1:-1).slice(0,40).map(x=>{const ms=metaSt(x.i,x);
+    return `<div class="item"><span class="t">${esc(x.i?.nome||'Produto removido')} · ${esc(FN[x.m.fase]||'')}${x.m.lote?' · '+esc(x.m.lote):''}</span><span class="amt">${nf(x.kg)} kg</span>
+    <span class="meta">${dBR(x.m.data)} · ${nf(+x.m.cab)} cab. × ${nf(+x.m.dias)} dias · ${nf(x.g)} g/cab/dia${ok(x.pv)?' · '+pct(x.pv,2)+' PV':''} · ${brl(x.rcd,2)}/cab/dia${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
+    <span class="act"><button class="btn del" type="button" data-del="${COL.emovs}:${x.m.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Nenhum fornecimento no período.</p>'}</div></div>
   ${segPer()}${janelaTxt(J)}
   <div class="hero">
     <div class="kpi"><span class="l">Custo no cocho</span><span class="v">${brl(tCusto)}</span><span class="s">${nf(tKg)} kg fornecidos</span></div>
@@ -1666,24 +1684,7 @@ function renderSupl(){
       <div class="btns"><button class="btn" type="button" data-open="formulacao" data-edit="${f.id}">Editar</button><button class="btn del" type="button" data-del="${COL.form}:${f.id}">Excluir</button></div></article>`;}).join('')}</div>`
   :`<div class="panel"><p class="empty">Cadastre a receita do suplemento feito na fazenda com o percentual e o preço de cada ingrediente para ver o custo por kg.</p></div>`}
 
-  <div class="row-head"><h2>Produtos e estoque</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto ou ingrediente</button><button class="btn" type="button" data-open="entrada">Entrada</button></div></div>
-  ${IL.length?`<div class="panel"><h3 style="margin:0 0 6px">Ingredientes das misturas</h3><div class="list">${EI.map(({g,kg,kgDia,dias})=>{const pu=precoUlt(g), fim=ok(dias)?addD(today(),Math.floor(dias)):'';
-      return `<div class="item"><span class="t">${esc(g.nome)} <span class="chip">Ingrediente</span>${ok(dias)&&dias<15?' <span class="chip warn">Comprar</span>':''}</span><span class="amt ${kg<0?'neg':''}">${kgOuT(kg)}</span>
-      <span class="meta">${nf(saldo(g),1)} ${esc(g.unidade)} · ${ok(pu)?brl(pu,2)+'/kg na última compra':'sem compra com valor'}${ok(kgDia)?` · sai ${kgOuT(kgDia)} por dia`:' · sem fornecimento nos últimos 30 dias'}</span>
-      <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${dias<0?'acabou':nf(Math.max(0,dias))+' dias'}${dias>=0?'<br>até '+dBR(fim):''}</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${g.id}">Editar</button></span></div>`;}).join('')}</div>
-    <p class="note" style="margin-top:8px">Entram pela <b>Entrada</b> (compra) e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação. Os dias usam o que foi para o cocho nos últimos 30 dias: lance o fornecimento toda semana para a conta ficar certa.</p></div>`:''}
-  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), mi=mixIngs(i), kgDia=taxaDia(r.map(x=>({data:x.m.data,kg:x.kg,dias:+x.m.dias||1}))), dias=mi.length?NaN:saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
-      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${mi.length?'<span class="small muted">sai dos ingredientes</span>':nf(saldo(i),1)+' '+esc(i.unidade)}</span>
-      <span class="meta">${mi.length?mi.map(x=>esc(x.ing.nome)+' '+nf(x.frac*100,1)+'%').join(' + ')+' · ':''}${ok(pk)?brl(pk,2)+'/kg':'sem preço'}${i.formulacaoId?' (formulação)':''} · ${metaTxt(i)}${r.length?` · últimos 30 dias: ${i.metaTipo==='g'?nf(real.g)+' g/cab/dia':pct(real.pv,2)+' PV'}`:''}${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
-      <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${nf(dias)} dias</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${i.id}">Editar</button></span></div>`;}).join('')
-    :'<p class="empty">Cadastre os suplementos (sal mineral, proteinado, ração) com o peso da embalagem e a meta de consumo. Eles aparecem também no estoque de insumos do Financeiro.</p>'}</div>
-    <p class="note" style="margin-top:8px">Os dias de estoque usam o consumo dos últimos 30 dias. Mistura feita na fazenda: cadastre os ingredientes (DDG, milho, núcleo) como <b>Ingrediente da mistura</b> e dê entrada só nas compras deles; a mistura pronta não precisa de entrada, porque sai dos ingredientes quando vai para o cocho.</p></div>
-
-  <h2>Fornecimentos</h2>
-  <div class="panel"><div class="list">${fs.length?[...fs].sort((a,b)=>a.m.data<b.m.data?1:-1).slice(0,40).map(x=>{const ms=metaSt(x.i,x);
-    return `<div class="item"><span class="t">${esc(x.i?.nome||'Produto removido')} · ${esc(FN[x.m.fase]||'')}${x.m.lote?' · '+esc(x.m.lote):''}</span><span class="amt">${nf(x.kg)} kg</span>
-    <span class="meta">${dBR(x.m.data)} · ${nf(+x.m.cab)} cab. × ${nf(+x.m.dias)} dias · ${nf(x.g)} g/cab/dia${ok(x.pv)?' · '+pct(x.pv,2)+' PV':''} · ${brl(x.rcd,2)}/cab/dia${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
-    <span class="act"><button class="btn del" type="button" data-del="${COL.emovs}:${x.m.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Nenhum fornecimento no período.</p>'}</div></div>`;
+`;
 }
 
 /* ---------- Financeiro ---------- */
