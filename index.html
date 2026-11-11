@@ -2237,8 +2237,7 @@ const BGI0={data:'2026-10-26',spot:384.5,v:[['Nov/26',397.00,1.16],['Dez/26',396
 let BGI=(()=>{try{const o=JSON.parse(localStorage.getItem('bgi')||'null'); return o&&o.v&&o.v.length===4?o:BGI0;}catch(e){return BGI0;}})();
 function bgiHTML(){
   const m=Math.max(...BGI.v.map(x=>x[1])), mn=Math.min(...BGI.v.map(x=>x[1]));
-  return `<div class="panel bgi"><div class="row-head"><h2>Boi gordo: físico e futuro</h2><span class="small muted">fechamento de ${dBR(BGI.data)}${COT_AUTO?' · automático':''}</span></div>
-  <div id="mercBox">${mercHTML()}</div><div class="small muted" style="margin-top:12px;font-weight:600">Futuro na B3 (BGI, R$/@)</div>
+  return `<div class="panel bgi"><div class="row-head"><h2>Boi gordo futuro (B3 · BGI)</h2><span class="small muted">fechamento de ${dBR(BGI.data)}${COT_AUTO?' · automático':''}</span></div>
   <div class="bgi-g">${BGI.v.map(([n,p,v])=>`<div class="bgi-c"><span class="l">${n}</span><b class="num">${brl(p,2)}</b><span class="s ${v>=0?'pos':'neg'}">${v>=0?'▲':'▼'} ${nf(Math.abs(v),2)}%</span></div>`).join('')}</div>
   <p class="note" style="margin-top:8px">R$ por @ · mês de outubro (à vista na B3): ${brl(BGI.spot,2)}. Diferença do 1º ao 4º vencimento: ${brl(BGI.v[3][1]-BGI.v[0][1],2)}.</p>
   <details><summary>Atualizar os valores</summary><form class="f" id="bgiF"><div class="grid2">${fld('Data do pregão','bdata','date','',BGI.data)}${fld('Outubro / à vista (R$/@)','bspot','number','step="0.01"',BGI.spot)}</div>
@@ -2257,14 +2256,14 @@ async function buscaMercado(forca){ if(MERC_BUSCA||!sb) return; if(!forca&&MERC.
 const mVar=v=>ok(v)?`<span class="s ${v>=0?'pos':'neg'}">${v>=0?'▲':'▼'} ${nf(Math.abs(v),2)}%</span>`:'';
 const mCel=(n,p,v,sub)=>`<div class="bgi-c"><span class="l">${n}</span><b class="num">${brl(p,2)}</b>${mVar(v)}${sub?`<span class="small muted">${sub}</span>`:''}</div>`;
 const cepeaVar=c=>{ const x=Number(String(c&&c.varia||'').replace(',','.')); return Number.isFinite(x)?x:NaN; };
-function mercHTML(){ const I=MERC.imea, C=MERC.cepea, L=I?I.linhas:[], de=n=>L.find(x=>x.loc===n), mt=de('Mato Grosso'), cs=de('Centro-Sul'), ms=munsImea().map(de).filter(x=>x&&x.bv);
-  if(!I&&!C) return `<p class="note" style="margin-top:8px">${MERC_BUSCA?'Buscando o boi físico do IMEA e do Cepea…':'O boi físico do IMEA e do Cepea aparece aqui quando você estiver conectado.'}</p>`;
-  const cel=[...ms.map(x=>mCel(esc(x.loc.replace('Nossa Senhora do','N. Sra. do')),x.bv,x.bvx,x.bp?'a prazo '+brl(x.bp,2):'')), cs?mCel('Centro-Sul (IMEA)',cs.bv,cs.bvx,cs.bp?'a prazo '+brl(cs.bp,2):''):'', mt?mCel('Mato Grosso (IMEA)',mt.bv,mt.bvx,mt.bp?'a prazo '+brl(mt.bp,2):''):'', C?mCel('Cepea/B3 (SP)',C.v,cepeaVar(C),C.data?C.data.slice(0,5):''):''].filter(Boolean);
-  const ref=ms[0]||cs||mt, fut=BGI.v[0];
+function mercHTML(){ const I=MERC.imea, C=MERC.cepea, L=I?I.linhas:[], de=n=>L.find(x=>x.loc===n), mt=de('Mato Grosso'), cs=de('Centro-Sul'), mu=munsImea().map(de).find(x=>x&&x.bv);
+  if(!I&&!C) return `<p class="note" style="margin-top:8px">${MERC_BUSCA?'Buscando o boi físico do IMEA e do Cepea…':'Aparece aqui quando você estiver conectado.'}</p>`;
+  const cel=[mu?mCel(esc(mu.loc.replace('Nossa Senhora do','N. Sra. do')),mu.bv,mu.bvx):'', cs?mCel('Centro-Sul',cs.bv,cs.bvx):'', mt?mCel('Mato Grosso',mt.bv,mt.bvx):'', C?mCel('Cepea SP',C.v,cepeaVar(C)):''].filter(Boolean);
   const munOpts=L.filter(x=>x.tipo==='3'&&x.bv).map(x=>x.loc).sort((a,b)=>a.localeCompare(b,'pt'));
-  return `<div class="small muted" style="margin-top:10px;font-weight:600">Boi físico hoje (à vista, R$/@)</div><div class="bgi-g">${cel.join('')}</div>
-  <p class="note" style="margin-top:8px">${ref&&C?`${esc(ref.loc)} está ${brl(C.v-ref.bv,2)} (${nf((C.v-ref.bv)/C.v*100,1)}%) abaixo do Cepea de SP. `:''}${ref&&fut?`O contrato ${fut[0]} da B3 está ${brl(fut[1]-ref.bv,2)} acima do boi de ${esc(ref.loc)}. `:''}IMEA ${I?'de '+dBR(I.data):''}: boi comum, sem premiação China. Cepea/Esalq${C?' de '+C.data:''}.</p>
-  ${munOpts.length?`<details><summary>Escolher os municípios</summary><div class="f" style="margin-top:6px"><label class="fl">Municípios que aparecem aqui e no Telegram (segure Ctrl ou toque para marcar vários)<select id="mercMun" multiple size="6">${munOpts.map(n=>`<option ${munsImea().includes(n)?'selected':''}>${esc(n)}</option>`).join('')}</select></label><div class="btns"><button class="btn" type="button" data-merc-mun>Salvar municípios</button></div></div></details>`:''}`; }
+  return `<div class="bgi-g">${cel.join('')}</div>
+  <p class="note" style="margin-top:8px">R$ por @, à vista. IMEA${I?' de '+dBR(I.data):''} (boi comum, sem premiação China) e Cepea/Esalq${C?' de '+C.data.slice(0,5):''}.</p>
+  ${munOpts.length?`<details><summary>Trocar o município</summary><div class="f" style="margin-top:6px"><label class="fl">Municípios (o primeiro aparece aqui; todos vão no Telegram)<select id="mercMun" multiple size="6">${munOpts.map(n=>`<option ${munsImea().includes(n)?'selected':''}>${esc(n)}</option>`).join('')}</select></label><div class="btns"><button class="btn" type="button" data-merc-mun>Salvar municípios</button></div></div></details>`:''}`; }
+const mercCard=()=>`<div class="panel bgi"><div class="row-head"><h2>Boi físico hoje</h2><span class="small muted">IMEA e Cepea</span></div><div id="mercBox">${mercHTML()}</div></div>`;
 /* ---------- milho futuro B3 ---------- */
 const MIL0={data:'2026-10-26',v:[['Nov/26',66.99,2.23],['Jan/27',71.83,2.50],['Mar/27',77.34,2.65],['Mai/27',76.65,2.62]]};
 let MIL=(()=>{try{const o=JSON.parse(localStorage.getItem('milho')||'null'); return o&&o.v&&o.v.length===4?o:MIL0;}catch(e){return MIL0;}})();
@@ -2503,6 +2502,7 @@ function renderInicio(){
   const de=[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).slice(0,5);
   $('#v-inicio').innerHTML=`
   <div style="margin-top:18px">${hojeHTML()}</div>
+  <div style="margin-top:12px">${mercCard()}</div>
   <div style="margin-top:12px">${bgiHTML()}</div>
   <div style="margin-top:12px">${milhoHTML()}</div>
   <div style="margin-top:12px">${repoHTML()}</div>
