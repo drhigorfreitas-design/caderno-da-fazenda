@@ -150,6 +150,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeri
 .bar{height:6px;background:var(--sunk);border-radius:3px;margin-top:4px;position:relative}
 .bar i{display:block;height:6px;background:var(--ipe);border-radius:3px}
 .bar s{position:absolute;top:-3px;width:2px;height:12px;background:var(--capim)}
+.bar s.r{background:var(--muted);opacity:.55}
 nav.tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:20;background:var(--nav);border-radius:20px;padding:6px;box-shadow:0 8px 28px rgb(0 0 0 / .32)}
 nav.tabs .in{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:2px}
 nav.tabs .in button{border:0;background:transparent;color:var(--nav-ink);font:600 10.5px var(--body);padding:7px 0;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
@@ -965,18 +966,10 @@ function renderRel(){
     ${porItem.length?porItem.map(r=>{const p=r.t/totP*100;return `<div class="meta-r"><div class="row-head small"><span>${r.n}</span><span class="num">${brl(r.t)} <span class="muted">· ${pct(p,0)}</span></span></div><div class="bar"><i style="width:${Math.min(100,p)}%"></i></div></div>`;}).join(''):ped('Nenhum custo lançado no período.')}</div>
   </div>
 
-  <div class="sec-title"><h2>Metas do Método Inttegra</h2><span class="small muted">${nomeM} · ${esc(J.nome)}</span></div>
+  <div class="sec-title"><h2>Metas</h2><span class="small muted">${nomeM} · ${esc(J.nome)} · suas metas e as do Método Inttegra</span></div>
   <div class="seg" role="group" aria-label="Metas de qual fase">${[['total','Fazenda toda'],...FASES].map(([k,n])=>`<button type="button" data-relfase="${k}" aria-pressed="${UI.relFase===k}">${n}</button>`).join('')}</div>
   <div class="panel" style="margin-top:10px">
-    ${ind('Custo por @ produzida',brl(RM.desembArr,2),{f:'desembolso ÷ @ produzidas'+(fz?'':' (inclui a parte da fase nos custos da fazenda toda)'),ref:ok(RM.precoArr)?'venda média '+brl(RM.precoArr,2)+'/@':''})}
-    ${metaR('Arrobas por hectare ao ano',RM.arrHa,25,true,v=>nf(v,1)+' @')}
-    ${metaR('Resultado por hectare ao ano',RM.resHa,1200,true,v=>brl(v),'fazendas top passam de R$ 1.925')}
-    ${metaR('Margem sobre a venda',RM.margem,35,true,v=>pct(v,0))}
-    ${metaR('Desembolso sobre o valor de venda',RM.pctDesVenda,70,false,v=>pct(v,0))}
-    ${metaR('Insumos + pastagem no desembolso',RM.pctInsPas,50,true,v=>pct(v,0))}
-    ${metaR('Custo variável no desembolso',RM.pctVar,60,true,v=>pct(v,0))}
-    ${metaR('Lotação',RM.uaHa,1.5,true,v=>nf(v,2)+' UA/ha','média do Brasil 0,6')}
-    ${metaR('Resultado sobre o valor do rebanho',RM.resValReb,25,true,v=>pct(v,0),'compare com a Selic: '+nf(selicAA(),2)+'%')}
+    ${metasHTML(RM,UI.relFase)}
     ${!J.ok?'<p class="note neg">Faltam dois fechamentos do rebanho no período para calcular as metas.</p>':!RM.area?`<p class="note neg">Informe a área ${fz?'produtiva':'da '+nomeM} em Ajustes para ver @/ha, resultado/ha e lotação.</p>`:''}
     ${fz?'':'<p class="note">Na fase, a venda inclui a passagem de animais para a fase seguinte, valorizada pelo preço de referência da @ em Ajustes.</p>'}
   </div>`;
@@ -1951,21 +1944,88 @@ function donutFases(RT,RF){
     <div class="donut-wrap"><svg class="donut" viewBox="0 0 140 140" role="img" aria-label="Participação de cada fase no rebanho"><circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--sunk)" stroke-width="20"/>${segs}<text class="c" x="70" y="73" text-anchor="middle">${centro}</text><text class="u" x="70" y="90" text-anchor="middle">cabeças</text></svg>
     <div class="dl">${rows}</div></div></div>`;
 }
-function renderSide(){
-  const el=$('#side'); if(!el) return; const hoje=today(), last=lastFech(), A=[];
-  const card=(o)=>{ const tile=o.ic?svgI(o.ic):`<span><b>${o.dia}</b><small>${o.mes}</small></span>`, inner=`<span class="tile">${tile}</span><span class="tx"><b>${o.t}</b><small>${o.s}</small></span>`;
-    return o.attr?`<button type="button" class="ac ${o.cls||''}" ${o.attr}>${inner}</button>`:`<div class="ac ${o.cls||''}">${inner}</div>`; };
-  if(!last) A.push({ic:'cal',cls:'warn',t:'Fazer o primeiro fechamento',s:'Cabeças e peso por categoria',attr:'data-open="fechamento"'});
-  else { const prox=addM(last.mes,1); if(prox<ym(hoje)||(prox===ym(hoje)&&+hoje.slice(8)>=25)) A.push({ic:'cal',cls:'warn',t:'Fechamento de '+mLabel(prox)+(prox<ym(hoje)?' pendente':' já pode ser feito'),s:'Último fechamento: '+mLabel(last.mes),attr:`data-open="fechamento" data-mes="${prox}"`}); }
+/* ---------- metas: as do Método Inttegra (referência) e as da fazenda (config.metas {total|cria|recria|engorda: {chave: valor}}) ---------- */
+const pct0=v=>pct(v,0);
+/* [chave, nome, valor(R calc, I índices 12 meses), referência, maior é melhor, formato, explicação, só nestas visões, nome da referência, unidade] */
+const METAS=[
+ ['custoArr','Custo por @ produzida',R=>R.desembArr,null,false,v=>brl(v,2),'desembolso ÷ @ produzidas',null,'','R$/@'],
+ ['arrHa','Arrobas por hectare ao ano',R=>R.arrHa,25,true,v=>nf(v,1)+' @','',null,'Inttegra','@/ha'],
+ ['resHa','Resultado por hectare ao ano',R=>R.resHa,1200,true,v=>brl(v),'fazendas top passam de R$ 1.925',null,'Inttegra','R$/ha'],
+ ['margem','Margem sobre a venda',R=>R.margem,35,true,pct0,'',null,'Inttegra','%'],
+ ['pctDesVenda','Desembolso sobre o valor de venda',R=>R.pctDesVenda,70,false,pct0,'',null,'Inttegra','%'],
+ ['pctInsPas','Insumos + pastagem no desembolso',R=>R.pctInsPas,50,true,pct0,'',null,'Inttegra','%'],
+ ['pctVar','Custo variável no desembolso',R=>R.pctVar,60,true,pct0,'',null,'Inttegra','%'],
+ ['uaHa','Lotação',R=>R.uaHa,1.5,true,v=>nf(v,2)+' UA/ha','média do Brasil 0,6',null,'Inttegra','UA/ha'],
+ ['resValReb','Resultado sobre o valor do rebanho',R=>R.resValReb,25,true,pct0,()=>'compare com a Selic: '+nf(selicAA(),2)+'%',null,'Inttegra','%'],
+ ['desfrute','Desfrute ao ano',R=>R.desfrute*R.anual,null,true,pct0,'@ produzidas ÷ @ do rebanho no início',null,'','%'],
+ ['natal','Natalidade',(R,I)=>I.nasc?I.natal:NaN,80,true,pct0,'nascidos ÷ matrizes, últimos 12 meses',['total','cria'],'referência','%'],
+ ['desmMat','Desmame por matriz',(R,I)=>I.desm?I.desmMat:NaN,75,true,pct0,'desmamados ÷ matrizes, últimos 12 meses',['total','cria'],'referência','%'],
+ ['mortal','Mortalidade',(R,I)=>I.mortal,2,false,v=>pct(v,1),'mortes ÷ rebanho médio, últimos 12 meses',['total'],'referência','%']];
+const metasDe=fase=>METAS.filter(d=>!d[7]||d[7].includes(fase));
+const minhasMetas=fase=>((S.config.metas||{})[fase])||{};
+const metaOk=(v,m,maior)=>maior?v>=m:v<=m;
+function metaR2(d,v,minha){ const [,nome,,ref,maior,fmt,sub,,refN]=d, alvo=minha!=null?minha:ref, has=ok(v), sg=maior?'≥':'≤';
+  const boa=has&&alvo!=null?metaOk(v,alvo,maior):null, esc_=Math.max((alvo||0)*1.6,(ref||0)*1.2,has?v:0)||1, pos=x=>Math.max(0,Math.min(100,x/esc_*100));
+  const ls=[minha!=null?`<b>sua meta ${sg} ${fmt(minha)}</b>`:'',ref!=null?`${refN} ${sg} ${fmt(ref)}`:'',typeof sub==='function'?sub():sub].filter(Boolean).join(' · ');
+  return `<div class="meta-r"><div class="row-head small"><span>${nome}</span><span class="num ${boa==null?'':boa?'pos':'neg'}">${has?fmt(v):'—'}</span></div>
+    ${alvo!=null?`<div class="bar"><i style="width:${has?pos(v):0}%;background:${boa==null?'transparent':boa?'var(--good)':'var(--bad)'}"></i><s style="left:${pos(alvo)}%"></s>${minha!=null&&ref!=null?`<s class="r" style="left:${pos(ref)}%"></s>`:''}</div>`:''}
+    <span class="small muted">${ls||'sem meta: defina a sua abaixo'}</span></div>`; }
+function metasHTML(RM,fase){ const I=indicesDe(S.fech,S.movs,area()), M=minhasMetas(fase), D=metasDe(fase), nome=fase==='total'?'fazenda toda':FN[fase].toLowerCase();
+  return D.map(d=>metaR2(d,d[2](RM,I),M[d[0]]!=null?+M[d[0]]:null)).join('')+
+  `<details style="margin-top:10px"><summary>${Object.keys(M).length?'Mudar':'Definir'} minhas metas (${nome})</summary><form class="f" id="metasF" data-fase="${fase}" style="margin-top:8px"><div class="grid2">
+    ${D.map(d=>`<label class="fl">${d[1]} (${d[9]}, ${d[4]?'mínimo':'máximo'})<input name="${d[0]}" type="number" step="any" inputmode="decimal" value="${M[d[0]]!=null?esc(String(M[d[0]])):''}" placeholder="${d[3]!=null?esc(String(d[3])):''}"></label>`).join('')}
+  </div><p class="note">Deixe em branco o que não quiser acompanhar. As metas valem para todos os sócios. Quando um índice com meta sua sair do rumo, aparece na tela Hoje e o robô avisa no Telegram.</p>
+  <div class="btns"><button class="btn primary" type="submit">Salvar metas</button></div></form></details>`; }
+/* metas da pessoa fora do rumo, nos últimos 12 meses (não muda com o período escolhido na tela) */
+function metasFora(){ const T=S.config.metas||{}, out=[]; Object.keys(T).forEach(fase=>{ if(fase!=='total'&&!FN[fase]) return; const M=T[fase]||{}; if(!Object.keys(M).length) return;
+  let R; try{ R=fase==='total'?calc('12m'):calc('12m',fase); }catch(e){ return; } const I=indicesDe(S.fech,S.movs,area());
+  metasDe(fase).forEach(d=>{ const m=M[d[0]]; if(m==null||m==='') return; const v=d[2](R,I); if(ok(v)&&!metaOk(v,+m,d[4])) out.push({id:fase+':'+d[0],fase,nome:d[1],v:d[5](v),meta:(d[4]?'≥ ':'≤ ')+d[5](+m)}); }); });
+  return out; }
+/* guarda no config as metas fora do rumo (fazenda toda) para o robô avisar; no máximo uma vez por dia neste aparelho e só se mudou */
+function guardaSitMetas(){ if(!db||!writable||UI.ret||guardaSitMetas.dia===today()) return; const temM=Object.values(S.config.metas||{}).some(m=>m&&Object.keys(m).length);
+  if(!temM&&!S.config.metasSit) return; guardaSitMetas.dia=today(); const fora=metasFora(), ant=(S.config.metasSit||{}).fora||[];
+  if(S.config.metasSit&&JSON.stringify(fora)===JSON.stringify(ant)) return; db.configMod(b=>({...b,metasSit:{data:today(),fora}})).catch(()=>{}); }
+
+/* ---------- Hoje: o que pede atenção, numa lista só (também no quadro Atenção da lateral) ---------- */
+function acCard(o){ const tile=o.ic?svgI(o.ic):`<span><b>${o.dia}</b><small>${o.mes}</small></span>`, inner=`<span class="tile">${tile}</span><span class="tx"><b>${o.t}</b><small>${o.s}</small></span>`;
+  if(o.btn) return `<div class="ac ${o.cls||''}">${inner}<span style="margin-left:auto;flex:none">${o.btn}</span></div>`;
+  return o.attr?`<button type="button" class="ac ${o.cls||''}" ${o.attr}>${inner}</button>`:`<div class="ac ${o.cls||''}">${inner}</div>`; }
+/* cocho cujo último fornecimento já acabou há 2 dias ou mais (até 30 dias; depois o lote deve ter saído do cocho), como o aviso do robô */
+function cochoAtrasado(){ const G=new Map(), h=today();
+  S.emovs.filter(m=>m.fornecimento&&m.data&&m.data<=h).forEach(m=>{ const k=[loteK(m.lote),m.fase||'',m.insumoId,m.retiro||''].join('|'), a=G.get(k); if(!a||m.data>=a.data) G.set(k,m); });
+  return [...G.values()].map(m=>{ const fim=addD(m.data,Math.max(1,Math.round(+m.dias||1))); return {m,fim,atraso:days(fim,h)}; }).filter(x=>x.atraso>=2&&x.atraso<=30); }
+/* lote no cocho sem pesagem há mais de 60 dias: sem pesagem não sai o retorno do suplemento */
+function lotesPesar(){ const h=today(), P=S.config.pesagens||[], vistos=new Set(), out=[];
+  S.emovs.filter(m=>m.fornecimento&&m.lote&&m.data&&days(m.data,h)<=14).sort((a,b)=>a.data<b.data?1:-1).forEach(m=>{ const k=loteK(m.lote)+'|'+(m.retiro||''); if(vistos.has(k)) return; vistos.add(k);
+    const u=P.filter(p=>loteK(p.lote)===loteK(m.lote)&&(p.retiro||'')===(m.retiro||'')).sort((a,b)=>a.data<b.data?1:-1)[0];
+    if(!u||days(u.data,h)>60) out.push({lote:m.lote,ret:m.retiro||'',u}); });
+  return out.slice(0,3); }
+function hojeItens(){ const h=today(), am=addD(h,1), A=[], last=lastFech();
+  contasAbertas().filter(c=>c.venc<=am).forEach(c=>A.push({ic:'caixa',cls:c.venc<=h?'warn':'',t:esc(c.descricao)+' · '+brl(+c.valor,2),s:(c.venc<h?'conta vencida em '+dBR(c.venc):c.venc===h?'conta vence hoje':'conta vence amanhã')+retTxt(c),btn:`<button class="btn" type="button" data-pagar="${esc(c.id)}">Paguei</button>`}));
+  cochoAtrasado().forEach(({m,fim})=>{ const p=S.insumos.find(i=>i.id===m.insumoId); A.push({ic:'alerta',cls:'warn',t:'Cocho sem lançamento: '+esc(m.lote||FN[m.fase]||'lote'),s:esc(p?p.nome:'Suplemento')+' · o último fornecimento acabou em '+dBR(fim),attr:'data-tab="suplementacao"'}); });
+  (S.config.lembretes||[]).filter(x=>x.data===h||(!x.enviado&&x.data<h)).sort((a,b)=>a.data<b.data?-1:1).forEach(x=>A.push({ic:'cal',cls:x.data<h?'warn':'',t:esc(x.texto),s:x.data<h?'lembrete atrasado, era para '+dBR(x.data):'lembrete de hoje',attr:'data-tab="notas"'}));
   ingrs().map(estIng).filter(e=>ok(e.dias)&&e.dias<15).forEach(e=>A.push({ic:'alerta',cls:'warn',t:esc(e.g.nome)+(e.dias<=0?' acabou':' acaba em ~'+nf(e.dias)+' dias'),s:kgOuT(Math.max(0,e.kg))+' no estoque · sai '+kgOuT(e.kgDia)+' por dia',attr:'data-tab="suplementacao"'}));
   S.insumos.filter(i=>!usaIng(i)&&!ehIng(i)&&saldo(i)<=(+i.minimo||0)).slice(0,3).forEach(i=>A.push({ic:'alerta',cls:'warn',t:'Repor: '+esc(i.nome),s:nf(saldo(i),1)+' '+esc(i.unidade)+' em estoque',attr:'data-tab="suplementacao"'}));
+  metasFora().forEach(x=>A.push({ic:'alvo',cls:'warn',t:'Meta fora do rumo: '+esc(x.nome),s:x.v+' · sua meta '+x.meta+(x.fase!=='total'?' · '+FN[x.fase]:'')+' · últimos 12 meses',attr:'data-tab="relatorios"'}));
+  if(!last) A.push({ic:'cal',cls:'warn',t:'Fazer o primeiro fechamento',s:'Cabeças e peso por categoria',attr:'data-open="fechamento"'});
+  else { const prox=addM(last.mes,1); if(prox<ym(h)||(prox===ym(h)&&+h.slice(8)>=25)) A.push({ic:'cal',cls:'warn',t:'Fechamento de '+mLabel(prox)+(prox<ym(h)?' pendente':' já pode ser feito'),s:'Último fechamento: '+mLabel(last.mes),attr:`data-open="fechamento" data-mes="${prox}"`}); }
+  lotesPesar().forEach(x=>A.push({ic:'balanca',t:'Pesar o lote '+esc(x.lote),s:x.u?'última pesagem há '+days(x.u.data,h)+' dias':'ainda sem pesagem: sem ela não sai o retorno do cocho',attr:'data-tab="rebanho"'}));
   adaptAtivas().slice(0,3).forEach(({a,r,d,fim})=>A.push({ic:'caixa',t:'Adaptação: '+esc(a.nome||'Lote'),s:r.nome+' · dia '+d+' de '+(fim-1),attr:'data-tab="suplementacao"'}));
   if(!area()) A.push({ic:'ha',t:'Informar a área produtiva',s:'Para lotação e @/ha',attr:'data-ajustes'});
+  return A; }
+const DSEM=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+function hojeHTML(){ const A=hojeItens(), h=today();
+  return `<div class="panel" id="hoje"><div class="row-head"><h2>Hoje</h2><span class="small muted">${DSEM[new Date(h+'T12:00:00').getDay()]}, ${dBR(h)}</span></div>
+  <div style="margin-top:8px">${A.length?A.map(acCard).join(''):'<p class="note">✅ Tudo em dia. Nada pendente para hoje.</p>'}</div></div>`; }
+
+function renderSide(){
+  const el=$('#side'); if(!el) return; const hoje=today();
+  const card=acCard, A=UI.tab==='inicio'?[]:hojeItens();
   const ev=[...S.movs.map(x=>({d:x.data,t:tipoMov(x)+' · '+esc(CN[x.categoria]||''),s:nf(x.cab)+' cab.'+(x.valor?' · '+brl(x.valor):'')})),
     ...S.desemb.map(x=>({d:x.data,t:esc(ITN[itemOf(x)]||'Custo'),s:brl(x.valor)+' · '+esc(ondeTxt(x))+retTxt(x)+porTxt(x)}))].filter(x=>x.d).sort((a,b)=>a.d<b.d?1:-1).slice(0,6);
   const lotes=S.engorda.filter(l=>!l.dataSaida).slice(0,3);
   el.innerHTML=`<h2>Atividade</h2>
-   <div class="sd-sec"><div class="sd-head"><h3>Atenção</h3></div>${A.length?A.map(card).join(''):'<p class="sd-empty">Tudo em dia por aqui.</p>'}</div>
+   ${UI.tab==='inicio'?'':`<div class="sd-sec"><div class="sd-head"><h3>Atenção</h3></div>${A.length?A.map(card).join(''):'<p class="sd-empty">Tudo em dia por aqui.</p>'}</div>`}
    <div class="sd-sec"><div class="sd-head"><h3>Últimos lançamentos</h3><button class="btn link" type="button" data-tab="custos">Custos</button></div>${ev.length?ev.map(x=>card({dia:x.d.slice(8,10),mes:MES[+x.d.slice(5,7)-1],t:x.t,s:x.s})).join(''):'<p class="sd-empty">Nenhum lançamento ainda.</p>'}</div>
    <div class="sd-sec"><div class="sd-head"><h3>Lotes na engorda</h3><button class="btn link" type="button" data-tab="engorda">Abrir</button></div>${lotes.length?lotes.map(l=>card({ic:'boi',t:esc(l.nome),s:nf(+l.cab||0)+' cab.'+(l.dataEntrada?' · dia '+Math.max(1,days(l.dataEntrada,hoje)+1):''),attr:'data-tab="engorda"'})).join(''):'<p class="sd-empty">Nenhum lote em andamento.</p>'}</div>`;
 }
@@ -2061,7 +2121,7 @@ function ligaArr(){ const el=$('#retbar'); if(!el||el.hidden) return;
   ln.style.left=(a.left+a.width/2-r0.left-1)+'px'; ln.style.top=(a.bottom-r0.top)+'px'; ln.style.height=Math.max(0,b.top-a.bottom)+'px'; }
 addEventListener('resize',()=>ligaArr());
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#calcDec,#calcSeg,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#metasF,#calcAgio,#calcPeq,#calcDec,#calcSeg,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
   ({mapa:renderMapa,notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -2421,7 +2481,8 @@ async function mapaAcao(b){ const a=b.dataset.mapa, id=b.dataset.id, E=MAPA.ed;
 function renderInicio(){
   const de=[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).slice(0,5);
   $('#v-inicio').innerHTML=`
-  <div style="margin-top:18px">${bgiHTML()}</div>
+  <div style="margin-top:18px">${hojeHTML()}</div>
+  <div style="margin-top:12px">${bgiHTML()}</div>
   <div style="margin-top:12px">${milhoHTML()}</div>
   <div style="margin-top:12px">${repoHTML()}</div>
   <div style="margin-top:12px">${repoFHTML()}</div>
@@ -2437,7 +2498,8 @@ function renderInicio(){
   <div class="tools">${toolCard('graf','Vender ou ficar?','Bezerro, boi magro ou boi gordo','calc:c-dec')}${toolCard('cal','Segurar o boi?','Até quando vale esperar','calc:c-seg')}${toolCard('calc','Diluir ágio','Em quantos dias o ganho paga o ágio','calc:c-agio')}${toolCard('balanca','Ponto de equilíbrio','Preço mínimo da @ para não ter prejuízo','calc:c-peq')}${toolCard('alvo','Custo da arroba','Quanto custa produzir uma @','calc:c-custo')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Indicadores</h2><span class="small muted">também no menu Mais</span></div>
   <div class="tools">${toolCard('graf','Fazenda toda','Resultado, @ produzidas, margem','painel')}${toolCard('pasto','Cria','Reprodução e bezerros','cria')}${toolCard('ha','Recria','Ganho e custo da recria','recria')}${toolCard('boi','Engorda','Lotes e resultado','engorda')}${toolCard('graf','Relatórios','Gráficos mês a mês e metas','relatorios')}</div>
-  ${de.length?`<div class="row-head" style="margin-top:22px"><h2>Últimos custos</h2><button class="btn link" type="button" data-tab="custos">Ver todos</button></div><div class="panel"><div class="list">${de.map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}</span></div>`).join('')}</div></div>`:''}`;}
+  ${de.length?`<div class="row-head" style="margin-top:22px"><h2>Últimos custos</h2><button class="btn link" type="button" data-tab="custos">Ver todos</button></div><div class="panel"><div class="list">${de.map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}</span></div>`).join('')}</div></div>`:''}`;
+  setTimeout(guardaSitMetas,0);}
 function renderCalc(){
   $('#v-calc').innerHTML=`<div class="page-title"><h2>Calcular</h2></div><p class="note" style="margin:4px 0 10px">Preencha e o resultado aparece na hora. O que você digita fica guardado neste aparelho.</p>
   <div class="row-head" style="margin-top:6px"><h2>Simular decisão</h2><span class="small muted">com os seus números e os preços do dia</span></div>
@@ -2738,6 +2800,8 @@ document.addEventListener('click',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
+  if(f.id==='metasF'){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const fase=f.dataset.fase, o={}; METAS.forEach(d=>{ const el=f.elements[d[0]]; if(el&&el.value!==''&&Number.isFinite(+el.value)) o[d[0]]=+el.value; });
+    try{ await db.configMod(b=>({...b,metas:{...(b.metas||{}),[fase]:o}})); guardaSitMetas.dia=null; toast('Metas salvas'); render(); }catch(x){ dbErr(x); } return; }
   if(f.id==='pesF'||f.id==='lembF') return salvaCfgItem(f);
   if(f.id==='contaF') return salvaConta(f);
   if(f.id==='senhaF'||f.id==='novaSenhaF') return salvaMinhaSenha(f);

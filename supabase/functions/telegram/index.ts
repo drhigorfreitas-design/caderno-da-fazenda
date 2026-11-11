@@ -931,11 +931,13 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
       .map((c: any) => `   • ${dBR(c.venc).slice(0, 5)} · ${esc(c.descricao)} · ${brl(c.valor)}${c.venc < hoje ? " ⚠️ vencida" : ""}`);
     const prox = (D.lembretes || []).filter((x: any) => !x.enviado && x.data.slice(0, 7) === hoje.slice(0, 7)).sort((a: any, b: any) => (a.data < b.data ? -1 : 1))
       .map((x: any) => `   • ${dBR(x.data).slice(0, 5)} · ${esc(x.texto)}`);
+    const metasF = (Array.isArray(D.metasSit?.fora) ? D.metasSit.fora : []).map((x: any) => `   • ${esc(x.nome)}${x.fase !== "total" ? ` (${ONDE[x.fase] || esc(x.fase)})` : ""}: ${esc(x.v)} · meta ${esc(x.meta)}`);
     const txt = `📅 <b>Relatório de ${nomeMes} de ${mes.slice(0, 4)}</b>${fz?.nome ? "\n" + esc(fz.nome) : ""}\n\n` +
       blocos.join("\n") +
       `\n📊 <b>Total da fazenda${arrIds.size ? " (com os arrendamentos)" : ""}:</b> custos ${brl(totM)}${vendM || compM ? ` · vendas ${brl(vendM)} · compras ${brl(compM)} · saldo <b>${brl(vendM - compM - totM)}</b>` : ""}${RT ? ` · ${nfBR(RT.total)} cabeças hoje` : ""}\n` +
       (arrIds.size ? `📊 <b>Sem os arrendamentos</b> (só áreas próprias): custos ${brl(totP)}${vendP || compP ? ` · vendas ${brl(vendP)} · compras ${brl(compP)} · saldo <b>${brl(vendP - compP - totP)}</b>` : ""}${RT ? ` · ${nfBR(Math.max(0, RT.total - cabArr))} cabeças hoje` : ""}\n` : "") +
       (contasMes.length ? `\n🧾 <b>Contas a pagar em ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${contasMes.join("\n")}\n` : "") +
+      (metasF.length ? "\n🎯 <b>Metas fora do rumo</b> (últimos 12 meses)\n" + metasF.join("\n") + "\n" : "") +
       (prox.length ? `\n⏰ <b>Lembretes de ${MESF[+hoje.slice(5, 7) - 1]}</b>\n${prox.join("\n")}\n` : "") +
       (faltaFech.length ? `\n👉 Falta o <b>fechamento de ${nomeMes}</b> no app${faltaFech[0] ? ` (${esc(faltaFech.join(" e "))})` : ""}: contar o gado e o peso de cada categoria. Com ele saem produção, GMD e lotação do mês.\n` : "") +
       `\nPergunte o que quiser, ex.: <i>qual foi meu maior gasto em ${nomeMes}?</i>`;
@@ -1369,7 +1371,10 @@ export async function avisosDiarios(d: Deps) {
       if (ins.some((i: any) => i.tipo === "ingrediente")) ingAv = ingParaAvisar(estoqueIngredientes(ins, em, fo, hoje), D.avisoIng || {});
       cochoAv = cochoAtrasados(ins, em, hoje, D.avisoCocho || {});
     }
-    if (!lem.length && !alt.length && !velhos && !cv.length && !ingAv.length && !cochoAv.length) continue;
+    // metas da fazenda fora do rumo: o app calcula (últimos 12 meses) e guarda em metasSit; avisa só as que acabaram de sair do rumo
+    const sitM: any[] = Array.isArray(D.metasSit?.fora) ? D.metasSit.fora : [], avM = new Set<string>(D.metasAvisadas || []);
+    const metasAv = sitM.filter((x) => !avM.has(x.id)), metasMuda = JSON.stringify(sitM.map((x) => x.id).sort()) !== JSON.stringify([...avM].sort());
+    if (!lem.length && !alt.length && !velhos && !cv.length && !ingAv.length && !cochoAv.length && !metasMuda) continue;
     const daFaz = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
     // vai para quem pediu; se ele não tiver mais o Telegram ligado, vai para os outros sócios
     const para = (uid: string) => { const s = daFaz.filter((x: any) => x.user_id === uid); return (s.length ? s : daFaz).map((x: any) => x.chat_id); };
@@ -1415,7 +1420,16 @@ export async function avisosDiarios(d: Deps) {
       for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
       if (cs.length) cochoMarca[a.k] = a.fim;
     }
+    let metasEnv = !metasAv.length;
+    if (metasAv.length) {
+      const t = "🎯 <b>Meta fora do rumo</b>\n" + metasAv.map((x) => `• ${esc(x.nome)}${x.fase !== "total" ? ` (${ONDE[x.fase] || esc(x.fase)})` : ""}: <b>${esc(x.v)}</b> · sua meta ${esc(x.meta)}`).join("\n") +
+        `\n<i>Últimos 12 meses, conta feita pelo app em ${dBR(D.metasSit.data)}. Veja em Relatórios → Metas.</i>`;
+      const cs = daFaz.map((x: any) => x.chat_id);
+      for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
+      metasEnv = cs.length > 0;
+    }
     await mudaCfg(d, c.fazenda_id, (X) => ({ ...X,
+      ...(metasMuda && metasEnv ? { metasAvisadas: sitM.map((x) => x.id) } : {}),
       ...(Object.keys(cochoMarca).length ? { avisoCocho: { ...(X.avisoCocho || {}), ...cochoMarca } } : {}),
       ...(Object.keys(ingMarca).length ? { avisoIng: { ...(X.avisoIng || {}), ...ingMarca } } : {}),
       contas: (X.contas || []).map((x: any) => (avisadas[x.id] ? { ...x, avisos: { ...(x.avisos || {}), [avisadas[x.id]]: hoje } } : x))
