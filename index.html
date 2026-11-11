@@ -1482,6 +1482,102 @@ function peqHTML(){
     ${f('Dias no ciclo','dias','step="1" min="0" inputmode="numeric"','período total de recria/engorda')}${f('Peso final (kg)','pesoF',m,'peso esperado na venda')}
     ${f('Arroba atual (R$/@), opcional','arroba',m,'para ver a margem')}
   </div></form><div id="peqOut" style="margin-top:6px">${peqOut(PEQ)}</div></div>`;}
+/* ---------- Simular decisão: campo vazio = valor automático (cotações do dia e números do app); o que a pessoa digita fica neste aparelho ---------- */
+let DEC=lsGet('calcDec',{}), SEG=lsGet('calcSeg',{});
+const MES3=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const vencYM=n=>'20'+n.slice(4)+'-'+String(MES3.indexOf(n.slice(0,3))+1).padStart(2,'0');
+/* preço da @ do boi gordo (carcaça) no mês da venda: o vencimento da B3 daquele mês; antes do 1º = à vista; depois do último = último vencimento */
+function arrobaEm(dt){ const m=dt.slice(0,7), V=BGI.v.map(([n,p])=>[vencYM(n),p,n]); const v=V.find(x=>x[0]===m);
+  if(v) return {p:v[1],f:'B3 '+v[2]}; if(!V.length||m<V[0][0]) return {p:+BGI.spot,f:'B3 à vista'}; const u=V[V.length-1]; return {p:u[1],f:'B3 '+u[2]+' (último vencimento)'}; }
+const selicAte=d=>Math.pow(1+selicAA()/100,d/365)-1;
+const mesesTxt=d=>d<45?nf(d)+' dias':nf(d/30.4,d<300?1:0)+' meses';
+/* números da fazenda por fase: ganho de peso e custo por cabeça por mês do período escolhido no Painel */
+function decFase(fase){ try{ const R=calc(UI.per,fase); if(!R.J.ok) return {}; return {gmd:ok(R.gmd)&&R.gmd>0.05&&R.gmd<2?R.gmd:null,custo:ok(R.desembCab)&&R.desembCab>0?R.desembCab:null,lot:ok(R.cabHa)&&R.cabHa>0?R.cabHa:null}; }catch(e){ return {}; } }
+const PERN={safraAnt:'safra anterior',safra:'safra atual','12m':'últimos 12 meses'};
+function decAuto(){ const d=REP.v.find(x=>x[0]==='Desmama')||[], m=REP.v.find(x=>x[0]==='Boi magro')||[], R=decFase('recria'), E=decFase('engorda'), per=PERN[UI.per]||'';
+  const A=(v,ref,fonte)=>v!=null&&ok(v)?{v,f:fonte}:{v:ref,f:'referência',ref:true};
+  return { pesoB:{v:d[2]||195,f:'Scot, desmama'}, precoB:{v:d[4]||0,f:'Scot MT, '+dBR(d[5]||'')}, gmdR:A(R.gmd,0.45,'sua recria, '+per), custoR:A(R.custo,60,'sua recria, '+per),
+    pesoM:{v:m[2]||375,f:'Scot, boi magro'}, precoM:{v:m[4]||0,f:'Scot MT, '+dBR(m[5]||'')}, gmdE:A(E.gmd,0.8,'sua engorda, '+per), custoE:A(E.custo,250,'sua engorda, '+per),
+    pesoA:{v:540,f:'referência'}, rend:{v:rendUltimo()||55,f:rendUltimo()?'sua última venda':'referência'}, arroba:{v:null,f:'B3 do mês da venda'}, lot:{v:R.lot,f:R.lot?'sua recria, '+per:'opcional'} }; }
+const decV=(V,A,k)=>{ const x=V[k]; return x!==''&&x!=null&&Number(x)>0?Number(x):A[k].v; };
+function decCalc(V){ const A=decAuto(), g=k=>decV(V,A,k), hoje=today();
+  const v0=g('precoB'), dR=Math.max(0,(g('pesoM')-g('pesoB'))/g('gmdR')), cR=g('custoR')/30.4*dR;
+  const dE=Math.max(0,(g('pesoA')-g('pesoM'))/g('gmdE')), cE=g('custoE')/30.4*dE, dG=dR+dE;
+  const vendaG=addD(hoje,Math.round(dG)), aG=V.arroba>0?{p:+V.arroba,f:'digitado'}:arrobaEm(vendaG), arrG=g('pesoA')*g('rend')/100/15;
+  const C=(nome,dias,rec,custo,cai,minimo,minTxt)=>{ const luc=rec-custo-v0, sel=v0*selicAte(dias), alem=luc-sel;
+    return {nome,dias,data:addD(hoje,Math.round(dias)),rec,custo,luc,mes:dias?luc/(dias/30.4):0,sel,alem,alemMes:dias?alem/(dias/30.4):0,cai,minimo,minTxt,
+      ha:g('lot')>0&&dias?luc/(dias/365)*g('lot'):null}; };
+  const mag=C('Boi magro',dR,g('precoM'),cR,g('precoM')*0.9-cR-v0,v0+cR,'preço mínimo do boi magro (por cabeça)');
+  const gor=C('Boi gordo',dG,arrG*aG.p,cR+cE,arrG*aG.p*0.9-cR-cE-v0,arrG?(v0+cR+cE)/arrG:NaN,'@ mínima do boi gordo');
+  const hj={nome:'Vender hoje',dias:0,data:hoje,rec:v0,custo:0,luc:0,mes:0,sel:0,alem:0,alemMes:0,cai:null,minimo:null};
+  return {A,g,hj,mag,gor,aG,arrG,ok:v0>0&&g('gmdR')>0&&g('gmdE')>0&&g('pesoM')>g('pesoB')&&g('pesoA')>g('pesoM')}; }
+function decOut(V){ const r=decCalc(V); if(!r.ok) return '<p class="note">Confira os pesos (bezerro &lt; boi magro &lt; abate), o preço do bezerro e o ganho de peso.</p>';
+  const L=[r.hj,r.mag,r.gor], melhor=[r.mag,r.gor].filter(c=>c.alemMes>0).sort((a,b)=>b.alemMes-a.alemMes)[0]||r.hj;
+  const td=(f,c)=>`<td${c===melhor?' style="font-weight:700"':''}>${f(c)}</td>`, row=(l,f)=>`<tr><td style="text-align:left;min-width:84px;white-space:normal;padding-left:0">${l}</td>${L.map(c=>td(f,c)).join('')}</tr>`, sgn=v=>`<span class="${v>=0?'pos':'neg'}">${brl(v)}</span>`;
+  const frase=melhor===r.hj?'Vender o bezerro hoje e aplicar o dinheiro rende mais que recriar ou engordar, com estes números.'
+    :`<b>${melhor.nome}</b> rende ${brl(melhor.alem)} por cabeça além da Selic (${brl(melhor.alemMes)} por mês), vendendo por volta de ${dBR(melhor.data)}.`;
+  return `<p style="font-size:16px;margin:8px 0">${frase}</p>
+  <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr><th></th>${L.map(c=>`<th>${c.nome}</th>`).join('')}</tr></thead><tbody>
+  ${row('Vende em',c=>c.dias?dBR(c.data)+'<br><span class="small muted">'+mesesTxt(c.dias)+'</span>':'hoje')}
+  ${row('Recebe',c=>brl(c.rec))}
+  ${row('Gasta até lá',c=>c.dias?brl(c.custo):'—')}
+  ${row('<b>Lucro</b>',c=>c.dias?sgn(c.luc):'—')}
+  ${row('Lucro por mês',c=>c.dias?sgn(c.mes):'—')}
+  ${row('Bezerro de hoje na Selic',c=>c.dias?brl(c.sel):'—')}
+  ${row('<b>Ganho além da Selic</b>',c=>c.dias?sgn(c.alem):'—')}
+  ${row('Lucro se o preço cair 10%',c=>c.cai==null?'—':sgn(c.cai))}
+  ${row('Empata com',c=>c.minimo?brl(c.minimo)+(c===r.gor?'/@':''):'—')}
+  ${r.g('lot')>0?row('Lucro por ha por ano',c=>c.ha!=null?sgn(c.ha):'—'):''}
+  </tbody></table></div>
+  <p class="note">Boi gordo: ${nf(r.arrG,1)} @ de carcaça (${nf(r.g('pesoA'))} kg × ${nf(r.g('rend'),1)}% ÷ 15) a ${brl(r.aG.p,2)}/@ (${esc(r.aG.f)}). Valores por cabeça. "Lucro" é o que sobra a mais do que vender o bezerro hoje. O boi magro usa o preço de hoje (não há preço futuro de reposição). A Selic é bruta (${nf(selicAA(),2)}% ao ano). O melhor caminho é o de maior ganho além da Selic por mês, porque o caminho mais longo ocupa o pasto por mais tempo.</p>`; }
+function decHTML(){ const A=decAuto();
+  const f=(l,k,a)=>{ const x=A[k], pl=x.v!=null&&ok(x.v)?(k.startsWith('gmd')?nf(x.v,3):k==='rend'||k==='lot'?nf(x.v,1):nf(x.v,k.startsWith('preco')||k.startsWith('custo')?2:0)):'';
+    return `<label class="fl">${l}<input name="${k}" type="number" ${a} value="${esc(DEC[k]||'')}" placeholder="${esc(pl)}"><span class="small muted">${DEC[k]?'digitado por você':(x.ref?'<b>referência</b>, troque pelo seu':esc(x.f))}</span></label>`; }, m='step="0.01" min="0" inputmode="decimal"';
+  const ref=['gmdR','custoR','gmdE','custoE'].filter(k=>A[k].ref&&!DEC[k]);
+  return `<div class="panel"><div class="row-head"><h2>Vender ou ficar com o bezerro?</h2><span class="small muted">por cabeça</span></div>
+  <p class="note" style="margin-top:4px">Compara vender a desmama hoje, recriar até boi magro ou engordar até boi gordo. Os campos em cinza vêm sozinhos das cotações e dos seus lançamentos; digite por cima para testar outro número.</p>
+  ${ref.length?`<p class="note neg">Ainda sem fechamentos suficientes da ${ref.some(k=>k.endsWith('R'))?'recria':''}${ref.some(k=>k.endsWith('R'))&&ref.some(k=>k.endsWith('E'))?' e da ':''}${ref.some(k=>k.endsWith('E'))?'engorda':''} no período: o ganho de peso e o custo marcados como referência são estimativas. Troque pelos seus.</p>`:''}
+  <form class="f" id="calcDec"><div class="grid2">
+    ${f('Peso do bezerro hoje (kg)','pesoB',m)}${f('Preço do bezerro hoje (R$/cab.)','precoB',m)}
+    ${f('Ganho na recria (kg/dia)','gmdR','step="0.001" min="0" inputmode="decimal"')}${f('Custo da recria (R$/cab./mês)','custoR',m)}
+    ${f('Peso do boi magro (kg)','pesoM',m)}${f('Preço do boi magro (R$/cab.)','precoM',m)}
+    ${f('Ganho na engorda (kg/dia)','gmdE','step="0.001" min="0" inputmode="decimal"')}${f('Custo da engorda (R$/cab./mês)','custoE',m)}
+    ${f('Peso de abate (kg vivo)','pesoA',m)}${f('Rendimento de carcaça (%)','rend','step="0.1" min="30" max="70" inputmode="decimal"')}
+    ${f('Preço da @ do boi gordo (R$)','arroba',m)}${f('Lotação (cabeças por hectare)','lot','step="0.01" min="0" inputmode="decimal"')}
+  </div><p class="note">O custo por cabeça por mês é tudo o que a fase gasta (pasto, cocho, sanidade, mão de obra, rateio) dividido pelo rebanho médio. Período: o escolhido no Painel.</p>
+  <div class="btns"><button class="btn link" type="button" data-dec-limpa="dec">Voltar tudo para o automático</button></div></form>
+  <div id="decOut" style="margin-top:6px">${decOut(DEC)}</div></div>`; }
+
+/* segurar o boi gordo mais alguns dias: ganha peso e pega outro vencimento da B3, mas gasta o custo do dia e deixa o dinheiro parado */
+function segAuto(){ const E=decFase('engorda'), per=PERN[UI.per]||'', lf=typeof lastFech==='function'?lastFech():null, cs=CK.filter(c=>faseOf(c)==='engorda'), pm=lf&&fCab(lf,cs)?fKg(lf,cs)/fCab(lf,cs):null;
+  return { peso:pm?{v:Math.round(pm),f:'último fechamento da engorda'}:{v:500,f:'referência',ref:true}, gmd:E.gmd?{v:E.gmd,f:'sua engorda, '+per}:{v:0.8,f:'referência',ref:true},
+    custo:E.custo?{v:E.custo/30.4,f:'sua engorda, '+per}:{v:8,f:'referência',ref:true}, rend:{v:rendUltimo()||55,f:rendUltimo()?'sua última venda':'referência'}, cab:{v:null,f:'opcional, para o total do lote'} }; }
+const SEG_D=[0,15,30,45,60,90,120];
+function segCalc(V){ const A=segAuto(), g=k=>decV(V,A,k), hoje=today(), p0=arrobaEm(hoje).p;
+  const L=SEG_D.map(d=>{ const peso=g('peso')+g('gmd')*d, arr=peso*g('rend')/100/15, a=arrobaEm(addD(hoje,d)), rec=arr*a.p; return {d,data:addD(hoje,d),peso,arr,a,rec}; });
+  const r0=L[0].rec; L.forEach(x=>{ x.custo=g('custo')*x.d; x.sel=r0*selicAte(x.d); x.mais=x.rec-r0-x.custo-x.sel; });
+  const dia=g('gmd')*g('rend')/100/15*p0;
+  return {A,g,L,dia,custoDia:g('custo'),selDia:r0*selicAte(1),melhor:L.reduce((b,x)=>x.mais>b.mais?x:b,L[0])}; }
+function segOut(V){ const r=segCalc(V), cab=Number(V.cab)||0; if(!(r.g('peso')>0&&r.g('gmd')>0)) return '<p class="note">Preencha o peso e o ganho de peso.</p>';
+  const m=r.melhor, sobra=r.dia-r.custoDia-r.selDia;
+  return `<p style="font-size:16px;margin:8px 0">${m.d?`Segurar até <b>${dBR(m.data)}</b> (${m.d} dias) rende ${brl(m.mais)} a mais por cabeça${cab?' ('+brl(m.mais*cab)+' no lote)':''} do que vender hoje.`:'<b>Vender agora</b> é melhor: segurar custa mais do que o boi ganha, com estes números.'}</p>
+  <p class="note">Cada dia a mais, pela @ de hoje: o boi ganha ${nf(r.g('gmd'),3)} kg = <b>${brl(r.dia,2)}</b>; custa <b>${brl(r.custoDia,2)}</b> e o dinheiro parado deixa de render ${brl(r.selDia,2)} na Selic. Sobra <b class="${sobra>=0?'pos':'neg'}">${brl(sobra,2)}</b> por dia, sem contar a mudança de preço entre os vencimentos.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Vender em</th><th>Peso</th><th>@ carcaça</th><th>Preço da @</th><th>Recebe</th><th>A mais que hoje</th></tr></thead><tbody>
+  ${r.L.map(x=>`<tr${x===m?' style="font-weight:700"':''}><td>${x.d?dBR(x.data).slice(0,5)+'<br><span class="small muted">+'+x.d+' dias</span>':'hoje'}</td><td>${nf(x.peso)} kg</td><td>${nf(x.arr,1)}</td><td>${brl(x.a.p,2)}<br><span class="small muted">${esc(x.a.f.replace(' (último vencimento)','*'))}</span></td><td>${brl(x.rec)}</td><td>${x.d?`<span class="${x.mais>=0?'pos':'neg'}">${brl(x.mais)}</span>`:'—'}</td></tr>`).join('')}
+  </tbody></table></div>
+  <p class="note">"A mais que hoje" = o que recebe naquele dia − o que receberia hoje − o custo dos dias a mais − o rendimento na Selic do dinheiro de hoje. Preço da @: vencimento da B3 do mês da venda${r.L.some(x=>x.a.f.includes('último'))?'; * depois do último vencimento a conta repete o último preço':''}. A conta usa o mesmo ganho de peso todos os dias, mas o boi que já está pronto ganha cada vez menos: desconfie quando a tabela mandar segurar muito tempo. O rendimento de carcaça também fica fixo; na prática costuma subir um pouco com o peso.</p>`; }
+function segHTML(){ const A=segAuto();
+  const f=(l,k,a,d)=>{ const x=A[k], pl=x.v!=null?nf(x.v,d):'';
+    return `<label class="fl">${l}<input name="${k}" type="number" ${a} value="${esc(SEG[k]||'')}" placeholder="${esc(pl)}"><span class="small muted">${SEG[k]?'digitado por você':(x.ref?'<b>referência</b>, troque pelo seu':esc(x.f))}</span></label>`; }, m='step="0.01" min="0" inputmode="decimal"';
+  return `<div class="panel"><div class="row-head"><h2>Segurar o boi mais alguns dias?</h2><span class="small muted">por cabeça</span></div>
+  <p class="note" style="margin-top:4px">Mostra até quando vale a pena segurar o boi pronto: o peso que ele ganha e o preço futuro da B3 contra o custo de cada dia.</p>
+  <form class="f" id="calcSeg"><div class="grid2">
+    ${f('Peso hoje (kg vivo)','peso',m,0)}${f('Ganho de peso (kg/dia)','gmd','step="0.001" min="0" inputmode="decimal"',3)}
+    ${f('Custo por cabeça por dia (R$)','custo',m,2)}${f('Rendimento de carcaça (%)','rend','step="0.1" min="30" max="70" inputmode="decimal"',1)}
+    ${f('Cabeças no lote','cab','step="1" min="0" inputmode="numeric"',0)}
+  </div><div class="btns"><button class="btn link" type="button" data-dec-limpa="seg">Voltar tudo para o automático</button></div></form>
+  <div id="segOut" style="margin-top:6px">${segOut(SEG)}</div></div>`; }
+
 function engordaHTML(){
   const ls=[...S.engorda].sort((a,b)=>(a.dataEntrada||'')<(b.dataEntrada||'')?1:-1);
   return `
@@ -1965,7 +2061,7 @@ function ligaArr(){ const el=$('#retbar'); if(!el||el.hidden) return;
   ln.style.left=(a.left+a.width/2-r0.left-1)+'px'; ln.style.top=(a.bottom-r0.top)+'px'; ln.style.height=Math.max(0,b.top-a.bottom)+'px'; }
 addEventListener('resize',()=>ligaArr());
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
-  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
+  const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#calcDec,#calcSeg,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
   ({mapa:renderMapa,notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
 function showTab(t){ t=({reproducao:'cria',financeiro:'custos'})[t]||t; salvaNotaPendente(); closeSheet(); UI.tab=t; UI.eo={}; TABS.forEach(k=>{const v=$('#v-'+k); v.hidden=k!==t; if(k!==t) v.innerHTML='';}); DIRTY=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.dataset.tab===t?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
@@ -2338,12 +2434,15 @@ function renderInicio(){
     ${toolCard('boi','Novo lote de engorda','Entrada no confinamento ou TIP','engorda:lote')}${toolCard('cal','Estação de monta','Prenhez, nascimento, desmame','cria:estacao')}
     ${toolCard('nota','Bloco de notas','Anotações de '+MESF[+today().slice(5,7)-1],'notas')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Calculadoras</h2></div>
-  <div class="tools">${toolCard('calc','Diluir ágio','Em quantos dias o ganho paga o ágio','calc:c-agio')}${toolCard('balanca','Ponto de equilíbrio','Preço mínimo da @ para não ter prejuízo','calc:c-peq')}${toolCard('alvo','Custo da arroba','Quanto custa produzir uma @','calc:c-custo')}</div>
+  <div class="tools">${toolCard('graf','Vender ou ficar?','Bezerro, boi magro ou boi gordo','calc:c-dec')}${toolCard('cal','Segurar o boi?','Até quando vale esperar','calc:c-seg')}${toolCard('calc','Diluir ágio','Em quantos dias o ganho paga o ágio','calc:c-agio')}${toolCard('balanca','Ponto de equilíbrio','Preço mínimo da @ para não ter prejuízo','calc:c-peq')}${toolCard('alvo','Custo da arroba','Quanto custa produzir uma @','calc:c-custo')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Indicadores</h2><span class="small muted">também no menu Mais</span></div>
   <div class="tools">${toolCard('graf','Fazenda toda','Resultado, @ produzidas, margem','painel')}${toolCard('pasto','Cria','Reprodução e bezerros','cria')}${toolCard('ha','Recria','Ganho e custo da recria','recria')}${toolCard('boi','Engorda','Lotes e resultado','engorda')}${toolCard('graf','Relatórios','Gráficos mês a mês e metas','relatorios')}</div>
   ${de.length?`<div class="row-head" style="margin-top:22px"><h2>Últimos custos</h2><button class="btn link" type="button" data-tab="custos">Ver todos</button></div><div class="panel"><div class="list">${de.map(x=>`<div class="item"><span class="t">${esc(ITN[itemOf(x)])}</span><span class="amt">${brl(x.valor)}</span><span class="meta">${dBR(x.data)} · ${esc(ondeTxt(x))}</span></div>`).join('')}</div></div>`:''}`;}
 function renderCalc(){
-  $('#v-calc').innerHTML=`<div class="page-title"><h2>Calculadoras</h2></div><p class="note" style="margin:4px 0 10px">Preencha e o resultado aparece na hora. O que você digita fica guardado neste aparelho.</p>
+  $('#v-calc').innerHTML=`<div class="page-title"><h2>Calcular</h2></div><p class="note" style="margin:4px 0 10px">Preencha e o resultado aparece na hora. O que você digita fica guardado neste aparelho.</p>
+  <div class="row-head" style="margin-top:6px"><h2>Simular decisão</h2><span class="small muted">com os seus números e os preços do dia</span></div>
+  <div id="c-dec">${decHTML()}</div><div id="c-seg">${segHTML()}</div>
+  <div class="row-head" style="margin-top:6px"><h2>Calculadoras</h2></div>
   <div id="c-agio">${agioHTML()}</div><div id="c-peq">${peqHTML()}</div><div id="c-custo">${simArroba()}</div>`;}
 function fechRows(mes){const cats=prefillFech(mes);
   /* mostra só as categorias que a fazenda tem; as outras ficam num "mostrar mais" */
@@ -2575,6 +2674,7 @@ document.addEventListener('click',async e=>{
     catch(x){ if(w) w.close(); toast(navigator.onLine?x.message:'Sem internet para abrir a foto.'); } return; }
   if(b.hasAttribute('data-ajustes')){ showTab('painel'); setTimeout(()=>document.getElementById('ajustes')?.scrollIntoView({block:'start'}),50); return; }
   if(b.dataset.simFill) return simFill(b.dataset.simFill);
+  if(b.dataset.decLimpa){ if(b.dataset.decLimpa==='dec'){ DEC={}; lsSet('calcDec',DEC); } else { SEG={}; lsSet('calcSeg',SEG); } toast('Valores automáticos de volta'); return render(); }
   if(b.dataset.scroll){document.getElementById(b.dataset.scroll)?.scrollIntoView({block:'start'}); return;}
   if(b.id==='fab') return openPicker();
   if(b.id==='micFab') return abreVoz();
@@ -2681,7 +2781,8 @@ document.addEventListener('change',e=>{ if(e.target.id!=='fazSel') return; lsRaw
 document.addEventListener('keydown',e=>{if(e.key==='Escape') closeSheet();});
 document.addEventListener('input',e=>{const id=e.target.dataset?.mix; if(!id) return; const fo=S.form.find(x=>x.id===id), kg=+e.target.value||0, ig=(fo?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct);
   $('#mixout-'+id).innerHTML=kg&&t?`<div class="list">${ig.map(x=>`<div class="item"><span class="t">${esc(x.nome)}</span><span class="amt">${nf(kg*x.pct/t,1)} kg</span></div>`).join('')}</div>${ok(formCost(fo))&&formCost(fo)>0?`<p class="note">Custo da batida: <b>${brl(kg*formCost(fo),2)}</b></p>`:''}`:'';});
-document.addEventListener('input',e=>{const cf=e.target.closest&&e.target.closest('#calcAgio,#calcPeq'); if(cf){const ag=cf.id==='calcAgio'; (ag?AGIO:PEQ)[e.target.name]=e.target.value; lsSet(ag?'calcAgio':'calcPeq',ag?AGIO:PEQ); $(ag?'#agioOut':'#peqOut').innerHTML=(ag?agioOut(AGIO):peqOut(PEQ)); return;}
+document.addEventListener('input',e=>{const dz=e.target.closest&&e.target.closest('#calcDec,#calcSeg'); if(dz){const d=dz.id==='calcDec', O=d?DEC:SEG; O[e.target.name]=e.target.value; lsSet(d?'calcDec':'calcSeg',O); $(d?'#decOut':'#segOut').innerHTML=d?decOut(DEC):segOut(SEG); return;}
+  const cf=e.target.closest&&e.target.closest('#calcAgio,#calcPeq'); if(cf){const ag=cf.id==='calcAgio'; (ag?AGIO:PEQ)[e.target.name]=e.target.value; lsSet(ag?'calcAgio':'calcPeq',ag?AGIO:PEQ); $(ag?'#agioOut':'#peqOut').innerHTML=(ag?agioOut(AGIO):peqOut(PEQ)); return;}
   const f=e.target.closest&&e.target.closest('#simArr'); if(!f) return; SIM[e.target.name]=e.target.value; saveSim(); $('#simOut').innerHTML=simOut(SIM);});
 
 /* ---------- dados ---------- */
