@@ -55,7 +55,12 @@ body{color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;
 .band .chip.good,.band .chip.bad,.band .chip.warn{color:var(--gold-ink)}
 .band .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:#6b5a2c}
 .band .chip.good::before{background:#1f7a3f} .band .chip.bad::before{background:#b23a2a} .band .chip.warn::before{background:#8f600c}
-.retbar{margin-top:10px}
+.retbar{margin-top:10px;position:relative}
+.retbar .arrlinha{margin-top:18px;text-align:right;padding-right:3px}
+.retbar .arrlink{position:absolute;width:3px;background:var(--accent,var(--ink));border-radius:1px;pointer-events:none}
+.retbar .arrlinha.fora .arrlink{background:none;border-left:3px dashed var(--muted);width:0}
+.retbar .arrlinha [data-semarr]{border-color:var(--accent,var(--ink))}
+.retbar .arrlinha.fora [data-semarr]{border-style:dashed;border-color:var(--muted)}
 .retbar .seg button{font-size:14px;padding:9px 10px}
 .retbar .seg button[aria-pressed="true"]{color:var(--accent,var(--ink))}
 .band.slim{padding:12px 18px;border-radius:16px}
@@ -1751,7 +1756,7 @@ function saudacao(){ const h=new Date().getHours(), n=meuNome(); return (h<12?'B
 function bandInfo(){
   const last=lastFech(), A=area(), cab=last?fCab(last):0, ua=last?fKg(last)/450:0, painel=UI.tab==='inicio'||UI.tab==='painel';
   document.body.dataset.tab=UI.tab; $('#band').classList.toggle('slim',!painel);
-  const rt=retAtual(), nomeVista=fazNome()+(rt?' · '+(rt.id===SEDE?'':rt.arr?'Arrendamento ':'Retiro ')+rt.nome:UI.semArr&&arrs().length?' · sem arrendamentos':'');
+  const rt=retAtual(), nomeVista=fazNome()+(rt?' · '+(rt.id===SEDE?'':rt.arr?'Arrendamento ':'Retiro ')+rt.nome:arrs().length?(UI.semArr?' – sem arrendamentos':' + arrendamentos'):'');
   $('#welcome').textContent=painel?saudacao():nomeVista;
   $('#bandSub').innerHTML='<b>'+esc(nomeVista)+'</b>'+(last?' · '+nf(cab)+' cab. em '+nf(ua)+' UA'+(A?' em '+nf(A)+' ha':''):' · comece pelo fechamento do rebanho');
   const nm=meuNome()||'Sócio'; $('#who').innerHTML=`<span class="av">${esc(nm.replace(/^(dr|dra)\.?\s+/i,'').charAt(0).toUpperCase()||'F')}</span><div><b>${esc(nm)}</b><small>${esc(fazNome())}</small></div><button class="out" type="button" data-logout>Sair</button>`;
@@ -1869,8 +1874,16 @@ function retBar(){ const el=$('#retbar'); if(!el) return; const R=retiros(); el.
   /* "Arrendamentos" abre (ou fecha) a linha com os parceiros; fica aberta enquanto um deles estiver escolhido */
   const emArr=ehArr(UI.ret), aberto=emArr||UI.arrAberto;
   el.innerHTML=`<div class="seg">${partes().filter(r=>!r.arr).map(bt).join('')}<button type="button" data-arrtoggle aria-pressed="${emArr}" aria-expanded="${!!aberto}">Arrendamentos ${aberto?'▴':'▾'}</button><button type="button" data-ret="" aria-pressed="${!UI.ret}">Fazenda toda</button></div>`+
-    (!UI.ret&&A.length?`<div style="margin-top:6px;text-align:right"><button type="button" class="btn" data-semarr aria-pressed="${!UI.semArr}" title="Liga ou desliga os pastos arrendados nas contas da fazenda toda">${UI.semArr?'☐ Arrendamentos fora da conta':'☑ Arrendamentos somados'}</button></div>`:'')+
-    (aberto?`<div class="seg seg-arr" style="margin-top:6px">${A.length?A.map(bt).join(''):'<span class="small muted" style="align-self:center;padding:0 8px">Nenhum parceiro ainda</span>'}<button type="button" data-arredit>${A.length?'✎ Editar':'+ Cadastrar'}</button></div>`:''); }
+    (!UI.ret&&A.length?`<div class="arrlinha${UI.semArr?' fora':''}"><span class="arrlink" aria-hidden="true"></span><button type="button" class="btn" data-semarr aria-pressed="${!UI.semArr}" title="Liga ou desliga os pastos arrendados nas contas da fazenda toda">${UI.semArr?'☐ Arrendamentos fora da conta':'☑ Arrendamentos somados'}</button></div>`:'')+
+    (aberto?`<div class="seg seg-arr" style="margin-top:6px">${A.length?A.map(bt).join(''):'<span class="small muted" style="align-self:center;padding:0 8px">Nenhum parceiro ainda</span>'}<button type="button" data-arredit>${A.length?'✎ Editar':'+ Cadastrar'}</button></div>`:'');
+  ligaArr(); }
+/* linha que liga "Fazenda toda" ao botão dos arrendamentos somados, logo abaixo dele */
+function ligaArr(){ const el=$('#retbar'); if(!el||el.hidden) return;
+  const ft=el.querySelector('.seg button[data-ret=""]'), sb=el.querySelector('[data-semarr]'), ln=el.querySelector('.arrlink'); if(!ft||!sb||!ln) return;
+  sb.style.minWidth=ft.offsetWidth+'px';
+  const r0=el.getBoundingClientRect(), a=ft.getBoundingClientRect(), b=sb.getBoundingClientRect();
+  ln.style.left=(a.left+a.width/2-r0.left-1)+'px'; ln.style.top=(a.bottom-r0.top)+'px'; ln.style.height=Math.max(0,b.top-a.bottom)+'px'; }
+addEventListener('resize',()=>ligaArr());
 function render(){ setStatus(); bandInfo(); retBar(); renderSide();
   const ae=document.activeElement; if(($('#v-'+UI.tab).querySelector('#frm[data-inline]')&&DIRTY)||(ae&&ae.closest&&ae.closest('#frm[data-inline],#calcAgio,#calcPeq,#simArr,#bgiF,#milhoF,#repF,#repFF,#notaF,#convF,#acF,#senhaF,#contaF,#pesF,#lembF'))) return;
   ({mapa:renderMapa,notas:renderNotas,inicio:renderInicio,calc:renderCalc,painel:renderPainel,cria:()=>renderFase('cria'),recria:()=>renderFase('recria'),engorda:()=>renderFase('engorda'),relatorios:renderRel,custos:renderFin,rebanho:renderRebanho,suplementacao:renderSupl})[UI.tab](); mountEntry(); }
