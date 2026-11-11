@@ -1189,6 +1189,66 @@ export function contaAluguel(r: any, mes: string, venc: string, media: number) {
 }
 
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
+/* ---------- ingredientes da mistura (DDG, milho, núcleo): mesma conta do app ----------
+   Entram pela Entrada (compra) e saem quando a mistura vai para o cocho, na proporção da formulação.
+   Dias que faltam = estoque em kg ÷ kg por dia dos fornecimentos dos últimos 30 dias. */
+export const ING_AVISO = 15, ING_URGENTE = 5;
+const normIng = (s: any) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+function ingDe(nome: string, L: any[]) {
+  const n = normIng(nome); if (n.length < 2) return null;
+  return L.find((i) => normIng(i.nome) === n) || L.find((i) => { const k = normIng(i.nome); return k.length >= 3 && n.length >= 3 && ((" " + n + " ").includes(" " + k + " ") || (" " + k + " ").includes(" " + n + " ")); }) || null;
+}
+export function estoqueIngredientes(ins: any[], emovs: any[], forms: any[], hoje: string) {
+  const L = ins.filter((i) => i.grupo === "nutricao" && i.tipo === "ingrediente");
+  if (!L.length) return [];
+  const kgUn = (i: any) => +i?.kgUn || 1;
+  const mix = (p: any) => {
+    const f = p && p.tipo !== "ingrediente" && p.formulacaoId && forms.find((x) => x.id === p.formulacaoId); if (!f) return [];
+    const ig = (f.ingredientes || []).filter((x: any) => +x.pct > 0), t = ig.reduce((s: number, x: any) => s + +x.pct, 0); if (!t) return [];
+    return ig.map((x: any) => ({ ing: ingDe(x.nome, L), frac: +x.pct / t })).filter((x: any) => x.ing);
+  };
+  const d30 = somaDias(hoje, -30);
+  return L.map((g) => {
+    let kg = 0; const cons: { data: string; kg: number; dias: number }[] = [];
+    for (const m of emovs) {
+      if (m.insumoId === g.id) kg += (m.tipo === "entrada" ? 1 : -1) * (+m.qtd || 0) * kgUn(g);
+      if (!m.fornecimento) continue;
+      const p = ins.find((x) => x.id === m.insumoId); if (!p) continue;
+      const q = (+m.qtd || 0) * kgUn(p), dd = +m.dias || 1;
+      if (p.id === g.id) cons.push({ data: m.data, kg: q, dias: dd });
+      else for (const x of mix(p)) if (x.ing.id === g.id) { cons.push({ data: m.data, kg: q * x.frac, dias: dd }); kg -= q * x.frac; }
+    }
+    const r = cons.filter((x) => okData(x.data) && x.data >= d30 && x.data <= hoje);
+    let kgDia = NaN;
+    if (r.length) {
+      const ini = r.reduce((a, x) => (x.data < a ? x.data : a), hoje), fim = r.reduce((a, x) => { const e = somaDias(x.data, x.dias); return e > a ? e : a; }, hoje);
+      kgDia = r.reduce((s, x) => s + x.kg, 0) / Math.max(1, dias(ini, fim));
+    }
+    const ult = emovs.filter((m) => m.insumoId === g.id && m.tipo === "entrada").reduce((a, m) => (m.data > a ? m.data : a), "");
+    return { id: g.id, nome: g.nome, kg, kgDia, dias: kgDia > 0 ? kg / kgDia : NaN, ultEntrada: ult };
+  });
+}
+/* avisa uma vez com 15 dias e outra com 5; uma compra nova (entrada depois do aviso) zera a conta */
+export function ingParaAvisar(est: any[], marcados: Record<string, any>) {
+  return est.filter((e) => {
+    if (!Number.isFinite(e.dias)) return false;
+    const n = e.dias <= ING_URGENTE ? ING_URGENTE : e.dias <= ING_AVISO ? ING_AVISO : 0; if (!n) return false;
+    const a = marcados?.[e.id]; e.nivel = n;
+    return !a || (e.ultEntrada && e.ultEntrada > a.d) || n < a.n;
+  });
+}
+async function todosId(d: Deps, tabela: string, fazenda: string) {
+  const out: any[] = [];
+  for (let i = 0; ; i += 1000) {
+    const { data, error } = await d.db.from(tabela).select("id,dados").eq("fazenda_id", fazenda).range(i, i + 999);
+    if (error) { console.error("ler " + tabela, error); break; }
+    out.push(...(data || []).map((r: any) => ({ ...(r.dados || {}), id: r.id })));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+const kgOuT = (kg: number) => (Math.abs(kg) >= 1000 ? (kg / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " t" : Math.round(kg).toLocaleString("pt-BR") + " kg");
+
 export async function avisosDiarios(d: Deps) {
   const hoje = hojeMT();
   const { data: cfgs } = await d.db.from("config").select("fazenda_id,dados");
@@ -1215,7 +1275,14 @@ export async function avisosDiarios(d: Deps) {
       if (ok) D.contas = [...(D.contas || []), ...novas.filter(Boolean)];
     }
     const cv = abertas(D).filter((c: any) => (c.venc === amanha && !c.avisos?.v) || (c.venc <= hoje && !c.avisos?.d));
-    if (!lem.length && !alt.length && !velhos && !cv.length) continue;
+    // ingredientes da mistura acabando (DDG, milho, núcleo)
+    const ins = await todosId(d, "insumos", c.fazenda_id);
+    let ingAv: any[] = [];
+    if (ins.some((i: any) => i.tipo === "ingrediente")) {
+      const [em, fo] = await Promise.all([todosId(d, "estoque_movs", c.fazenda_id), todosId(d, "formulacoes", c.fazenda_id)]);
+      ingAv = ingParaAvisar(estoqueIngredientes(ins, em, fo, hoje), D.avisoIng || {});
+    }
+    if (!lem.length && !alt.length && !velhos && !cv.length && !ingAv.length) continue;
     const daFaz = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
     // vai para quem pediu; se ele não tiver mais o Telegram ligado, vai para os outros sócios
     const para = (uid: string) => { const s = daFaz.filter((x: any) => x.user_id === uid); return (s.length ? s : daFaz).map((x: any) => x.chat_id); };
@@ -1240,7 +1307,18 @@ export async function avisosDiarios(d: Deps) {
       for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "✅ Paguei", callback_data: `pago:${k.id}` }]] } }); n++; }
       if (cs.length) avisadas[k.id] = k.venc === amanha ? "v" : "d";
     }
+    const ingMarca: Record<string, any> = {};
+    for (const e of ingAv) {
+      const t = (e.dias <= 0 ? `🚨 <b>${esc(e.nome)} acabou</b>` : `🌽 <b>${esc(e.nome)} acaba em ~${Math.round(e.dias)} dias</b> (até ${dBR(somaDias(hoje, Math.floor(e.dias)))})`)
+        + `\nEstoque: ${kgOuT(Math.max(0, e.kg))} · sai ${kgOuT(e.kgDia)} por dia no cocho (últimos 30 dias).`
+        + (e.nivel === ING_URGENTE ? "\nHora de comprar." : "\nDá tempo de cotar e programar a entrega.")
+        + "\n<i>Conta feita pelos fornecimentos lançados no app; se faltou lançar alguma semana, o estoque real acaba antes.</i>";
+      const cs = daFaz.map((x: any) => x.chat_id);
+      for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
+      if (cs.length) ingMarca[e.id] = { d: hoje, n: e.nivel };
+    }
     await mudaCfg(d, c.fazenda_id, (X) => ({ ...X,
+      ...(Object.keys(ingMarca).length ? { avisoIng: { ...(X.avisoIng || {}), ...ingMarca } } : {}),
       contas: (X.contas || []).map((x: any) => (avisadas[x.id] ? { ...x, avisos: { ...(x.avisos || {}), [avisadas[x.id]]: hoje } } : x))
         .filter((x: any) => !(x.paga && dias(x.paga.data, hoje) > 120)),
       lembretes: (X.lembretes || []).map((x: any) => (enviados.has(x.id) ? { ...x, enviado: hoje } : x))

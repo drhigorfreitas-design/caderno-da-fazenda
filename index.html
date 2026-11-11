@@ -1554,11 +1554,12 @@ function renderAdapt(a){ const r=SUP_REF[a.tipo]; if(!r) return ''; const cab=+a
     </tbody></table></div>
     <p class="note">Cocho: ${faixa(r.cocho,' cm')} por cabeça, ou ${r.cocho[0]===r.cocho[1]?nf(cab*r.cocho[0]/100,1):nf(cab*r.cocho[0]/100,1)+' a '+nf(cab*r.cocho[1]/100,1)} metros lineares para o lote. ${r.mistura&&r.etapas.some(e=>e.sal)?'Na fase de mistura com sal o consumo é à vontade; o kg é uma estimativa para 0,1% do peso vivo. ':''}Atualize o peso médio quando pesar o lote.</p>
     <div class="btns"><button class="btn" type="button" data-open="adaptacao" data-edit="${a.id}">Editar</button><button class="btn del" type="button" data-del="${COL.adapt}:${a.id}">Excluir</button></div></article>`; }
-const TSN=Object.fromEntries(TIPOS_SUP);
+const TIPOS_PROD=[['ingrediente','Ingrediente da mistura (DDG, milho, núcleo)'],...TIPOS_SUP];
+const TSN=Object.fromEntries(TIPOS_PROD);
 const supl=()=>S.insumos.filter(i=>i.grupo==='nutricao');
 const kgUn=i=>+i?.kgUn||1;
-const formCost=f=>{const ig=(f?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct); return t?sum(ig,x=>x.pct*(+x.preco||0))/t:NaN;};
-function precoKgIns(i){ const f=i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId); const fc=formCost(f); if(ok(fc)&&fc>0) return fc;
+const formCost=f=>{const ig=(f?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct), L=ingrs(); return t?sum(ig,x=>x.pct*ingPreco(x,L))/t:NaN;};
+function precoKgIns(i){ if(ehIng(i)) return precoUlt(i); const f=i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId); const fc=formCost(f); if(ok(fc)&&fc>0) return fc;
   const ent=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrada'); const kg=sum(ent,m=>m.qtd*kgUn(i)); return kg?sum(ent,m=>m.valor)/kg:NaN; }
 function fornCalc(m){ const i=S.insumos.find(x=>x.id===m.insumoId), kg=(+m.qtd||0)*kgUn(i), cd=(+m.cab||0)*(+m.dias||0), pk=i?precoKgIns(i):NaN;
   return {i,kg,cd,g:kg*1000/cd,pv:kg/cd/(+m.peso||0)*100,custo:kg*pk,rcd:kg*pk/cd}; }
@@ -1567,11 +1568,39 @@ function metaSt(i,c){ if(!i||!(+i.metaMin||+i.metaMax)) return null; const v=i.m
 const metaTxt=i=>!(+i.metaMin||+i.metaMax)?'sem meta':i.metaTipo==='g'?`meta ${nf(+i.metaMin)}–${nf(+i.metaMax)} g/cab/dia`:`meta ${nf(+i.metaMin,2)}–${nf(+i.metaMax,2)}% PV`;
 const ST_TXT={ok:'Na meta',low:'Abaixo da meta',high:'Acima da meta'};
 const saldoKg=i=>saldo(i)*kgUn(i);
+/* ---------- ingredientes da mistura (DDG, milho, núcleo): entram pela compra e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação ---------- */
+const ehIng=i=>i?.tipo==='ingrediente';
+const ingrs=()=>supl().filter(ehIng);
+const normIng=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\([^)]*\)/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
+/* liga o nome escrito na formulação ao ingrediente cadastrado: nome igual, ou um contido no outro por palavras inteiras ("Milho moído (fubá)" = "Milho moído") */
+function ingDe(nome,L=ingrs()){ const n=normIng(nome); if(n.length<2) return null; const e=L.find(i=>normIng(i.nome)===n); if(e) return e;
+  return L.find(i=>{const k=normIng(i.nome); return k.length>=3&&n.length>=3&&((' '+n+' ').includes(' '+k+' ')||(' '+k+' ').includes(' '+n+' '));})||null; }
+/* quanto de cada ingrediente com estoque vai em 1 kg da mistura */
+function mixIngs(p){ const f=p&&!ehIng(p)&&p.formulacaoId&&S.form.find(x=>x.id===p.formulacaoId); if(!f) return [];
+  const ig=(f.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>+x.pct), L=ingrs(); if(!t) return [];
+  return ig.map(x=>({nome:x.nome,ing:ingDe(x.nome,L),frac:+x.pct/t})).filter(x=>x.ing); }
+const usaIng=p=>mixIngs(p).length>0;
+/* o que saiu do ingrediente pelo cocho: [{data,kg,dias}]; direto=true inclui o ingrediente dado puro (esse já é saída no estoque) */
+function consIng(g,direto){ const out=[];
+  for(const m of S.emovs){ if(!m.fornecimento) continue; const p=S.insumos.find(x=>x.id===m.insumoId); if(!p) continue; const kg=(+m.qtd||0)*kgUn(p), d=+m.dias||1;
+    if(p.id===g.id){ if(direto) out.push({data:m.data,kg,dias:d}); }
+    else for(const x of mixIngs(p)) if(x.ing.id===g.id) out.push({data:m.data,kg:kg*x.frac,dias:d}); }
+  return out; }
+const addD=(s,n)=>{const x=new Date(s+'T12:00:00'); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10);};
+/* kg por dia: fornecimentos dos últimos 30 dias, do primeiro deles até o fim do que já foi para o cocho */
+function taxaDia(L){ const h=today(), d30=addD(h,-30), r=L.filter(x=>x.data&&x.data>=d30&&x.data<=h); if(!r.length) return NaN;
+  const ini=r.reduce((a,x)=>x.data<a?x.data:a,h), fim=r.reduce((a,x)=>{const e=addD(x.data,x.dias); return e>a?e:a;},h);
+  return sum(r,x=>x.kg)/Math.max(1,days(ini,fim)); }
+const precoUlt=i=>{const e=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrada'&&+m.valor>0&&+m.qtd>0).sort((a,b)=>a.data<b.data?1:-1)[0]; return e?e.valor/(e.qtd*kgUn(i)):NaN;};
+/* preço por kg do ingrediente na formulação: o da última compra, se ligado ao estoque; senão o digitado */
+const ingPreco=(x,L)=>{const g=ingDe(x.nome,L), p=g?precoUlt(g):NaN; return ok(p)&&p>0?p:+x.preco||0;};
+function estIng(g){ const kg=saldoKg(g), kgDia=taxaDia(consIng(g,true)); return {g,kg,kgDia,dias:kgDia>0?kg/kgDia:NaN}; }
+const kgOuT=kg=>Math.abs(kg)>=1000?nf(kg/1000,1)+' t':nf(kg)+' kg';
 function renderSupl(){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
   const tKg=sum(fs,x=>x.kg), tCusto=sum(fs,x=>x.custo), tCd=sum(fs,x=>x.cd), pvW=sum(fs.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(fs.filter(x=>ok(x.pv)),x=>x.cd);
   const desde=new Date(Date.now()-30*864e5).toISOString().slice(0,10), rec=S.emovs.filter(m=>m.fornecimento&&m.data>=desde).map(m=>({m,...fornCalc(m)}));
-  const ps=supl();
+  const ps=supl().filter(i=>!ehIng(i)), IL=ingrs(), EI=IL.map(estIng);
   $('#v-suplementacao').innerHTML=`
   <div class="page-title"><h2>Suplementação</h2></div>
   ${entryHTML('suplementacao')}
@@ -1593,10 +1622,11 @@ function renderSupl(){
   </div>
 
   <div class="row-head"><h2>Formulações próprias</h2><button class="btn" type="button" data-open="formulacao">Nova formulação</button></div>
-  ${S.form.length?`<div class="cards">${S.form.map(f=>{const ig=(f.ingredientes||[]).filter(x=>x.nome||+x.pct), tp=sum(ig,x=>x.pct), c=formCost(f), semPreco=ig.some(x=>!(+x.preco));
+  ${S.form.length?`<div class="cards">${S.form.map(f=>{const ig=(f.ingredientes||[]).filter(x=>x.nome||+x.pct), tp=sum(ig,x=>x.pct), c=formCost(f), semPreco=ig.some(x=>!(ingPreco(x,IL)>0));
     return `<article class="card"><div class="row-head"><h3>${esc(f.nome)}</h3><span class="chip ${Math.abs(tp-100)<0.01?'':'warn'}">${nf(tp,1)}%</span></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ingrediente</th><th>%</th><th>R$/kg</th><th>R$ na mistura</th></tr></thead><tbody>
-      ${ig.map(x=>`<tr><td>${esc(x.nome)}</td><td>${nf(+x.pct,1)}</td><td>${+x.preco?brl(+x.preco,2):'—'}</td><td>${+x.preco&&tp?brl(x.pct/tp*x.preco,3):'—'}</td></tr>`).join('')}
+      ${ig.map(x=>{const g=ingDe(x.nome,IL), pu=g?precoUlt(g):NaN, pr=ingPreco(x,IL);
+        return `<tr><td>${esc(x.nome)}${g?`<br><span class="small muted" style="white-space:normal">sai do estoque de ${esc(g.nome)}${ok(pu)&&pu>0?' · preço da última compra':''}</span>`:''}</td><td>${nf(+x.pct,1)}</td><td>${pr?brl(pr,2):'—'}</td><td>${pr&&tp?brl(x.pct/tp*pr,3):'—'}</td></tr>`;}).join('')}
       </tbody><tfoot><tr><td>Custo da mistura</td><td>${nf(tp,1)}</td><td></td><td>${ok(c)?brl(c,3)+'/kg':'—'}</td></tr></tfoot></table></div>
       ${semPreco?'<p class="note neg">Falta o preço por kg de algum ingrediente. Toque em Editar para preencher.</p>':`<p class="note">Saco de 30 kg: <b>${brl(c*30,2)}</b> · saco de 25 kg: <b>${brl(c*25,2)}</b></p>`}
       <div class="mixcalc"><label class="fl">Quantos kg vai misturar?<input type="number" min="0" step="1" inputmode="numeric" id="mix-${f.id}" data-mix="${f.id}" placeholder="1000"></label></div>
@@ -1606,13 +1636,18 @@ function renderSupl(){
       <div class="btns"><button class="btn" type="button" data-open="formulacao" data-edit="${f.id}">Editar</button><button class="btn del" type="button" data-del="${COL.form}:${f.id}">Excluir</button></div></article>`;}).join('')}</div>`
   :`<div class="panel"><p class="empty">Cadastre a receita do suplemento feito na fazenda com o percentual e o preço de cada ingrediente para ver o custo por kg.</p></div>`}
 
-  <div class="row-head"><h2>Produtos e estoque</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto</button><button class="btn" type="button" data-open="entrada">Entrada</button></div></div>
-  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), kgDia=sum(r,x=>x.kg)/30, dias=saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
-      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${nf(saldo(i),1)} ${esc(i.unidade)}</span>
-      <span class="meta">${ok(pk)?brl(pk,2)+'/kg':'sem preço'}${i.formulacaoId?' (formulação)':''} · ${metaTxt(i)}${r.length?` · últimos 30 dias: ${i.metaTipo==='g'?nf(real.g)+' g/cab/dia':pct(real.pv,2)+' PV'}`:''}${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
+  <div class="row-head"><h2>Produtos e estoque</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto ou ingrediente</button><button class="btn" type="button" data-open="entrada">Entrada</button></div></div>
+  ${IL.length?`<div class="panel"><h3 style="margin:0 0 6px">Ingredientes das misturas</h3><div class="list">${EI.map(({g,kg,kgDia,dias})=>{const pu=precoUlt(g), fim=ok(dias)?addD(today(),Math.floor(dias)):'';
+      return `<div class="item"><span class="t">${esc(g.nome)} <span class="chip">Ingrediente</span>${ok(dias)&&dias<15?' <span class="chip warn">Comprar</span>':''}</span><span class="amt ${kg<0?'neg':''}">${kgOuT(kg)}</span>
+      <span class="meta">${nf(saldo(g),1)} ${esc(g.unidade)} · ${ok(pu)?brl(pu,2)+'/kg na última compra':'sem compra com valor'}${ok(kgDia)?` · sai ${kgOuT(kgDia)} por dia`:' · sem fornecimento nos últimos 30 dias'}</span>
+      <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${dias<0?'acabou':nf(Math.max(0,dias))+' dias'}${dias>=0?'<br>até '+dBR(fim):''}</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${g.id}">Editar</button></span></div>`;}).join('')}</div>
+    <p class="note" style="margin-top:8px">Entram pela <b>Entrada</b> (compra) e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação. Os dias usam o que foi para o cocho nos últimos 30 dias: lance o fornecimento toda semana para a conta ficar certa.</p></div>`:''}
+  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), mi=mixIngs(i), kgDia=taxaDia(r.map(x=>({data:x.m.data,kg:x.kg,dias:+x.m.dias||1}))), dias=mi.length?NaN:saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
+      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${mi.length?'<span class="small muted">sai dos ingredientes</span>':nf(saldo(i),1)+' '+esc(i.unidade)}</span>
+      <span class="meta">${mi.length?mi.map(x=>esc(x.ing.nome)+' '+nf(x.frac*100,1)+'%').join(' + ')+' · ':''}${ok(pk)?brl(pk,2)+'/kg':'sem preço'}${i.formulacaoId?' (formulação)':''} · ${metaTxt(i)}${r.length?` · últimos 30 dias: ${i.metaTipo==='g'?nf(real.g)+' g/cab/dia':pct(real.pv,2)+' PV'}`:''}${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
       <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${nf(dias)} dias</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${i.id}">Editar</button></span></div>`;}).join('')
     :'<p class="empty">Cadastre os suplementos (sal mineral, proteinado, ração) com o peso da embalagem e a meta de consumo. Eles aparecem também no estoque de insumos do Financeiro.</p>'}</div>
-    <p class="note" style="margin-top:8px">Os dias de estoque usam o consumo dos últimos 30 dias. Para mistura feita na fazenda, registre a entrada do produto pronto sem lançar como desembolso, porque os ingredientes já foram lançados na compra.</p></div>
+    <p class="note" style="margin-top:8px">Os dias de estoque usam o consumo dos últimos 30 dias. Mistura feita na fazenda: cadastre os ingredientes (DDG, milho, núcleo) como <b>Ingrediente da mistura</b> e dê entrada só nas compras deles; a mistura pronta não precisa de entrada, porque sai dos ingredientes quando vai para o cocho.</p></div>
 
   <h2>Fornecimentos</h2>
   <div class="panel"><div class="list">${fs.length?[...fs].sort((a,b)=>a.m.data<b.m.data?1:-1).slice(0,40).map(x=>{const ms=metaSt(x.i,x);
@@ -1622,7 +1657,7 @@ function renderSupl(){
 }
 
 /* ---------- Financeiro ---------- */
-const saldo=i=>sum(S.emovs.filter(m=>m.insumoId===i.id),m=>(m.tipo==='entrada'?1:-1)*m.qtd);
+const saldo=i=>sum(S.emovs.filter(m=>m.insumoId===i.id),m=>(m.tipo==='entrada'?1:-1)*m.qtd)-(ehIng(i)?sum(consIng(i,false),x=>x.kg)/kgUn(i):0);
 /* ---------- contas a pagar (config.contas): o robô do Telegram avisa na véspera e no dia; "Paguei" lança o custo ---------- */
 const contasAbertas=()=>(S.config.contas||[]).filter(c=>!c.paga&&(!UI.ret||daParte(UI.ret,c))).sort((a,b)=>a.venc<b.venc?-1:1);
 function contasHTML(){ const A=contasAbertas(), h=today();
@@ -1726,7 +1761,7 @@ function renderFin(){
   <p class="note">Custeio é o gasto que se consome em menos de 12 meses. Investimento dura mais de 12 meses e vira patrimônio. Compra de boi não entra aqui: registre como compra no Rebanho, ela vai para a reposição.</p>
 
   <div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
-  <div class="panel"><div class="list">${S.insumos.length?[...S.insumos].sort((a,b)=>a.nome<b.nome?-1:1).map(i=>{const sd=saldo(i),min=+i.minimo||0;return `<div class="item"><span class="t">${esc(i.nome)} ${sd<=min?'<span class="chip warn">Repor</span>':''}</span><span class="amt ${sd<=min?'neg':''}">${nf(sd,1)} ${esc(i.unidade)}</span><span class="meta">mínimo ${nf(min,1)} ${esc(i.unidade)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.insumos}:${i.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Cadastre os insumos que você controla, como sal mineral, proteinado, vacinas e diesel.</p>'}</div>
+  <div class="panel"><div class="list">${S.insumos.length?[...S.insumos].sort((a,b)=>a.nome<b.nome?-1:1).map(i=>{const sd=saldo(i),min=+i.minimo||0; if(usaIng(i)) return `<div class="item"><span class="t">${esc(i.nome)}</span><span class="amt small muted">sai dos ingredientes</span><span class="meta">mistura: o estoque é o de ${mixIngs(i).map(x=>esc(x.ing.nome)).join(', ')}</span></div>`; return `<div class="item"><span class="t">${esc(i.nome)} ${sd<=min?'<span class="chip warn">Repor</span>':''}</span><span class="amt ${sd<=min?'neg':''}">${nf(sd,1)} ${esc(i.unidade)}</span><span class="meta">mínimo ${nf(min,1)} ${esc(i.unidade)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.insumos}:${i.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Cadastre os insumos que você controla, como sal mineral, proteinado, vacinas e diesel.</p>'}</div>
     <p class="note" style="margin-top:8px">Valor do estoque hoje: ${brl(estoqueValor(today()))}. A variação entra no resultado da operação.</p></div>
 `;
 }
@@ -1783,7 +1818,8 @@ function renderSide(){
     return o.attr?`<button type="button" class="ac ${o.cls||''}" ${o.attr}>${inner}</button>`:`<div class="ac ${o.cls||''}">${inner}</div>`; };
   if(!last) A.push({ic:'cal',cls:'warn',t:'Fazer o primeiro fechamento',s:'Cabeças e peso por categoria',attr:'data-open="fechamento"'});
   else { const prox=addM(last.mes,1); if(prox<ym(hoje)||(prox===ym(hoje)&&+hoje.slice(8)>=25)) A.push({ic:'cal',cls:'warn',t:'Fechamento de '+mLabel(prox)+(prox<ym(hoje)?' pendente':' já pode ser feito'),s:'Último fechamento: '+mLabel(last.mes),attr:`data-open="fechamento" data-mes="${prox}"`}); }
-  S.insumos.filter(i=>saldo(i)<=(+i.minimo||0)).slice(0,3).forEach(i=>A.push({ic:'alerta',cls:'warn',t:'Repor: '+esc(i.nome),s:nf(saldo(i),1)+' '+esc(i.unidade)+' em estoque',attr:'data-tab="suplementacao"'}));
+  ingrs().map(estIng).filter(e=>ok(e.dias)&&e.dias<15).forEach(e=>A.push({ic:'alerta',cls:'warn',t:esc(e.g.nome)+(e.dias<=0?' acabou':' acaba em ~'+nf(e.dias)+' dias'),s:kgOuT(Math.max(0,e.kg))+' no estoque · sai '+kgOuT(e.kgDia)+' por dia',attr:'data-tab="suplementacao"'}));
+  S.insumos.filter(i=>!usaIng(i)&&!ehIng(i)&&saldo(i)<=(+i.minimo||0)).slice(0,3).forEach(i=>A.push({ic:'alerta',cls:'warn',t:'Repor: '+esc(i.nome),s:nf(saldo(i),1)+' '+esc(i.unidade)+' em estoque',attr:'data-tab="suplementacao"'}));
   adaptAtivas().slice(0,3).forEach(({a,r,d,fim})=>A.push({ic:'caixa',t:'Adaptação: '+esc(a.nome||'Lote'),s:r.nome+' · dia '+d+' de '+(fim-1),attr:'data-tab="suplementacao"'}));
   if(!area()) A.push({ic:'ha',t:'Informar a área produtiva',s:'Para lotação e @/ha',attr:'data-ajustes'});
   const ev=[...S.movs.map(x=>({d:x.data,t:tipoMov(x)+' · '+esc(CN[x.categoria]||''),s:nf(x.cab)+' cab.'+(x.valor?' · '+brl(x.valor):'')})),
@@ -1810,7 +1846,7 @@ async function exportaExcel(){
    ['Custos',ord(S.desemb,'data').map(x=>({'Data':x.data,...(retiros().length?{'Retiro':retNome(x.retiro)}:{}),'Tipo de custo':ITN[itemOf(x)],'Grupo':GN[x.grupo]||'','Onde entra':ondeTxt(x),'Rebanho':REB.find(r=>r[0]===rebOf(x))[1].replace(/^Só o /,''),'Custeio ou investimento':x.tipo==='investimento'?'Investimento':'Custeio','Valor (R$)':n(x.valor),'Descrição':x.descricao||'','Lançado por':nomeDe(x.porId)||x.por||''}))],
    ['Lotes engorda',ord(S.engorda,'dataEntrada').map(l=>({'Lote':l.nome,'Sistema':l.sistema,'Cabeças':n(l.cab),'Entrada':l.dataEntrada,'Peso entrada (kg)':n(l.pesoEntrada),'Valor entrada/cab (R$)':n(l.aquisicao),'Nutrição R$/dia':n(l.nutricaoDia),'Operacional R$/dia':n(l.operacionalDia),'Saída':l.dataSaida||'','Peso saída (kg)':n(l.pesoSaida),'Carcaça (kg)':n(l.carcaca),'Preço da @ venda':n(l.precoVenda)}))],
    ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
-   ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
+   ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':usaIng(i)?'sai dos ingredientes':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
    ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
    ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
@@ -1929,17 +1965,18 @@ const FORMS={
     <div class="calc" id="calc">Total do mês: R$ 0</div>`},
   entrada:{t:'Entrada de insumo',d:'Compra para o estoque',need:()=>S.insumos.length>0||'Cadastre um insumo antes.',html:()=>`${sel('Insumo','insumoId',S.insumos.map(i=>[i.id,i.nome+' ('+i.unidade+')']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade','qtd','number','step="any" min="0.01" required')}</div>${fld('Valor pago (R$)','valor','number','step="0.01" min="0" required')}${fld('Observação','obs','text')}<label class="ck"><input type="checkbox" id="f-lancar" name="lancar" checked> Lançar também como custo</label>${sel('Onde entra o custo','onde',ondeOpts(),'geral')}`},
   saida:{t:'Saída de insumo',d:'Uso no rebanho',need:()=>S.insumos.length>0||'Cadastre um insumo antes.',html:()=>`${sel('Insumo','insumoId',S.insumos.map(i=>[i.id,i.nome+' ('+i.unidade+')']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade','qtd','number','step="any" min="0.01" required')}</div>${fld('Observação','obs','text')}`},
-  fornecimento:{t:'Fornecimento no cocho',d:'Suplemento por fase ou lote',need:()=>supl().length>0||'Cadastre um suplemento antes (aba Suplementação).',html:()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)==='recria');
-    return `${sel('Suplemento','insumoId',supl().map(i=>[i.id,i.nome+' ('+i.unidade+', '+nf(kgUn(i))+' kg)']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Dias que a quantidade cobre','dias','number','min="1" step="1" required','7')}</div>
+  fornecimento:{t:'Fornecimento no cocho',d:'Suplemento por fase ou lote',need:()=>supl().some(i=>!ehIng(i))||'Cadastre a mistura ou o suplemento antes (aba Suplementação, Novo produto).',html:()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)==='recria');
+    return `${sel('Suplemento','insumoId',supl().filter(i=>!ehIng(i)).map(i=>[i.id,i.nome+' ('+i.unidade+', '+nf(kgUn(i))+' kg)']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Dias que a quantidade cobre','dias','number','min="1" step="1" required','7')}</div>
     <div class="grid2">${fld('Quantidade (embalagens)','qtd','number','step="any" min="0.01" required')}${sel('Fase','fase',FASES,'recria')}</div>
     ${fld('Lote ou pasto (opcional)','lote','text','placeholder="Ex.: Pasto 4"')}
     <div class="grid2">${fld('Cabeças no cocho','cab','number','min="1" step="1" required',last?fCab(last,cs)||'':'')}${fld('Peso médio (kg)','peso','number','step="any" min="0"',last&&fCab(last,cs)?Math.round(fKg(last,cs)/fCab(last,cs)):'')}</div>
     <div class="calc" id="calc">Preencha para ver o consumo.</div>`;}},
-  suplemento:{t:'Suplemento',d:'Produto do cocho',html:o=>{const i=S.insumos.find(x=>x.id===o.edit)||{metaTipo:'pv'};
-    return `${fld('Nome','nome','text','required placeholder="Ex.: Proteinado águas"',i.nome)}<div class="grid2">${sel('Tipo','tipo',TIPOS_SUP,i.tipo||'proteinado')}${fld('Embalagem','unidade','text','required placeholder="saco"',i.unidade||'saco')}${fld('Kg por embalagem','kgUn','number','step="any" min="0.01" required',i.kgUn||30)}${fld('Estoque mínimo (embalagens)','minimo','number','step="any" min="0"',i.minimo??0)}</div>
-    ${sel('Formulação própria (opcional)','formulacaoId',[['','Produto comprado pronto'],...S.form.map(f=>[f.id,f.nome])],i.formulacaoId||'')}
+  suplemento:{t:'Produto ou ingrediente',d:'Suplemento do cocho ou ingrediente da mistura',html:o=>{const i=S.insumos.find(x=>x.id===o.edit)||{metaTipo:'pv'};
+    return `${fld('Nome','nome','text','required placeholder="Ex.: Proteinado águas"',i.nome)}<div class="grid2">${sel('Tipo','tipo',TIPOS_PROD,i.tipo||'proteinado')}${fld('Embalagem','unidade','text','required placeholder="saco"',i.unidade||'saco')}${fld('Kg por embalagem','kgUn','number','step="any" min="0.01" required',i.kgUn||30)}${fld('Estoque mínimo (embalagens)','minimo','number','step="any" min="0"',i.minimo??0)}</div>
+    <p class="note" id="ingNota" ${ehIng(i)?'':'hidden'}>Ingrediente comprado por tonelada: embalagem <b>tonelada</b> e <b>1000</b> kg. Por saca de 60 kg: <b>saca</b> e <b>60</b>. O nome deve ser o mesmo usado na formulação (ex.: DDG, Milho moído, Núcleo mineral).</p>
+    <div id="naoIng" ${ehIng(i)?'hidden':''}>${sel('Formulação própria (opcional)','formulacaoId',[['','Produto comprado pronto'],...S.form.map(f=>[f.id,f.nome])],i.formulacaoId||'')}
     <fieldset><legend>Meta de consumo</legend>${sel('Medida','metaTipo',[['pv','% do peso vivo'],['g','gramas por cabeça ao dia']],i.metaTipo||'pv')}<div class="grid2">${fld('Mínimo','metaMin','number','step="any" min="0"',i.metaMin)}${fld('Máximo','metaMax','number','step="any" min="0"',i.metaMax)}</div>
-    <p class="note">Ao escolher o tipo, a meta vem do guia de suplementação. Pode ajustar.</p></fieldset>`;}},
+    <p class="note">Ao escolher o tipo, a meta vem do guia de suplementação. Pode ajustar.</p></fieldset></div>`;}},
   adaptacao:{t:'Adaptação de lote',d:'Plano dia a dia',html:o=>{const a=S.adapt.find(x=>x.id===o.edit)||{tipo:'proteinado',fase:'recria',inicio:today()}; const last=[...S.fech].sort((x,y)=>x.mes<y.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===(a.fase||'recria'));
     return `${fld('Lote ou pasto','nome','text','required placeholder="Ex.: Garrotes pasto 4"',a.nome)}<div class="grid2">${sel('Suplemento','tipo',COM_ADAPT.map(k=>[k,SUP_REF[k].nome]),a.tipo)}${sel('Formulação (opcional)','formulacaoId',[['','—'],...S.form.map(f=>[f.id,f.nome])],a.formulacaoId||'')}${fld('Início da adaptação','inicio','date','required',a.inicio)}${sel('Fase','fase',FASES,a.fase)}${fld('Cabeças','cab','number','min="1" step="1" required',a.cab??(last?fCab(last,cs)||'':''))}${fld('Peso médio (kg)','peso','number','min="1" step="any" required',a.peso??(last&&fCab(last,cs)?Math.round(fKg(last,cs)/fCab(last,cs)):''))}</div>
     <div id="adaptPrev"></div>`;}},
@@ -1948,7 +1985,7 @@ const FORMS={
     <fieldset><legend>Ingredientes</legend>${ig.map((x,k)=>`<div class="ing"><label class="fl">${k?'':'Ingrediente'}<input id="f-in_${k}" name="in_${k}" value="${esc(x.nome||'')}" aria-label="Ingrediente ${k+1}"></label><label class="fl">${k?'':'%'}<input id="f-ip_${k}" name="ip_${k}" type="number" step="any" min="0" value="${esc(x.pct??'')}" aria-label="Percentual ${k+1}"></label><label class="fl">${k?'':'R$/kg'}<input id="f-iv_${k}" name="iv_${k}" type="number" step="0.001" min="0" value="${esc(x.preco??'')}" aria-label="Preço por kg ${k+1}"></label></div>`).join('')}
     <div class="calc" id="calc">A soma dos percentuais deve dar 100%.</div></fieldset>
     ${sel('Tipo de suplemento (define a adaptação)','tipo',TIPOS_SUP,f.tipo||'proteinado')}<div id="adaptPrev">${adaptTabela(f.tipo||'proteinado')}</div>`;}},
-  insumo:{t:'Novo insumo',d:'Item do estoque',html:()=>`${fld('Nome','nome','text','required placeholder="Ex.: Sal mineral"')}<div class="grid2">${fld('Unidade','unidade','text','required placeholder="sc 25 kg, L, frasco"')}${fld('Estoque mínimo','minimo','number','step="any" min="0"','0')}</div>${sel('Grupo do desembolso','grupo',GRUPOS.slice(0,4).map(g=>[g[0],g[1]]).concat([['maquinas','Parque de máquinas'],['outros','Outros']]))}`},
+  insumo:{t:'Novo insumo',d:'Vacina, remédio, adubo, diesel...',html:()=>`<p class="note">Sal, suplemento, ração e ingredientes da mistura (DDG, milho, núcleo) se cadastram na aba <b>Suplementação</b>, em Novo produto ou ingrediente, porque lá tem o peso da embalagem e o consumo no cocho.</p>${fld('Nome','nome','text','required placeholder="Ex.: Sal mineral"')}<div class="grid2">${fld('Unidade','unidade','text','required placeholder="sc 25 kg, L, frasco"')}${fld('Estoque mínimo','minimo','number','step="any" min="0"','0')}</div>${sel('Grupo do desembolso','grupo',GRUPOS.slice(1,4).map(g=>[g[0],g[1]]).concat([['maquinas','Parque de máquinas'],['outros','Outros']]))}`},
   lote:{t:'Lote de engorda',d:'Recria, terminação, confinamento',html:o=>{const l=S.engorda.find(x=>x.id===o.edit)||{};return `${fld('Nome do lote','nome','text','required',l.nome||'')}<div class="grid2">${sel('Sistema','sistema',[['pasto','Pasto'],['semi','Terminação intensiva a pasto'],['confinamento','Confinamento']],l.sistema||'confinamento')}${fld('Cabeças','cab','number','min="1" required',l.cab)}</div>
     <fieldset><legend>Entrada</legend><div class="grid2">${fld('Data de entrada','dataEntrada','date','required',l.dataEntrada||today())}${fld('Peso médio (kg)','pesoEntrada','number','step="any" min="1" required',l.pesoEntrada)}</div>${fld('Valor por cabeça na entrada (R$)','aquisicao','number',num,l.aquisicao)}<p class="note">Na compra, inclua frete e comissão. Se o animal é da própria fazenda, use o valor de transferência (peso em @ × preço da @), senão o resultado por boi fica inflado.</p></fieldset>
     <fieldset><legend>Diária por cabeça</legend><div class="grid2">${fld('Nutrição (R$/dia)','nutricaoDia','number',num,l.nutricaoDia)}${fld('Operacional (R$/dia)','operacionalDia','number',num,l.operacionalDia)}</div></fieldset>
@@ -1988,7 +2025,7 @@ const fechSemRet=k=>k==='fechamento'&&retiros().length&&!UI.ret?'O fechamento é
 function mountEntry(){const slot=$('#entrySlot'); if(!slot||$('#sheetRoot').firstChild) return; const k=UI.entry[UI.tab], F=FORMS[k];
   if(fechSemRet(k)){ slot.innerHTML=`<p class="note">${esc(fechSemRet(k))}</p>`; return; }
   const okN=F.need?F.need():true;
-  if(okN!==true){ slot.innerHTML=`<p class="note">${esc(okN)}</p>${k==='fornecimento'?'<button class="btn" type="button" data-open="suplemento">Cadastrar suplemento</button>':'<button class="btn" type="button" data-open="insumo">Cadastrar insumo</button>'}`; return; }
+  if(okN!==true){ slot.innerHTML=`<p class="note">${esc(okN)}</p>${k==='fornecimento'||UI.tab==='suplementacao'?'<button class="btn" type="button" data-open="suplemento">Cadastrar produto ou ingrediente</button>':'<button class="btn" type="button" data-open="insumo">Cadastrar insumo</button>'}`; return; }
   if(!db||!writable){ slot.innerHTML='<p class="note">Entre na sua conta para salvar lançamentos.</p>'; return; }
   const o=UI.eo||{};
   slot.innerHTML=`<form class="f" id="frm" data-kind="${k}" data-edit="${esc(o.edit||'')}" data-inline="1">${retFld(k,o)}${F.html(o)}<div class="btns"><button class="btn primary" type="submit">${o.edit?'Salvar alterações':'Salvar'}</button>${o.edit||o.mes?'<button class="btn" type="button" data-cancel-edit>Cancelar</button>':''}</div></form>`;
@@ -2291,7 +2328,9 @@ function wireForm(k,o,inline){
     const arq=f.querySelector('#notaArq'); if(arq) arq.addEventListener('change',()=>leFotoNota(f,arq)); }
   if(k==='custosMes') f.addEventListener('input',()=>{let t=0; ITENS.forEach(([k2])=>t+=Number(f['v_'+k2].value)||0); $('#calc').innerHTML='Total do mês: <b>'+brl(t,2)+'</b>';});
   if(k==='formulacao') f.tipo.addEventListener('change',()=>{$('#adaptPrev').innerHTML=adaptTabela(f.tipo.value);});
-  if(k==='suplemento') f.tipo.addEventListener('change',()=>{const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
+  if(k==='suplemento') f.tipo.addEventListener('change',()=>{const ig=f.tipo.value==='ingrediente'; $('#naoIng').hidden=ig; $('#ingNota').hidden=!ig;
+    if(ig){ if(f.unidade.value==='saco'&&+f.kgUn.value===30){ f.unidade.value='tonelada'; f.kgUn.value=1000; } f.formulacaoId.value=''; f.metaMin.value=''; f.metaMax.value=''; }
+    const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
   if(k==='adaptacao'){ const upd=()=>{const r=SUP_REF[f.tipo.value]; if(!r) return; const cab=+f.cab.value||0,peso=+f.peso.value||0; $('#adaptPrev').innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Período</th><th>Fornecimento</th><th>Lote/dia</th></tr></thead><tbody>${r.etapas.map(e=>`<tr><td>${periodo(e)}</td><td style="white-space:normal;text-align:left">${etapaTxt(e)}</td><td>${cab&&peso?kgTxt(etapaKg(e,r,cab,peso)):'—'}</td></tr>`).join('')}</tbody></table></div>`;}; f.addEventListener('input',upd); f.addEventListener('change',upd); upd(); }
   if(k==='formulacao'){ const upd=()=>{let t=0,c=0; for(let n=0;n<6;n++){const p=+f['ip_'+n].value||0; t+=p; c+=p*(+f['iv_'+n].value||0);} $('#calc').innerHTML=`Soma: <b class="${Math.abs(t-100)<0.01?'pos':'neg'}">${nf(t,1)}%</b>${t&&c?' · custo da mistura '+brl(c/t,3)+'/kg':''}`;}; f.addEventListener('input',upd); upd(); }
   if(k==='fechamento'){ f.mes.addEventListener('change',()=>{ if(f.mes.value) $('#fechRows').innerHTML=fechRows(f.mes.value); });
