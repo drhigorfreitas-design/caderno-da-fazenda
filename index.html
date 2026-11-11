@@ -1596,6 +1596,35 @@ const precoUlt=i=>{const e=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrad
 const ingPreco=(x,L)=>{const g=ingDe(x.nome,L), p=g?precoUlt(g):NaN; return ok(p)&&p>0?p:+x.preco||0;};
 function estIng(g){ const kg=saldoKg(g), kgDia=taxaDia(consIng(g,true)); return {g,kg,kgDia,dias:kgDia>0?kg/kgDia:NaN}; }
 const kgOuT=kg=>Math.abs(kg)>=1000?nf(kg/1000,1)+' t':nf(kg)+' kg';
+/* relatório do cocho: um grupo por lote ou pasto + fase + produto, no período escolhido; cabeças e peso do último lançamento */
+function cochoLotes(fs){ const G=new Map();
+  for(const x of fs){ const k=(x.m.lote||'').trim().toLowerCase()+'|'+x.m.fase+'|'+x.m.insumoId; if(!G.has(k)) G.set(k,[]); G.get(k).push(x); }
+  return [...G.values()].map(a=>{ a.sort((p,q)=>p.m.data<q.m.data?-1:1); const z=a[a.length-1], u=z.m, i=z.i, f=i&&i.formulacaoId&&S.form.find(y=>y.id===i.formulacaoId);
+    const kg=sum(a,x=>x.kg), cd=sum(a,x=>x.cd), v=a.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), custo=sum(a,x=>x.custo), c={g:kg*1000/cd,pv};
+    return {lote:(u.lote||'').trim(),fase:u.fase,i,nome:i?i.nome:'Produto removido',tipo:i?(TSN[i.tipo]||'Suplemento'):'',form:f?f.nome:'',cab:+u.cab||0,peso:+u.peso||0,
+      ini:a[0].m.data,ult:u.data,fim:addD(u.data,+u.dias||1),kg,cd,g:c.g,pv,custo,rcd:custo/cd,ms:metaSt(i,c),n:a.length}; })
+  .sort((a,b)=>a.ult<b.ult?1:-1); }
+const cochoTitulo=r=>(r.lote?r.lote+' · ':'')+(FN[r.fase]||'');
+function cochoHTML(L){ const h=today();
+  if(!L.length) return '';
+  return `<div class="row-head"><h2>Relatório do cocho por lote</h2><button class="btn" type="button" data-copiacocho>Copiar relatório</button></div>
+  <div class="cards">${L.map(r=>{ const atras=r.fim<h;
+    return `<article class="card"><div class="row-head"><h3>${esc(cochoTitulo(r))}</h3>${r.ms?`<span class="chip meta-chip ${r.ms}">${ST_TXT[r.ms]}</span>`:''}</div>
+    <div class="small" style="line-height:1.6">
+      <b>${esc(r.tipo)}</b> · ${esc(r.nome)}${r.form?`<br>Formulação: ${esc(r.form)}`:''}<br>
+      <b>${nf(r.cab)} cabeças</b>${r.peso?` de ${nf(r.peso)} kg`:''} <span class="muted">(último lançamento, ${dBR(r.ult)})</span><br>
+      Consumo: <b>${ok(r.g)?nf(r.g):'—'} g/cab/dia</b>${ok(r.pv)?` = <b>${pct(r.pv,2)} do peso vivo</b>`:''} <span class="muted">· ${r.i?metaTxt(r.i):'sem meta'}</span><br>
+      Custo: <b>${ok(r.rcd)?brl(r.rcd,2):'—'}/cab/dia</b> · ${brl(r.custo)} no período (${kgOuT(r.kg)})<br>
+      <span class="muted">${r.n} lançamento${r.n>1?'s':''} de ${dBR(r.ini)} a ${dBR(r.ult)}</span>
+      ${atras?`<br><span class="neg">O último fornecimento cobria até ${dBR(r.fim)}. Lance o desta semana.</span>`:''}
+    </div></article>`;}).join('')}</div>`; }
+function cochoTexto(){ const J=janela(), L=cochoLotes(S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)})));
+  if(!L.length) return 'Nenhum fornecimento no período.';
+  return `Suplementação · ${fazNome()} · ${J.nome}\n\n`+L.map(r=>[`*${cochoTitulo(r)}*`,`${r.tipo} · ${r.nome}`+(r.form?` (${r.form})`:''),
+    `${nf(r.cab)} cabeças`+(r.peso?` de ${nf(r.peso)} kg`:''),
+    `Consumo: ${ok(r.g)?nf(r.g):'—'} g/cab/dia`+(ok(r.pv)?` = ${pct(r.pv,2)} do PV`:'')+(r.i?` (${metaTxt(r.i)})`:''),
+    `Custo: ${ok(r.rcd)?brl(r.rcd,2):'—'}/cab/dia · ${brl(r.custo)} no período`,
+    `Último lançamento: ${dBR(r.ult)}`].join('\n')).join('\n\n'); }
 function renderSupl(){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
   const tKg=sum(fs,x=>x.kg), tCusto=sum(fs,x=>x.custo), tCd=sum(fs,x=>x.cd), pvW=sum(fs.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(fs.filter(x=>ok(x.pv)),x=>x.cd);
@@ -1614,6 +1643,7 @@ function renderSupl(){
   <div class="row-head"><h2>Lotes em adaptação</h2><button class="btn" type="button" data-open="adaptacao">Iniciar adaptação</button></div>
   ${S.adapt.length?`<div class="cards">${[...S.adapt].sort((a,b)=>(a.inicio||'')<(b.inicio||'')?1:-1).map(renderAdapt).join('')}</div>`:'<div class="panel"><p class="empty">Ao trocar ou começar um suplemento, inicie a adaptação do lote. O app mostra em que dia ele está, o que dar e quantos kg por dia.</p></div>'}
   <div class="panel"><details><summary>Guia de suplementação por tipo</summary><p class="note" style="margin:8px 0">Da apostila "Guia de Suplementação do A ao Z". Ajustes na formulação devem ser feitos com um zootecnista.</p>${guiaTabela()}</details></div>
+  ${cochoHTML(cochoLotes(fs))}
   <div class="panel"><h2>Por fase</h2>
     ${fs.length?`<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Fase</th><th>kg</th><th>Custo</th><th>g/cab/dia</th><th>% PV</th><th>R$/cab/dia</th><th>R$/@ prod.</th></tr></thead><tbody>
     ${FASES.map(([k,n])=>{const a=fs.filter(x=>x.m.fase===k); if(!a.length) return ''; const kg=sum(a,x=>x.kg),c=sum(a,x=>x.custo),cd=sum(a,x=>x.cd),v=a.filter(x=>ok(x.pv)),pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd),pr=calc(UI.per,k).prodArr;
@@ -1848,6 +1878,7 @@ async function exportaExcel(){
    ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
    ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':usaIng(i)?'sai dos ingredientes':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
    ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
+   ['Cocho por lote',(()=>{const J=janela(); return cochoLotes(S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}))).map(r=>({'Lote ou pasto':r.lote,'Fase':FN[r.fase]||'','Tipo':r.tipo,'Produto':r.nome,'Formulação':r.form,'Cabeças':r.cab,'Peso médio (kg)':n(r.peso),'g/cab/dia':ok(r.g)?Math.round(r.g):'','% do peso vivo':ok(r.pv)?Math.round(r.pv*100)/100:'','Meta':r.i?metaTxt(r.i):'','Situação':r.ms?ST_TXT[r.ms]:'','R$/cab/dia':ok(r.rcd)?Math.round(r.rcd*100)/100:'','kg no período':Math.round(r.kg),'Custo no período (R$)':Math.round(r.custo*100)/100,'Primeiro':r.ini,'Último':r.ult}));})()],
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
    ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
    ['Pesagens',ord((S.config.pesagens||[]).filter(p=>!UI.ret||daParte(UI.ret,p)),'data').map(p=>({'Data':p.data,...(retiros().length?{'Retiro':retNome(p.retiro)}:{}),'Lote':p.lote||'','Cabeças':n(p.cab),'Peso médio (kg)':n(p.peso),'Lançado por':nomeDe(p.porId)||p.por||''}))],
@@ -2551,6 +2582,7 @@ document.addEventListener('click',async e=>{
     try{ await acessoApi(b.dataset.acAcao,{user_id:b.dataset.acBloq}); await carregaAcessos(); render(); toast(b.dataset.acAcao==='bloquear'?'Acesso bloqueado':'Acesso liberado'); }
     catch(x){ b.disabled=false; toast(x.message); } return; }
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if('copiacocho' in b.dataset){ const t=cochoTexto(); (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Relatório copiado. Cole no WhatsApp.'),()=>{ prompt('Copie o relatório:',t); }); return; }
   if('semarr' in b.dataset){ UI.semArr=!UI.semArr; try{localStorage.setItem('semArr',UI.semArr?'1':'0');}catch(x){} aplicaRetiro(); toast(UI.semArr?'Fazenda toda sem os arrendamentos':'Fazenda toda com os arrendamentos'); return render(); }
   if('arrtoggle' in b.dataset){ if(!ehArr(UI.ret)) UI.arrAberto=!UI.arrAberto; return render(); }
   if('arredit' in b.dataset) return abreArrendamentos();
