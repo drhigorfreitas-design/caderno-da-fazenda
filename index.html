@@ -1596,14 +1596,22 @@ const precoUlt=i=>{const e=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrad
 const ingPreco=(x,L)=>{const g=ingDe(x.nome,L), p=g?precoUlt(g):NaN; return ok(p)&&p>0?p:+x.preco||0;};
 function estIng(g){ const kg=saldoKg(g), kgDia=taxaDia(consIng(g,true)); return {g,kg,kgDia,dias:kgDia>0?kg/kgDia:NaN}; }
 const kgOuT=kg=>Math.abs(kg)>=1000?nf(kg/1000,1)+' t':nf(kg)+' kg';
+/* ganho de peso do lote pelas pesagens (mesmo nome de lote e mesma parte): da última pesagem antes do cocho começar até a mais recente */
+function gmdLote(lote,ret,ini){ if(!lote) return null; const k=loteK(lote), P=(S.config.pesagens||[]).filter(p=>loteK(p.lote)===k&&(p.retiro||'')===(ret||'')&&+p.peso>0).sort((a,b)=>a.data<b.data?-1:1);
+  if(P.length<2) return {n:P.length}; const p1=P[P.length-1], antes=P.filter(p=>p.data<=ini), p0=antes.length?antes[antes.length-1]:P[0], d=days(p0.data,p1.data);
+  if(p0===p1||!(d>0)) return {n:P.length}; return {n:P.length,p0,p1,d,gmd:(p1.peso-p0.peso)/d}; }
+/* retorno: custo do cocho por @ ganha = R$/cab/dia ÷ (ganho por dia em @) */
+function retornoCocho(r){ const G=gmdLote(r.lote,r.ret,r.ini); if(!G||!G.p1) return {G}; const arrDia=G.gmd/kgA(), cArr=G.gmd>0&&ok(r.rcd)?r.rcd/arrDia:NaN;
+  return {G,cArr,pB3:ok(cArr)&&BGI&&BGI.spot>0?cArr/BGI.spot*100:NaN}; }
+const gmdTxt=g=>g.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' kg/dia';
 /* relatório do cocho: um grupo por lote ou pasto + fase + produto, no período escolhido; cabeças e peso do último lançamento */
 function cochoLotes(fs){ const G=new Map();
   for(const x of fs){ const k=(x.m.lote||'').trim().toLowerCase()+'|'+x.m.fase+'|'+x.m.insumoId; if(!G.has(k)) G.set(k,[]); G.get(k).push(x); }
   return [...G.values()].map(a=>{ a.sort((p,q)=>p.m.data<q.m.data?-1:1); const z=a[a.length-1], u=z.m, i=z.i, f=i&&i.formulacaoId&&S.form.find(y=>y.id===i.formulacaoId);
     const kg=sum(a,x=>x.kg), cd=sum(a,x=>x.cd), v=a.filter(x=>ok(x.pv)), pv=sum(v,x=>x.pv*x.cd)/sum(v,x=>x.cd), custo=sum(a,x=>x.custo), c={g:kg*1000/cd,pv};
-    return {lote:(u.lote||'').trim(),fase:u.fase,i,nome:i?i.nome:'Produto removido',tipo:i?(TSN[i.tipo]||'Suplemento'):'',form:f?f.nome:'',cab:+u.cab||0,peso:+u.peso||0,
+    return {lote:(u.lote||'').trim(),ret:u.retiro||'',fase:u.fase,i,nome:i?i.nome:'Produto removido',tipo:i?(TSN[i.tipo]||'Suplemento'):'',form:f?f.nome:'',cab:+u.cab||0,peso:+u.peso||0,
       ini:a[0].m.data,ult:u.data,fim:addD(u.data,+u.dias||1),kg,cd,g:c.g,pv,custo,rcd:custo/cd,ms:metaSt(i,c),n:a.length}; })
-  .sort((a,b)=>a.ult<b.ult?1:-1); }
+  .sort((a,b)=>a.ult<b.ult?1:-1).map(r=>({...r,...retornoCocho(r)})); }
 const cochoTitulo=r=>(r.lote?r.lote+' · ':'')+(FN[r.fase]||'');
 function cochoHTML(L){ const h=today();
   if(!L.length) return '';
@@ -1615,6 +1623,9 @@ function cochoHTML(L){ const h=today();
       <b>${nf(r.cab)} cabeças</b>${r.peso?` de ${nf(r.peso)} kg`:''} <span class="muted">(último lançamento, ${dBR(r.ult)})</span><br>
       Consumo: <b>${ok(r.g)?nf(r.g):'—'} g/cab/dia</b>${ok(r.pv)?` = <b>${pct(r.pv,2)} do peso vivo</b>`:''} <span class="muted">· ${r.i?metaTxt(r.i):'sem meta'}</span><br>
       Custo: <b>${ok(r.rcd)?brl(r.rcd,2):'—'}/cab/dia</b> · ${brl(r.custo)} no período (${kgOuT(r.kg)})<br>
+      ${r.G&&r.G.p1?`Ganho de peso: <b>${gmdTxt(r.G.gmd)}</b> <span class="muted">(pesagens de ${dBR(r.G.p0.data)} e ${dBR(r.G.p1.data)}: ${nf(r.G.p0.peso)} → ${nf(r.G.p1.peso)} kg)</span><br>
+      ${ok(r.cArr)?`Retorno: <b>cada @ ganha custou ${brl(r.cArr,2)} de cocho</b>${ok(r.pB3)?` <span class="muted">· ${pct(r.pB3,0)} do valor da @ na B3 (${brl(BGI.spot,2)})</span>`:''}<br>`:'<span class="neg">Sem ganho de peso entre as pesagens: o cocho não se pagou nesse intervalo.</span><br>'}`
+        :`<span class="muted">${r.lote?`Para ver o retorno, lance ${r.G&&r.G.n===1?'mais uma pesagem':'pesagens'} deste lote com o mesmo nome ("${esc(r.lote)}").`:'Para ver o retorno, dê nome ao lote no fornecimento e nas pesagens.'}</span><br>`}
       <span class="muted">${r.n} lançamento${r.n>1?'s':''} de ${dBR(r.ini)} a ${dBR(r.ult)}</span>
       ${atras?`<br><span class="neg">O último fornecimento cobria até ${dBR(r.fim)}. Lance o desta semana.</span>`:''}
     </div></article>`;}).join('')}</div>`; }
@@ -1624,6 +1635,7 @@ function cochoTexto(){ const J=janela(), L=cochoLotes(S.emovs.filter(m=>m.fornec
     `${nf(r.cab)} cabeças`+(r.peso?` de ${nf(r.peso)} kg`:''),
     `Consumo: ${ok(r.g)?nf(r.g):'—'} g/cab/dia`+(ok(r.pv)?` = ${pct(r.pv,2)} do PV`:'')+(r.i?` (${metaTxt(r.i)})`:''),
     `Custo: ${ok(r.rcd)?brl(r.rcd,2):'—'}/cab/dia · ${brl(r.custo)} no período`,
+    ...(r.G&&r.G.p1?[`Ganho de peso: ${gmdTxt(r.G.gmd)} (pesagens ${dBR(r.G.p0.data)} a ${dBR(r.G.p1.data)})`,ok(r.cArr)?`Cada @ ganha custou ${brl(r.cArr,2)} de cocho`+(ok(r.pB3)?` (${pct(r.pB3,0)} da @ na B3)`:''):'Sem ganho de peso entre as pesagens']:[]),
     `Último lançamento: ${dBR(r.ult)}`].join('\n')).join('\n\n'); }
 function renderSupl(){
   const J=janela(), fs=S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}));
@@ -1879,7 +1891,7 @@ async function exportaExcel(){
    ['Estações de monta',S.estacoes.map(e=>({'Estação':e.nome,'Data do DG':e.dataDG||'',...Object.fromEntries(RCATS.flatMap(([c,cn])=>[[cn+' expostas',n(e.cats?.[c]?.expostas)],[cn+' prenhes',n(e.cats?.[c]?.prenhes)]])),'IATF inseminadas':n(e.iatfExpostas),'IATF prenhes':n(e.iatfPrenhes),'Doses':n(e.doses),'Nascidos vivos':n(e.nascidosVivos),'Machos desmamados':n(e.desmMachos),'Peso machos':n(e.pesoDesmMachos),'Fêmeas desmamadas':n(e.desmFemeas),'Peso fêmeas':n(e.pesoDesmFemeas)}))],
    ['Insumos',S.insumos.map(i=>({'Insumo':i.nome,'Unidade':i.unidade,'Estoque hoje':usaIng(i)?'sai dos ingredientes':Math.round(saldo(i)*10)/10,'Mínimo':n(i.minimo),'Grupo':GN[i.grupo]||''}))],
    ['Estoque e cocho',ord(S.emovs,'data').map(m=>({'Data':m.data,'Insumo':insN(m.insumoId),'Movimento':m.fornecimento?'Fornecimento no cocho':m.tipo==='entrada'?'Entrada':'Saída','Quantidade':n(m.qtd),'Valor (R$)':n(m.valor),'Fase':FN[m.fase]||'','Lote/pasto':m.lote||'','Cabeças':n(m.cab),'Dias':n(m.dias),'Observação':m.obs||''}))],
-   ['Cocho por lote',(()=>{const J=janela(); return cochoLotes(S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}))).map(r=>({'Lote ou pasto':r.lote,'Fase':FN[r.fase]||'','Tipo':r.tipo,'Produto':r.nome,'Formulação':r.form,'Cabeças':r.cab,'Peso médio (kg)':n(r.peso),'g/cab/dia':ok(r.g)?Math.round(r.g):'','% do peso vivo':ok(r.pv)?Math.round(r.pv*100)/100:'','Meta':r.i?metaTxt(r.i):'','Situação':r.ms?ST_TXT[r.ms]:'','R$/cab/dia':ok(r.rcd)?Math.round(r.rcd*100)/100:'','kg no período':Math.round(r.kg),'Custo no período (R$)':Math.round(r.custo*100)/100,'Primeiro':r.ini,'Último':r.ult}));})()],
+   ['Cocho por lote',(()=>{const J=janela(); return cochoLotes(S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)}))).map(r=>({'Lote ou pasto':r.lote,'Fase':FN[r.fase]||'','Tipo':r.tipo,'Produto':r.nome,'Formulação':r.form,'Cabeças':r.cab,'Peso médio (kg)':n(r.peso),'g/cab/dia':ok(r.g)?Math.round(r.g):'','% do peso vivo':ok(r.pv)?Math.round(r.pv*100)/100:'','Meta':r.i?metaTxt(r.i):'','Situação':r.ms?ST_TXT[r.ms]:'','R$/cab/dia':ok(r.rcd)?Math.round(r.rcd*100)/100:'','kg no período':Math.round(r.kg),'Custo no período (R$)':Math.round(r.custo*100)/100,'Primeiro':r.ini,'Último':r.ult,'GMD (kg/dia)':r.G&&r.G.p1?Math.round(r.G.gmd*1000)/1000:'','Custo do cocho por @ ganha (R$)':ok(r.cArr)?Math.round(r.cArr*100)/100:''}));})()],
    ['Formulações',S.form.flatMap(f=>(f.ingredientes||[]).map(i=>({'Formulação':f.nome,'Tipo':(SUP_REF[f.tipo]||{}).nome||f.tipo||'','Ingrediente':i.nome,'%':n(i.pct),'R$/kg':n(i.preco)})))],
    ['Anotações',Object.keys(notas()).sort().map(m=>({'Mês':MESF[+m.slice(5)-1]+' de '+m.slice(0,4),'Anotações':notas()[m]}))],
    ['Pesagens',ord((S.config.pesagens||[]).filter(p=>!UI.ret||daParte(UI.ret,p)),'data').map(p=>({'Data':p.data,...(retiros().length?{'Retiro':retNome(p.retiro)}:{}),'Lote':p.lote||'','Cabeças':n(p.cab),'Peso médio (kg)':n(p.peso),'Lançado por':nomeDe(p.porId)||p.por||''}))],

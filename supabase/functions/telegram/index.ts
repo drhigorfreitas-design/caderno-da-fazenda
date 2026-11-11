@@ -51,7 +51,7 @@ async function segredoWebhook(token: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "contas", "pagou", "areas", "resposta"],
+  required: ["tipo", "custos", "movimentos", "anotacao", "lembretes", "alertas", "pesagens", "contas", "pagou", "areas", "cocho", "resposta"],
   properties: {
     tipo: { type: "string", enum: ["lancamento", "pergunta", "nao_entendi"] },
     custos: {
@@ -127,6 +127,24 @@ const SCHEMA = {
         },
       },
     },
+    cocho: {
+      type: "array", description: "suplemento, sal, ração ou mistura colocado no cocho (fornecimento); vazio se não houver",
+      items: {
+        type: "object", additionalProperties: false, required: ["data", "produto", "quantidade", "unidade", "dias", "cab", "peso_medio", "lote", "fase", "retiro"],
+        properties: {
+          retiro: { type: "string", description: "nome do retiro se a mensagem disser; vazio = Sede" },
+          data: { type: "string", description: "AAAA-MM-DD; vazio se não disser (usa hoje)" },
+          produto: { type: "string", description: "nome do produto como está na lista 'Produtos do cocho' que vem junto; vazio se não der para saber" },
+          quantidade: { type: "number", description: "quanto foi colocado, no número dito" },
+          unidade: { type: "string", enum: ["kg", "t", "embalagem"], description: "kg; t = toneladas; embalagem = sacos ou embalagens do produto" },
+          dias: { type: "integer", description: "para quantos dias a quantidade dá; 0 se não disser" },
+          cab: { type: "integer", description: "cabeças no cocho; 0 se não disser" },
+          peso_medio: { type: "number", description: "kg vivo médio por cabeça; 0 se não disser" },
+          lote: { type: "string", description: "lote ou pasto como o pecuarista chama, em minúsculas (ex.: pasto 4, garrotes da baixada); vazio se não disser" },
+          fase: { type: "string", enum: ["", "cria", "recria", "engorda"], description: "vazio se não der para saber" },
+        },
+      },
+    },
     contas: {
       type: "array", description: "contas a pagar que ainda NÃO foram pagas (boleto, parcela, fatura com vencimento); vazio se não houver",
       items: {
@@ -160,7 +178,7 @@ const SCHEMA = {
 const SISTEMA = `Você lê o que um pecuarista manda pelo Telegram para o caderno da fazenda dele (cria, recria e engorda de gado de corte, em Mato Grosso).
 Uma mensagem pode trazer várias coisas ao mesmo tempo (ex.: "gastei 300 de sal e 200 de diesel, nasceram 5 bezerros, morreu 1 vaca e choveu 30 mm"). Separe cada uma no lugar certo; nada pode ficar de fora nem ser lançado duas vezes.
 tipo:
-- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos, anotacao, lembretes, alertas, pesagens e areas (o que não houver fica vazio).
+- "lancamento": a mensagem lança alguma coisa. Preencha o que houver em custos, movimentos, anotacao, lembretes, alertas, pesagens, areas e cocho (o que não houver fica vazio).
 - "pergunta": quer saber algo dos dados da fazenda e não está lançando nada (ex.: "quantas vacas eu tenho", "quanto gastei de sal em outubro", "quantos bezerros nasceram esse ano"). Tudo o mais fica vazio; a resposta vem depois.
 - "nao_entendi": não dá para saber o que lançar. Em "resposta", peça em uma frase o que falta.
 custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "paguei"). Um item por gasto citado; numa foto de nota, um item com o valor TOTAL e o tipo que descreve a maior parte. data da nota (vazio se não houver; se a mensagem disser a que mês o gasto se refere, como "28 diárias em outubro" ou "o sal de setembro", use o último dia desse mês, ou hoje se for o mês atual; mês sem ano é o mais recente que já passou ou o atual), valor em reais, tipo de custo (item) e descrição curta. Gasto sem valor não entra: peça o valor em "resposta" e lance o resto.
@@ -173,6 +191,7 @@ anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinaçã
 lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 15/11", "me lembra de pagar o boleto do sal dia 20", "boleto do sal vence dia 20"). data = o dia citado; se só disser o número do dia, é o próximo dia com esse número a partir de hoje; "amanhã" = hoje + 1. Lembrete sem dia não entra: peça o dia em "resposta". O que vai para lembretes não vai também para anotacao.
 alertas: pedidos de aviso do preço da arroba do boi gordo ("me avisa quando o boi passar de 320" = acima 320; "quando a arroba cair abaixo de 300" = abaixo 300).
 pesagens: pesagem de animais ("pesei o lote da recria, média 280 kg", "pesei 40 garrotes do lote 3, deu 312 kg"). Um item por lote pesado, com o peso médio por cabeça (se disser o peso total e as cabeças, divida). Pesagem não é movimento nem anotação.
+cocho: quando disser que colocou, tratou ou forneceu suplemento, sal, ração ou mistura no cocho ("coloquei 4.200 kg da mistura recria no pasto 4, 300 cabeças, para 7 dias", "tratei 20 sacos de proteinado no lote da recria"). Um item por cocho. Não é custo (o custo entrou na compra), nem anotação. Escolha o produto na lista "Produtos do cocho". Compra de suplemento continua em custos.
 contas: boleto, parcela ou fatura que ainda vai ser paga, com vencimento ("boleto do sal 4.500 vence dia 20", "parcela do trator 3.200 vence 10/12"). Não vai para custos: o custo entra quando pagar. Sem valor ou sem vencimento, não entra: peça em "resposta". Conta que se repete todo mês ("Starlink 180 todo dia 16", "custo fixo de 180 por mês, vence dia 10", "salário do peão 2.500 todo dia 5") = mensal true, com o vencimento no próximo dia citado; o robô marca o mês seguinte sozinho quando ela for paga. Custo fixo mensal vai para contas, nunca para anotacao; sem o dia do mês, peça o dia em "resposta".
 areas: quando a mensagem disser o tamanho da área de produção (área produtiva, área de pasto) de uma parte da fazenda ("área de produção: Sede 270 ha; Santa Helena 68 ha", "a recria da Santa Faustina tem 30 hectares", "a fazenda toda tem 406 ha"). Um item por parte (e por fase, se disser a fase). Alqueire: converta para ha (1 alqueire = 4,84 ha, o alqueire goiano, salvo se disser paulista = 2,42 ha). Área NÃO vai também para anotacao.
 pagou: quando a mensagem disser que pagou uma conta da lista "Contas a pagar marcadas" (que vem junto), ponha o número dela e NÃO lance esse pagamento também em custos. Pagamento que não está na lista vai para custos, como sempre.
@@ -190,7 +209,7 @@ export type Lembrete = { data: string; texto: string };
 export type Alerta = { direcao: string; valor: number };
 export type Pesagem = { retiro?: string; data: string; lote: string; cab: number; peso_medio: number };
 export type Area = { parte: string; fase: string; ha: number };
-export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; contas?: any[]; pagou?: number[]; areas?: Area[]; resposta?: string };
+export type Leitura = { tipo: string; custos?: Custo[]; movimentos?: Mov[]; anotacao?: string; lembretes?: Lembrete[]; alertas?: Alerta[]; pesagens?: Pesagem[]; contas?: any[]; pagou?: number[]; areas?: Area[]; cocho?: any[]; resposta?: string };
 
 /* ---------- dependências (trocadas por imitações nos testes) ---------- */
 export type Deps = {
@@ -251,7 +270,7 @@ const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret 
     [{ text: "↩ Desfazer", callback_data: `desf:${base}` }],
   ] },
 });
-const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n🤝 <b>Pastos arrendados:</b> <i>transferi 80 garrotes de 250 kg da Sede para o arrendamento do João</i> · <i>trouxe 40 garrotes de 330 kg do João para a Sede</i>. No dia do pagamento eu marco a conta do aluguel (média de cabeças do mês anterior × valor por cabeça).\n\n🧾 <b>Contas a pagar:</b> <i>boleto do sal 4.500 vence dia 20</i>. Aviso na véspera e no dia, com o botão Paguei. Mande <b>contas</b> para ver todas.\n📎 Para o contador: <b>planilha</b> (do mês), <b>notas</b> (fotos das notas do mês), <b>planilha do ano</b> (Imposto de Renda).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
+const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\n• <i>coloquei 4.200 kg da mistura recria no pasto 4, 300 cabeças, 7 dias</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n🤝 <b>Pastos arrendados:</b> <i>transferi 80 garrotes de 250 kg da Sede para o arrendamento do João</i> · <i>trouxe 40 garrotes de 330 kg do João para a Sede</i>. No dia do pagamento eu marco a conta do aluguel (média de cabeças do mês anterior × valor por cabeça).\n\n🧾 <b>Contas a pagar:</b> <i>boleto do sal 4.500 vence dia 20</i>. Aviso na véspera e no dia, com o botão Paguei. Mande <b>contas</b> para ver todas.\n📎 Para o contador: <b>planilha</b> (do mês), <b>notas</b> (fotos das notas do mês), <b>planilha do ano</b> (Imposto de Renda).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
@@ -606,6 +625,39 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     txt.push(linha);
   }
 
+  // cocho: fornecimento de suplemento (sai do estoque; o custo já entrou na compra)
+  const cochos: any[] = [];
+  if (L.cocho?.length) {
+    const ins = (await todosId(d, "insumos", conta.fazenda_id)).filter((i: any) => i.grupo === "nutricao" && i.tipo !== "ingrediente");
+    const ant = ins.length ? (await todosId(d, "estoque_movs", conta.fazenda_id)).filter((m: any) => m.fornecimento).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)) : [];
+    for (const c of L.cocho) {
+      const p = prodDe(String(c.produto || ""), ins) || (ins.length === 1 ? ins[0] : null);
+      if (!p) {
+        avisos.push(ins.length ? `Não achei o produto "${c.produto || "?"}" do cocho: diga o nome como está no app (${ins.map((i: any) => i.nome).join(", ")}).`
+          : "Para lançar o cocho, cadastre antes a mistura ou o suplemento no app (aba Suplementação, Novo produto ou ingrediente).");
+        continue;
+      }
+      const r = rid(c), lote0 = String(c.lote || "").trim().toLowerCase(), kgUn = +p.kgUn || 1, q = Number(c.quantidade) || 0;
+      if (q <= 0) { avisos.push(`Faltou a quantidade de ${p.nome} no cocho.`); continue; }
+      const kg = c.unidade === "t" ? q * 1000 : c.unidade === "embalagem" ? q * kgUn : q;
+      // o que a mensagem não disser vem do último fornecimento do mesmo produto (e do mesmo lote, se disser o lote)
+      const u: any = [...ant, ...cochos.map((x) => x.dados)].filter((m: any) => m.insumoId === p.id && (!lote0 || loteK(m.lote) === loteK(lote0)) && (m.retiro || "") === r).pop();
+      const lote = lote0 || String(u?.lote || "");
+      const cab = Math.round(Number(c.cab) || 0) || Math.round(+u?.cab || 0), peso = Number(c.peso_medio) > 0 ? +c.peso_medio : +u?.peso || 0;
+      const FS = ["cria", "recria", "engorda"], fase = FS.includes(c.fase) ? c.fase : u?.fase || (FS.includes(loteK(lote)) ? loteK(lote) : "");
+      let dd = Math.round(Number(c.dias) || 0);
+      if (!cab) { avisos.push(`Faltou o número de cabeças no cocho de ${p.nome}: mande de novo com as cabeças.`); continue; }
+      if (!fase) { avisos.push(`Faltou a fase (cria, recria ou engorda) do cocho de ${p.nome}: mande de novo dizendo a fase.`); continue; }
+      if (!dd) { dd = Math.round(+u?.dias || 7); avisos.push(`Não disse para quantos dias era o cocho de ${p.nome}: considerei ${dd} dias.`); }
+      const data = okData(c.data) && c.data <= hoje ? c.data : hoje, qtd = Math.round(kg / kgUn * 1000) / 1000;
+      const dados = { tipo: "saida", fornecimento: true, insumoId: p.id, data, qtd, dias: dd, fase, lote, cab, peso, obs: "", ...RT(r), ...autor };
+      cochos.push({ id: `${base}-f${cochos.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, insumo_id: p.id, data, tipo: "saida", qtd, valor: null, fase, dados });
+      const g = kg * 1000 / (cab * dd), pv = peso ? kg / (cab * dd) / peso * 100 : NaN;
+      txt.push(`🥣 <b>Cocho</b> · ${esc(p.nome)} · ${kgOuT(kg)} · ${esc(lote || ONDE[fase])}${lote ? " · " + ONDE[fase] : ""} · ${nfBR(cab)} cab.${peso ? " de " + nfBR(peso) + " kg" : ""} × ${dd} dias` +
+        `\n   <b>${nfBR(Math.round(g))} g/cab/dia</b>${Number.isFinite(pv) ? ` = ${pv.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% do peso vivo` : ""} · ${dBR(data)}${tagRet(rets, r)}`);
+    }
+  }
+
   // contas a pagar: marca as novas; as pagas viram custo agora (no lugar de um custo comum)
   const novas: any[] = [], pagas: any[] = [], proxs: any[] = [], lista = abertas(cfgD);
   for (const c of L.contas || []) {
@@ -638,7 +690,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   }
 
   const temNota = !!String(L.anotacao || "").trim();
-  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !novas.length && !nAreas && !temNota)
+  if (!custos.length && !movs.length && !lembs.length && !alts.length && !pes.length && !novas.length && !nAreas && !temNota && !cochos.length)
     return responde(d, chat, esc([...avisos, L.resposta || ""].filter(Boolean).join(" ") || "Não entendi o que lançar. Escreva o valor e o que foi comprado, ou quantas cabeças e o que aconteceu."));
 
   // grava: se uma parte falhar, desfaz o que já entrou para não ficar pela metade
@@ -654,6 +706,15 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
     }
   }
+  if (cochos.length) {
+    const { error } = await d.db.from("estoque_movs").insert(cochos);
+    if (error) {
+      console.error("insert estoque_movs", error);
+      if (custos.length) await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
+      if (movs.length) await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
+      return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
+    }
+  }
   if (lembs.length || alts.length || pes.length || novas.length || pagas.length || nAreas) {
     const ok = await mudaCfg(d, conta.fazenda_id, (D0) => { const D = nAreas ? aplicaAreas(D0, L.areas!, base, quem)!.novo : D0; return { ...D,
       ...(novas.length || pagas.length ? { contas: [...(D.contas || []).map((x: any) => (pagas.includes(x.id) ? { ...x, paga: { data: hoje, base, por: quem } } : x)), ...novas, ...proxs] } : {}),
@@ -663,6 +724,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!ok) {
       if (custos.length) await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
       if (movs.length) await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
+      if (cochos.length) await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
       return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
     }
   }
@@ -672,7 +734,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
     if (!linhaNota) avisos.push("A anotação não foi salva: mande de novo com \"anotar:\".");
   }
 
-  const tot = custos.length + movs.length + lembs.length + alts.length + pes.length + novas.length + nAreas, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
+  const tot = custos.length + movs.length + cochos.length + lembs.length + alts.length + pes.length + novas.length + nAreas, temRet = rets.length > 0 && custos.length + movs.length + pes.length > 0, ret = usados.size === 1 ? [...usados][0] : "?";
   const msg = (tot ? `✅ <b>Lancei ${tot === 1 ? "1 item" : tot + " itens"}:</b>\n${txt.join("\n")}` : "") +
     (linhaNota ? `${tot ? "\n" : ""}${MSG_ANOTA}${esc(linhaNota)}` : "") +
     (nota && custos.length ? "\n📎 A foto ficou guardada no app junto do custo." : "") +
@@ -1237,6 +1299,30 @@ export function ingParaAvisar(est: any[], marcados: Record<string, any>) {
     return !a || (e.ultEntrada && e.ultEntrada > a.d) || n < a.n;
   });
 }
+/* produto do cocho pelo nome dito: igual, contido por palavras, ou todas as palavras do nome cadastrado na frase */
+function prodDe(nome: string, L: any[]) {
+  const e = ingDe(nome, L); if (e) return e;
+  const n = " " + normIng(nome) + " ", ws = (s: string) => normIng(s).split(" ").filter((w) => w.length >= 3);
+  return L.find((i) => ws(i.nome).length && ws(i.nome).every((w) => n.includes(" " + w + " "))) || null;
+}
+/* cocho atrasado: o último fornecimento de cada lote + produto já acabou há COCHO_FOLGA dias (até 30 dias; depois o lote deve ter saído do cocho) */
+export const COCHO_FOLGA = 2;
+export function cochoAtrasados(ins: any[], em: any[], hoje: string, marcados: Record<string, string>) {
+  const G = new Map<string, any>();
+  for (const m of em) {
+    if (!m.fornecimento || !okData(m.data) || m.data > hoje) continue;
+    const k = [loteK(m.lote), m.fase || "", m.insumoId, m.retiro || ""].join("|"), a = G.get(k);
+    if (!a || m.data >= a.data) G.set(k, m);
+  }
+  const out: any[] = [];
+  for (const [k, m] of G) {
+    const fim = somaDias(m.data, Math.max(1, Math.round(+m.dias || 1))), atraso = dias(fim, hoje);
+    if (atraso < COCHO_FOLGA || atraso > 30 || marcados?.[k] === fim) continue;
+    const p = ins.find((i) => i.id === m.insumoId); if (!p) continue;
+    out.push({ k, m, p, fim, atraso, kg: (+m.qtd || 0) * (+p.kgUn || 1) });
+  }
+  return out;
+}
 async function todosId(d: Deps, tabela: string, fazenda: string) {
   const out: any[] = [];
   for (let i = 0; ; i += 1000) {
@@ -1277,12 +1363,13 @@ export async function avisosDiarios(d: Deps) {
     const cv = abertas(D).filter((c: any) => (c.venc === amanha && !c.avisos?.v) || (c.venc <= hoje && !c.avisos?.d));
     // ingredientes da mistura acabando (DDG, milho, núcleo)
     const ins = await todosId(d, "insumos", c.fazenda_id);
-    let ingAv: any[] = [];
-    if (ins.some((i: any) => i.tipo === "ingrediente")) {
+    let ingAv: any[] = [], cochoAv: any[] = [];
+    if (ins.some((i: any) => i.grupo === "nutricao")) {
       const [em, fo] = await Promise.all([todosId(d, "estoque_movs", c.fazenda_id), todosId(d, "formulacoes", c.fazenda_id)]);
-      ingAv = ingParaAvisar(estoqueIngredientes(ins, em, fo, hoje), D.avisoIng || {});
+      if (ins.some((i: any) => i.tipo === "ingrediente")) ingAv = ingParaAvisar(estoqueIngredientes(ins, em, fo, hoje), D.avisoIng || {});
+      cochoAv = cochoAtrasados(ins, em, hoje, D.avisoCocho || {});
     }
-    if (!lem.length && !alt.length && !velhos && !cv.length && !ingAv.length) continue;
+    if (!lem.length && !alt.length && !velhos && !cv.length && !ingAv.length && !cochoAv.length) continue;
     const daFaz = (contas || []).filter((x: any) => x.fazenda_id === c.fazenda_id);
     // vai para quem pediu; se ele não tiver mais o Telegram ligado, vai para os outros sócios
     const para = (uid: string) => { const s = daFaz.filter((x: any) => x.user_id === uid); return (s.length ? s : daFaz).map((x: any) => x.chat_id); };
@@ -1317,7 +1404,19 @@ export async function avisosDiarios(d: Deps) {
       for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
       if (cs.length) ingMarca[e.id] = { d: hoje, n: e.nivel };
     }
+    const cochoMarca: Record<string, string> = {};
+    for (const a of cochoAv) {
+      const m = a.m, onde = m.lote ? `${esc(m.lote)} · ${ONDE[m.fase] || ""}` : ONDE[m.fase] || "";
+      const t = `🥣 <b>Cocho sem lançamento</b> · ${esc(a.p.nome)} · ${onde}${tagRet(rets, m.retiro || "")}` +
+        `\nO último fornecimento (${dBR(m.data)}, ${kgOuT(a.kg)} para ${Math.round(+m.dias || 1)} dias) cobria até ${dBR(a.fim)}.` +
+        `\nSe o gado continua no cocho, lance aqui mesmo, por exemplo: <i>coloquei ${kgOuT(a.kg)} de ${esc(a.p.nome)}${m.lote ? " no " + esc(m.lote) : ""}, ${nfBR(+m.cab || 0)} cabeças, ${Math.round(+m.dias || 7)} dias</i>.` +
+        "\n<i>Se o lote saiu do cocho, pode ignorar.</i>";
+      const cs = daFaz.map((x: any) => x.chat_id);
+      for (const chat of cs) { await d.tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML" }); n++; }
+      if (cs.length) cochoMarca[a.k] = a.fim;
+    }
     await mudaCfg(d, c.fazenda_id, (X) => ({ ...X,
+      ...(Object.keys(cochoMarca).length ? { avisoCocho: { ...(X.avisoCocho || {}), ...cochoMarca } } : {}),
       ...(Object.keys(ingMarca).length ? { avisoIng: { ...(X.avisoIng || {}), ...ingMarca } } : {}),
       contas: (X.contas || []).map((x: any) => (avisadas[x.id] ? { ...x, avisos: { ...(x.avisos || {}), [avisadas[x.id]]: hoje } } : x))
         .filter((x: any) => !(x.paga && dias(x.paga.data, hoje) > 120)),
@@ -1584,6 +1683,7 @@ async function botao(d: Deps, q: any, contaApp?: any) {
   if (acao === "desf" && /^[0-9a-f-]{36}$/.test(id)) {
     const { data: cs } = await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
     const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
+    const { data: es } = await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
     const t = String(q.message?.text || ""), i = t.indexOf(MSG_ANOTA);
     const tirouNota = i >= 0 ? await desanota(d, conta, t.slice(i + MSG_ANOTA.length).split("\n")[0].trim()) : false;
     const tirou: Record<string, number> = {};
@@ -1603,8 +1703,8 @@ async function botao(d: Deps, q: any, contaApp?: any) {
         D.areasDesf = D.areasDesf.filter((x: any) => x.base !== id); tirou.areas = 1; }
       return Object.values(tirou).some(Boolean) ? D : null;
     });
-    const nc = cs?.length || 0, nm = ms?.length || 0, pl = (n: number, um: string, v: string) => n && (n === 1 ? "1 " + um : n + " " + v);
-    const partes = [pl(nc, "custo", "custos"), pl(nm, "movimento do rebanho", "movimentos do rebanho"), pl(tirou.lembretes, "lembrete", "lembretes"),
+    const nc = cs?.length || 0, nm = ms?.length || 0, ne = es?.length || 0, pl = (n: number, um: string, v: string) => n && (n === 1 ? "1 " + um : n + " " + v);
+    const partes = [pl(nc, "custo", "custos"), pl(nm, "movimento do rebanho", "movimentos do rebanho"), pl(ne, "fornecimento no cocho", "fornecimentos no cocho"), pl(tirou.lembretes, "lembrete", "lembretes"),
       pl(tirou.alertas, "aviso da arroba", "avisos da arroba"), pl(tirou.pesagens, "pesagem", "pesagens"), pl(tirou.contas, "conta a pagar", "contas a pagar"), pl(tirou.reabertas, "pagamento de conta (ela voltou a ficar em aberto)", "pagamentos de contas (voltaram a ficar em aberto)"), tirou.areas && "a mudança das áreas (voltaram ao que eram)", tirouNota && "a anotação"].filter(Boolean) as string[];
     if (!partes.length) return fim("Esse lançamento já não existe.");
     const lista = partes.length > 1 ? partes.slice(0, -1).join(", ") + " e " + partes.at(-1) : partes[0];
@@ -1791,8 +1891,10 @@ async function trataTexto(d: Deps, chat: number, conta: any, quem: string, texto
   const { data: cfgT } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
   const retsT = retirosDe(cfgT?.dados);
   const abT = abertas(cfgT?.dados);
+  const prodT = (await todosId(d, "insumos", conta.fazenda_id)).filter((i: any) => i.grupo === "nutricao" && i.tipo !== "ingrediente");
   conteudo.push({ type: "text", text: `Hoje é ${hojeMT()}.` + (retsT.length ? `\nPartes da fazenda: ${[...retsT.map((r) => r.nome), GERAL].join(", ")}.` : "") +
     (abT.length ? `\nContas a pagar marcadas: ${abT.map((c: any, i: number) => `${i + 1}) ${c.descricao} · R$ ${c.valor} · vence ${c.venc}`).join("; ")}.` : "") +
+    (prodT.length ? `\nProdutos do cocho: ${prodT.map((i: any) => `${i.nome} (embalagem ${i.unidade || "kg"} de ${+i.kgUn || 1} kg)`).join("; ")}.` : "") +
     (texto ? `\nMensagem: ${texto}` : "\n(só a imagem)") });
   await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
   const L = await d.le(conteudo);
