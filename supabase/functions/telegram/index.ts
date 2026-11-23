@@ -696,6 +696,15 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
 
   // grava: se uma parte falhar, desfaz o que já entrou para não ficar pela metade
   if (custos.length) {
+    // custo repetido: mesmo valor com até 5 dias de diferença já lançado (app, Telegram ou microfone) — grava e avisa, o Desfazer resolve
+    try {
+      const dmin = custos.reduce((m: string, c: any) => (c.data < m ? c.data : m), custos[0].data);
+      const ja = await todos(d, "desembolsos", conta.fazenda_id, somaDias(dmin, -5));
+      for (const c of custos) {
+        const x = ja.find((x: any) => Math.abs((+x.valor || 0) - c.valor) < 0.01 && okData(x.data) && Math.abs(dias(x.data, c.data)) <= 5);
+        if (x) avisos.push(`⚠️ Parece repetido: já tinha um custo de ${brl(+x.valor)} em ${dBR(x.data)} (${x.descricao || ITN[x.item] || x.item || "sem descrição"}). Se for o mesmo gasto, toque em Desfazer.`);
+      }
+    } catch (e) { console.error("repetido", e); }
     const { error } = await d.db.from("desembolsos").insert(custos);
     if (error) { console.error("insert desembolsos", error); return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes."); }
   }

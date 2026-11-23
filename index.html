@@ -2612,6 +2612,11 @@ function wireForm(k,o,inline){
     f.addEventListener('input',conta); f.addEventListener('change',conta); }
   if(!inline) setTimeout(()=>f.querySelector('input,select')?.focus(),50);
 }
+/* custo repetido: mesmo valor (diferença menor que 1 centavo) com até 5 dias de diferença, em qualquer parte da fazenda.
+   Na 1ª vez o Salvar para e avisa; tocando de novo ("Lançar mesmo assim") grava. */
+const dupCusto=(valor,data,ign)=>valor>0&&data?(RAW.desemb||[]).find(x=>x.id!==ign&&Math.abs((+x.valor||0)-valor)<0.01&&x.data&&Math.abs(days(x.data,data))<=5):null;
+function checaDup(f,valor,data,ign){ const x=dupCusto(valor,data,ign), key=valor+'|'+data; if(!x||f.dataset.dupOk===key) return;
+  f.dataset.dupOk=key; throw {code:'form',dup:true,msg:`Parece repetido: já existe um custo de ${brl(+x.valor,2)} em ${dBR(x.data)} (${x.descricao||ITN[x.item]||x.item||'sem descrição'}${retiros().length?' · '+retNome(x.retiro):''}). Se for outro gasto, toque em "Lançar mesmo assim".`}; }
 async function submitForm(f){
   const k=f.dataset.kind, v=Object.fromEntries(new FormData(f)), N=x=>x===''||x==null?null:Number(x), ed=f.dataset.edit;
   const rv=v.retiro?{retiro:v.retiro}:{};
@@ -2637,13 +2642,13 @@ async function submitForm(f){
       if(d.modo==='cabeca') d.precoCab=N(v.precoCab)||0; else d.precoArroba=N(v.precoArroba)||0;
       if(d.modo==='carcaca'){ d.rend=N(v.rend)||0; if(!(d.rend>=30&&d.rend<=70)) throw {code:'form',msg:'Preencha o rendimento de carcaça (entre 30 e 70%).'}; } }
     if(v.tipo==='compra') d.valor=N(v.valorC)||0; await add(COL.movs,d); }
-  if(k==='desembolso'){ const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde),rebanho:v.rebanho||'',...(v.nota?{nota:v.nota}:{})}; lembraOnde(v.item,v.onde);
+  if(k==='desembolso'){ if(!ed) checaDup(f,N(v.valor),v.data); const d={data:v.data,valor:N(v.valor),item:v.item,grupo:ITG[v.item]||'outros',tipo:v.tipo,descricao:v.descricao||'',...parseOnde(v.onde),rebanho:v.rebanho||'',...(v.nota?{nota:v.nota}:{})}; lembraOnde(v.item,v.onde);
     if(ed) await db.doc(COL.desemb+'/'+ed).update({...d,...rv}); else await add(COL.desemb,d); }
   if(k==='custosMes'){ const m=v.mes; if(!m) throw {code:'form'}; const dt=m===ym(today())?today():mEnd(m); let n=0;
     for(const [it] of ITENS){ const val=N(v['v_'+it]); lembraOnde(it,v['o_'+it]); if(val>0){ await add(COL.desemb,{data:dt,valor:val,item:it,grupo:ITG[it],tipo:'custeio',descricao:'',...parseOnde(v['o_'+it]),rebanho:v.rebanho||''}); n++; } }
     if(!n) throw {code:'form',msg:'Preencha o valor de pelo menos um custo.'}; }
   if(k==='insumo') await add(COL.insumos,{nome:v.nome,unidade:v.unidade,minimo:N(v.minimo)||0,grupo:v.grupo});
-  if(k==='entrada'){ let i=S.insumos.find(x=>x.id===v.insumoId);
+  if(k==='entrada'){ if(v.lancar&&N(v.valor)>0) checaDup(f,N(v.valor),v.data); let i=S.insumos.find(x=>x.id===v.insumoId);
     /* produto novo no celeiro: cadastra como ingrediente da mistura na hora da entrada */
     if(String(v.insumoId).startsWith('novo:')){ const nome=String(v.novoNome||'').trim(); if(!nome) throw {code:'form',msg:'Digite o nome do produto.'};
       i=S.insumos.find(x=>normIng(x.nome)===normIng(nome));
@@ -2668,7 +2673,7 @@ async function submitForm(f){
 }
 
 /* ---------- eventos ---------- */
-let toastT; function toast(m){clearTimeout(toastT);$('#toastRoot').innerHTML=`<div class="toast" role="status">${esc(m)}</div>`;toastT=setTimeout(()=>$('#toastRoot').innerHTML='',2800);}
+let toastT; function toast(m){clearTimeout(toastT);$('#toastRoot').innerHTML=`<div class="toast" role="status">${esc(m)}</div>`;toastT=setTimeout(()=>$('#toastRoot').innerHTML='',Math.max(2800,String(m).length*65));} /* mensagem longa fica mais tempo na tela */
 /* ---------- foto da nota: o servidor (função "telegram") guarda a foto e, se pedido, o Claude lê ---------- */
 const paraB64=b=>new Promise((ok,er)=>{const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=er; r.readAsDataURL(b);});
 async function fotoMenor(a){ /* foto de celular tem 3 a 5 MB: reduz para no máximo 1600 px (fica uns 300 KB e ainda dá para ler) */
@@ -2906,7 +2911,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); const fm=f.dataset.kind==='fechamento'&&f.mes?f.mes.value:''; /* fechamento: continua no mesmo mês para a próxima etapa da contagem */
-      if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
+      if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent=err?.dup?'Lançar mesmo assim':'Salvar';dbErr(err);} }
 });
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#frm[data-inline]')) DIRTY=true;});
 document.addEventListener('change',e=>{ if(e.target.id!=='fazSel') return; lsRaw('cf_fid_'+UID,e.target.value); location.reload(); });
