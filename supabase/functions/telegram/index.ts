@@ -1368,10 +1368,9 @@ export async function mercadoDiario(d: Deps) {
   return `boi do dia enviado para ${n} conversa(s)`;
 }
 /* ---------- lembretes e avisos da arroba (GitHub Actions chama ?avisos=1 às 7h e depois do pregão) ---------- */
-/* ---------- ingredientes do celeiro (DDG, milho, núcleo): mesma conta do app ----------
-   Estoque próprio, separado da mistura (pedido do usuário em 23/11/2026): entram pela Entrada e saem pela Saída lançada
-   (ou quando o próprio ingrediente vai puro para o cocho). A mistura no cocho NÃO baixa os ingredientes.
-   Dias que faltam = estoque em kg ÷ kg por dia das saídas dos últimos 30 dias (desde a primeira delas, mínimo 7 dias). */
+/* ---------- ingredientes da mistura (DDG, milho, núcleo): mesma conta do app ----------
+   Entram pela Entrada (compra) e saem quando a mistura vai para o cocho, na proporção da formulação.
+   Dias que faltam = estoque em kg ÷ kg por dia dos fornecimentos dos últimos 30 dias. */
 export const ING_AVISO = 15, ING_URGENTE = 5;
 const normIng = (s: any) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 function ingDe(nome: string, L: any[]) {
@@ -1382,20 +1381,27 @@ export function estoqueIngredientes(ins: any[], emovs: any[], forms: any[], hoje
   const L = ins.filter((i) => i.grupo === "nutricao" && i.tipo === "ingrediente");
   if (!L.length) return [];
   const kgUn = (i: any) => +i?.kgUn || 1;
+  const mix = (p: any) => {
+    const f = p && p.tipo !== "ingrediente" && p.formulacaoId && forms.find((x) => x.id === p.formulacaoId); if (!f) return [];
+    const ig = (f.ingredientes || []).filter((x: any) => +x.pct > 0), t = ig.reduce((s: number, x: any) => s + +x.pct, 0); if (!t) return [];
+    return ig.map((x: any) => ({ ing: ingDe(x.nome, L), frac: +x.pct / t })).filter((x: any) => x.ing);
+  };
   const d30 = somaDias(hoje, -30);
   return L.map((g) => {
-    let kg = 0; const cons: { data: string; kg: number }[] = [];
+    let kg = 0; const cons: { data: string; kg: number; dias: number }[] = [];
     for (const m of emovs) {
-      if (m.insumoId !== g.id) continue;
-      const q = (+m.qtd || 0) * kgUn(g);
-      kg += (m.tipo === "entrada" ? 1 : -1) * q;
-      if (m.tipo === "saida") cons.push({ data: m.data, kg: q });
+      if (m.insumoId === g.id) kg += (m.tipo === "entrada" ? 1 : -1) * (+m.qtd || 0) * kgUn(g);
+      if (!m.fornecimento) continue;
+      const p = ins.find((x) => x.id === m.insumoId); if (!p) continue;
+      const q = (+m.qtd || 0) * kgUn(p), dd = +m.dias || 1;
+      if (p.id === g.id) cons.push({ data: m.data, kg: q, dias: dd });
+      else for (const x of mix(p)) if (x.ing.id === g.id) { cons.push({ data: m.data, kg: q * x.frac, dias: dd }); kg -= q * x.frac; }
     }
     const r = cons.filter((x) => okData(x.data) && x.data >= d30 && x.data <= hoje);
     let kgDia = NaN;
     if (r.length) {
-      const ini = r.reduce((a, x) => (x.data < a ? x.data : a), hoje);
-      kgDia = r.reduce((s, x) => s + x.kg, 0) / Math.max(7, dias(ini, hoje) + 1);
+      const ini = r.reduce((a, x) => (x.data < a ? x.data : a), hoje), fim = r.reduce((a, x) => { const e = somaDias(x.data, x.dias); return e > a ? e : a; }, hoje);
+      kgDia = r.reduce((s, x) => s + x.kg, 0) / Math.max(1, dias(ini, fim));
     }
     const ult = emovs.filter((m) => m.insumoId === g.id && m.tipo === "entrada").reduce((a, m) => (m.data > a ? m.data : a), "");
     return { id: g.id, nome: g.nome, kg, kgDia, dias: kgDia > 0 ? kg / kgDia : NaN, ultEntrada: ult };
