@@ -2135,8 +2135,11 @@ const sel=(label,name,opts,val='',attrs='')=>`<label class="fl">${label}<select 
 const num='step="any" min="0"';
 const FORMS={
   fechamento:{t:'Fechamento do mês',d:'Estoque por categoria',html:o=>{
-    const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1]; const prox=last?addM(last.mes,1):ym(today()), mes=o.mes||(prox>ym(today())?ym(today()):prox); /* nunca sugere um mês que ainda não chegou */
-    return `${fld('Mês','mes','month','required max="'+ym(today())+'"',mes)}<p class="note">Já vem calculado: fechamento anterior + nascimentos e compras − vendas e mortes ± mudanças de categoria. Confira as cabeças e atualize o peso médio.</p><div id="fechRows">${fechRows(mes)}</div>`;}},
+    const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1]; const prox=last?addM(last.mes,1):ym(today());
+    /* contagem por etapas: se um mês foi salvo nos últimos 10 dias, abre nele (continua a contagem); senão, o mês seguinte ao último */
+    const em=x=>x.atualizadoEm||x.criadoEm||'', rec=[...S.fech].filter(x=>em(x)&&Date.now()-Date.parse(em(x))<10*864e5).sort((a,b)=>em(a)<em(b)?1:-1)[0];
+    const mes=o.mes||(rec?rec.mes:(prox>ym(today())?ym(today()):prox)); /* nunca sugere um mês que ainda não chegou */
+    return `${fld('Mês','mes','month','required max="'+ym(today())+'"',mes)}<div id="fechRows">${fechRows(mes)}</div>`;}},
   movimento:{t:'Movimento do rebanho',d:'Nascer, comprar, vender, morrer',html:()=>`${sel('Tipo','tipo',Object.entries(TIPOS_MOV))}<div class="grid2">${fld('Data','data','date','required',today())}${selCat('Categoria','categoria')}</div>
     <div data-show="transferencia" hidden>${selCat('Para a categoria','para','m8_12')}</div>
     <div data-show="transfParte" hidden>${sel('Para (vai para)','paraRet',partes().map(r=>[r.id===SEDE?'':r.id,r.nome]))}<p class="note">O gado sai de uma parte e entra na outra. Não é venda nem compra: o rebanho da fazenda toda não muda. Informe o peso médio na balança: ele serve para calcular o ganho de peso (GMD) em cada parte.</p></div>
@@ -2527,13 +2530,18 @@ function renderCalc(){
   <div id="c-dec">${decHTML()}</div><div id="c-seg">${segHTML()}</div>
   <div class="row-head" style="margin-top:6px"><h2>Calculadoras</h2></div>
   <div id="c-agio">${agioHTML()}</div><div id="c-peq">${peqHTML()}</div><div id="c-custo">${simArroba()}</div>`;}
-function fechRows(mes){const cats=prefillFech(mes);
-  /* mostra só as categorias que a fazenda tem; as outras ficam num "mostrar mais" */
-  const linha=([k,n])=>`<div class="grid3" style="margin-bottom:6px"><span class="cat">${n}</span><label class="fl"><input id="f-cab_${k}" name="cab_${k}" type="number" min="0" step="1" value="${cats[k]?.cab||0}" aria-label="Cabeças ${n}"></label><label class="fl"><input id="f-peso_${k}" name="peso_${k}" type="number" min="0" step="any" value="${cats[k]?.peso||0}" aria-label="Peso médio ${n}"></label></div>`;
+function fechRows(mes){const cats=prefillFech(mes), ex=S.fech.find(f=>f.mes===mes&&!f._junto);
+  /* data-orig = o que o formulário mostrou ao abrir: ao salvar, só as categorias alteradas mudam (contagem por etapas) */
+  /* "+ somar": conta por pasto ou por curral; soma as cabeças às que já estão e faz a média ponderada do peso. Os campos do somar não têm name (não vão para o banco) */
+  const somar=([k,n])=>`<div class="somar-box" data-somar-box="${k}" hidden><div class="grid3"><span class="small muted">Somar a ${esc(n.toLowerCase())}</span><label class="fl"><input data-somar-cab type="number" min="1" step="1" inputmode="numeric" placeholder="cabeças" aria-label="Cabeças a somar"></label><label class="fl"><input data-somar-peso type="number" min="0" step="any" inputmode="decimal" placeholder="peso kg" aria-label="Peso médio das cabeças a somar"></label></div><div class="btns" style="margin:4px 0 8px"><button class="btn" type="button" data-somar-ok="${k}">Somar</button><button class="btn link" type="button" data-somar="${k}">Cancelar</button></div></div>`;
+  const linha=([k,n])=>`<div class="grid3" style="margin-bottom:6px"><span class="cat">${n}<br><button class="btn link" type="button" data-somar="${k}" style="padding:0;min-height:0;font-size:13px">+ somar</button></span><label class="fl"><input id="f-cab_${k}" name="cab_${k}" type="number" min="0" step="1" value="${cats[k]?.cab||0}" data-orig="${cats[k]?.cab||0}" aria-label="Cabeças ${n}"></label><label class="fl"><input id="f-peso_${k}" name="peso_${k}" type="number" min="0" step="any" value="${cats[k]?.peso||0}" data-orig="${cats[k]?.peso||0}" aria-label="Peso médio ${n}"></label></div>${somar([k,n])}`;
+  const exCats=ex?Object.entries(ex.cats||{}).filter(([,v])=>+v.cab>0):[];
+  const aviso=ex?`<p class="note" style="color:var(--good)">✓ <b>${mLabel(mes)}</b> já tem contagem salva: ${exCats.length} categoria${exCats.length===1?'':'s'}, ${nf(sum(exCats,([,v])=>+v.cab))} cabeças. Pode contar por etapas: mude só o que contou agora e salve. O que você não mexer continua como está.</p>`
+    :`<p class="note">${mLabel(mes)} ainda não tem contagem. Já vem calculado: fechamento anterior + nascimentos e compras − vendas e mortes ± mudanças de categoria. Pode salvar por etapas: conte uma parte, salve e volte depois para o mesmo mês.</p>`;
   const has=([k])=>(cats[k]?.cab||0)>0, tem=CATS_COM.filter(has), resto=CATS_COM.filter(x=>!has(x));
   const cab=`<div class="grid3" style="margin-bottom:4px"><span class="small muted">Categoria</span><span class="small muted">Cabeças</span><span class="small muted">Peso médio kg</span></div>`;
   const com='<p class="po-tit">Gado comercial</p>'+cab+(!tem.length?CATS_COM.map(linha).join(''):tem.map(linha).join('')+`<details class="mais-cat"><summary>Outras categorias (${resto.length})</summary>${resto.map(linha).join('')}</details>`);
-  return com+`<details class="mais-cat po-box" ${CATS_PO.some(has)?'open':''}><summary>Gado P.O.</summary><p class="note" id="poVacaTot">${poVacaTxt(sum(PO_VACAS,k=>cats[k]?.cab||0))}</p>${cab}${CATS_PO.map(linha).join('')}</details>`;}
+  return aviso+com+`<details class="mais-cat po-box" ${CATS_PO.some(has)?'open':''}><summary>Gado P.O.</summary><p class="note" id="poVacaTot">${poVacaTxt(sum(PO_VACAS,k=>cats[k]?.cab||0))}</p>${cab}${CATS_PO.map(linha).join('')}</details>`;}
 const poVacaTxt=n=>`Vaca total P.O.: <b>${nf(n)}</b> (com cria + solteira + prenha)`;
 function closeSheet(){vozPara(); $('#sheetRoot').innerHTML=''; if($('#entrySlot')&&!$('#entrySlot').firstChild) mountEntry();}
 function openPicker(){$('#sheetRoot').innerHTML=`<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-label="Registrar"><div class="row-head"><h2>O que você quer registrar?</h2><button class="btn link" type="button" data-close>Fechar</button></div><div class="types">${['custosMes','desembolso','movimento','fechamento','fornecimento','adaptacao','entrada','saida','lote','estacao','insumo'].map(k=>`<button type="button" data-open="${k}">${FORMS[k].t}<span>${FORMS[k].d}</span></button>`).join('')}</div></div></div>`;}
@@ -2559,7 +2567,20 @@ function wireForm(k,o,inline){
     const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
   if(k==='adaptacao'){ const upd=()=>{const r=SUP_REF[f.tipo.value]; if(!r) return; const cab=+f.cab.value||0,peso=+f.peso.value||0; $('#adaptPrev').innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Período</th><th>Fornecimento</th><th>Lote/dia</th></tr></thead><tbody>${r.etapas.map(e=>`<tr><td>${periodo(e)}</td><td style="white-space:normal;text-align:left">${etapaTxt(e)}</td><td>${cab&&peso?kgTxt(etapaKg(e,r,cab,peso)):'—'}</td></tr>`).join('')}</tbody></table></div>`;}; f.addEventListener('input',upd); f.addEventListener('change',upd); upd(); }
   if(k==='formulacao'){ const upd=()=>{let t=0,c=0; for(let n=0;n<6;n++){const p=+f['ip_'+n].value||0; t+=p; c+=p*(+f['iv_'+n].value||0);} $('#calc').innerHTML=`Soma: <b class="${Math.abs(t-100)<0.01?'pos':'neg'}">${nf(t,1)}%</b>${t&&c?' · custo da mistura '+brl(c/t,3)+'/kg':''}`;}; f.addEventListener('input',upd); upd(); }
-  if(k==='fechamento'){ f.mes.addEventListener('change',()=>{ if(f.mes.value) $('#fechRows').innerHTML=fechRows(f.mes.value); });
+  if(k==='fechamento'){ f.mes.addEventListener('change',()=>{ if(!f.mes.value) return; f.querySelector('#fechRows').innerHTML=fechRows(f.mes.value);
+      /* guarda o mês escolhido: se a tela se redesenhar (atualização automática, volta ao app), o formulário não volta para outro mês */
+      if(inline){ UI.eo={...(UI.eo||{}),mes:f.mes.value}; } });
+    f.addEventListener('click',e=>{ const b=e.target.closest('[data-somar],[data-somar-ok]'); if(!b) return; e.preventDefault(); e.stopPropagation();
+      const k=b.dataset.somar||b.dataset.somarOk, box=f.querySelector(`[data-somar-box="${k}"]`); if(!box) return;
+      if(b.dataset.somar){ box.hidden=!box.hidden; if(!box.hidden) box.querySelector('[data-somar-cab]').focus(); return; }
+      const ic=f.elements['cab_'+k], ip=f.elements['peso_'+k], add=Math.round(+box.querySelector('[data-somar-cab]').value||0), pa=+box.querySelector('[data-somar-peso]').value||0;
+      if(!(add>0)) return toast('Digite quantas cabeças quer somar.');
+      const c0=+ic.value||0, p0=+ip.value||0, tot=c0+add, pAdd=pa||p0, peso=tot?(c0*p0+add*pAdd)/tot:0;
+      ic.value=tot; ip.value=Math.round(peso*10)/10; DIRTY=true; f.dispatchEvent(new Event('input',{bubbles:true}));
+      box.querySelectorAll('input').forEach(i=>i.value=''); box.hidden=true;
+      toast(`${nf(c0)} + ${nf(add)} = ${nf(tot)} cabeças${pa&&c0?' · peso médio '+nf(peso,1)+' kg':''}. Confira e salve.`); });
+    /* Enter dentro do "somar" soma, não salva o fechamento */
+    f.addEventListener('keydown',e=>{ const box=e.key==='Enter'&&e.target.closest('[data-somar-box]'); if(!box) return; e.preventDefault(); box.querySelector('[data-somar-ok]').click(); });
     f.addEventListener('input',()=>{ const t=$('#poVacaTot'); if(t) t.innerHTML=poVacaTxt(sum(PO_VACAS,k=>+(f['cab_'+k]?.value)||0)); }); }
   if(k==='movimento'){ let manual=false; const sync=()=>{f.querySelectorAll('[data-show]').forEach(d=>d.hidden=d.dataset.show!==f.tipo.value); if(f.tipo.value==='nascimento'&&!NASC.includes(f.categoria.value)) f.categoria.value='bezerros';
       const tp=f.tipo.value===TP, lb=f.querySelector('.ret-lbl'); if(lb) lb.textContent=tp?'De (sai de)':'Parte da fazenda';
@@ -2583,13 +2604,19 @@ async function submitForm(f){
   const k=f.dataset.kind, v=Object.fromEntries(new FormData(f)), N=x=>x===''||x==null?null:Number(x), ed=f.dataset.edit;
   const rv=v.retiro?{retiro:v.retiro}:{};
   const add=(col,d)=>db.collection(col).add({...d,...rv,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})});
-  if(k==='fechamento'){ if(!v.mes) throw {code:'form'}; const cats={}; CK.forEach(c=>{const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0};});
-    /* não deixa gravar fechamento vazio (ex.: Enter no teclado antes de preencher) nem de mês que ainda não chegou */
+  if(k==='fechamento'){ if(!v.mes) throw {code:'form'};
+    /* não deixa gravar fechamento de mês que ainda não chegou */
     if(v.mes>ym(today())) throw {code:'form',msg:mLabel(v.mes)+' ainda não chegou. Escolha este mês ou um anterior.'};
-    if(!Object.keys(cats).length) throw {code:'form',msg:'Nenhuma cabeça preenchida. Preencha as cabeças de cada categoria antes de salvar.'};
     /* um fechamento por retiro e mês (os antigos, de antes dos retiros, têm o mês como id) */
-    const ret=ehRet(UI.ret)?UI.ret:'', ex=(RAW.fech||[]).find(x=>x.mes===v.mes&&(ehRet(x.retiro)?x.retiro:'')===ret);
-    await db.doc(COL.fech+'/'+(ex?ex.id:ret?ret+'_'+v.mes:v.mes)).set({mes:v.mes,cats,...(ret?{retiro:ret}:{}),criadoEm:(ex&&ex.criadoEm)||new Date().toISOString()}); }
+    const ret=ehRet(UI.ret)?UI.ret:'', ex=(RAW.fech||[]).find(x=>x.mes===v.mes&&(ehRet(x.retiro)?x.retiro:'')===ret), id=ex?ex.id:ret?ret+'_'+v.mes:v.mes;
+    /* contagem por etapas: parte da versão mais nova do servidor (outro celular ou sócio pode ter salvo) e troca só as categorias
+       que a pessoa mudou neste formulário; as que ela não mexeu ficam como estavam. Mês sem contagem grava tudo o que o formulário mostra. */
+    const srv=ex?await db.fresco(COL.fech,id):null, cats=srv?{...(srv.cats||{})}:{};
+    const mudou=c=>['cab_','peso_'].some(p=>{ const i=f.elements[p+c]; return i&&Number(i.value||0)!==Number(i.dataset.orig||0); });
+    CK.forEach(c=>{ if(srv&&!mudou(c)) return; const cab=N(v['cab_'+c])||0; if(cab>0) cats[c]={cab,peso:N(v['peso_'+c])||0}; else delete cats[c]; });
+    /* não deixa gravar fechamento vazio (ex.: Enter no teclado antes de preencher) */
+    if(!Object.keys(cats).length) throw {code:'form',msg:'Nenhuma cabeça preenchida. Preencha as cabeças de pelo menos uma categoria antes de salvar.'};
+    await db.doc(COL.fech+'/'+id).set({mes:v.mes,cats,...(ret?{retiro:ret}:{}),criadoEm:(srv&&srv.criadoEm)||(ex&&ex.criadoEm)||new Date().toISOString(),atualizadoEm:new Date().toISOString()}); }
   if(k==='movimento'){ const d={tipo:v.tipo,data:v.data,categoria:v.categoria,cab:N(v.cab),pesoMedio:N(v.pesoMedio)||0,obs:v.obs||''};
     if(v.tipo==='transferencia'){ if(v.para===v.categoria) throw {code:'form',msg:'Escolha uma categoria de destino diferente.'}; d.para=v.para; }
     if(v.tipo===TP){ if((v.paraRet||'')===(v.retiro||'')) throw {code:'form',msg:'Escolha em "Para" uma parte diferente da de saída.'};
@@ -2860,7 +2887,8 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
     try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
-    try{ await submitForm(f); if(f.dataset.inline){DIRTY=false; UI.eo={}; render();} else closeSheet(); toast(f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
+    try{ await submitForm(f); const fm=f.dataset.kind==='fechamento'&&f.mes?f.mes.value:''; /* fechamento: continua no mesmo mês para a próxima etapa da contagem */
+      if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent='Salvar';dbErr(err);} }
 });
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#frm[data-inline]')) DIRTY=true;});
 document.addEventListener('change',e=>{ if(e.target.id!=='fazSel') return; lsRaw('cf_fid_'+UID,e.target.value); location.reload(); });
@@ -2951,7 +2979,11 @@ function dbMake(){
     if(navigator.onLine&&!FILA.length){ try{ const {data,error}=await daFaz(sb.from('config').select('dados')); if(!error&&data&&data[0]) base=data[0].dados||{}; }catch(e){} }
     await grava({c:'config',k:'upsert',row:{dados:clean(fn(base))}}); };
   const dadosDe=(c,id)=>((getRows(c)||[]).find(x=>x.id===id)||{}).dados||{};
+  /* lê um registro direto do servidor (versão mais nova); sem internet usa o que está no aparelho */
+  const fresco=async(c,id)=>{ if(navigator.onLine&&!FILA.length){ try{ const {data,error}=await daFaz(sb.from(c).select('id,dados')).eq('id',id); if(!error) return data&&data[0]?data[0].dados||{}:null; }catch(e){} }
+    const r=(getRows(c)||[]).find(x=>x.id===id); return r?r.dados||{}:null; };
   return {
+    fresco,
     envia, configMod, pendentes:()=>FILA.length,
     refreshAll:async()=>{ await envia(); await Promise.all(Object.keys(subs).map(notify)); },
     collection:c=>({onSnapshot:(ok,err)=>{listen(c,ok,err);return()=>{};},
