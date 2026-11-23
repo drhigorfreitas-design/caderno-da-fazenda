@@ -1864,16 +1864,46 @@ function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>!retiros().length|
     return {cab,custo:dF+dN+(gF+gN)*share,fix,supl,pasto,dias,d:q(fix+supl),df:q(fix),ds:q(supl),dp:q(pasto)}; };
   const T=um(CK,soma(x=>!noC(x)&&!ehN(x)),soma(x=>!noC(x)&&ehN(x)),1,sum(Object.values(coc),x=>x)), fases={};
   FASES.forEach(([k])=>{ const cs=CK.filter(c=>faseOf(c)===k), sh=kgT?(kgDe(cs,fim)||kgDe(cs,ini))/kgT:0; fases[k]=um(cs,soma(x=>x.centro===k&&!ehN(x)),soma(x=>x.centro===k&&ehN(x)),sh,(coc[k]||0)+cocG*sh); });
-  return {p,arr,T,fases,temCocho,semPreco}; }
+  /* composição (treinamento de recria): pasto (custo de oportunidade ou aluguel) + mão de obra + extras + suplementação */
+  const mao=soma(x=>x.grupo==='mao'), alug=soma(x=>x.grupo==='arrendamento');
+  T.comp={pasto:T.pasto+alug,mao,extras:T.fix-T.pasto-mao-alug,supl:T.supl};
+  return {p,arr,T,fases,temCocho,semPreco,gmd:gmdParte(p.id,mes)}; }
+/* GMD pelas pesagens da parte: em cada lote, as duas últimas pesagens até o fim do mês (a última com até 1 ano); média ponderada pelas cabeças */
+function gmdParte(id,mes){ const fimM=mEnd(mes), G={};
+  (S.config.pesagens||[]).filter(p=>+p.peso>0&&p.data&&p.data<=fimM&&(!retiros().length||daParte(id,p))).forEach(p=>{ const k=loteK(p.lote)||'?'; (G[k]=G[k]||[]).push(p); });
+  const L=Object.values(G).map(a=>{ a.sort((x,y)=>x.data<y.data?-1:1); const p1=a[a.length-1], p0=a.length>1?a[a.length-2]:null, d=p0?days(p0.data,p1.data):0;
+    return p0&&d>0&&days(p1.data,fimM)<=365?{g:(p1.peso-p0.peso)/d,cab:+p1.cab||1}:null; }).filter(Boolean);
+  const cab=sum(L,x=>x.cab); return cab?{g:sum(L,x=>x.g*x.cab)/cab,cab,n:L.length}:null; }
+/* tabela da composição: itens nas linhas, partes nas colunas; metas do treinamento de recria intensiva */
+function compHTML(L,tot){ const C=[...L,...(tot?[tot]:[])].filter(x=>x.T.cab>0); if(!C.length) return '';
+  const q=(x,v)=>v/x.T.cab/x.T.dias, kg=kgA();
+  const chip=(v,bom,ok2,tb,to,tr)=>!isFinite(v)||v<=0?'':v<=bom?` <span class="chip good">${tb}</span>`:v<=ok2?` <span class="chip">${to}</span>`:` <span class="chip bad">${tr}</span>`;
+  const lin=(nome,f,sub,b)=>`<tr${b?' class="sub"':''}><td>${nome}${sub?`<br><span class="small muted">${sub}</span>`:''}</td>${C.map(x=>`<td>${f(x)}</td>`).join('')}</tr>`;
+  const custoArr=x=>x.gmd&&x.gmd.g>0?x.T.d*kg/x.gmd.g:NaN;
+  return `<h3 style="margin:14px 0 6px">Composição da diária e custo da @ produzida</h3>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Por cabeça/dia</th>${C.map(x=>`<th>${esc(x.p.nome)}</th>`).join('')}</tr></thead><tbody>
+  ${lin('Pasto',x=>brl(q(x,x.T.comp.pasto),2),'aluguel ou custo de oportunidade')}
+  ${lin('Mão de obra',x=>{const v=q(x,x.T.comp.mao); return brl(v,2)+chip(v,0.30,0.50,'excelente','ok','alta');},'meta abaixo de R$ 0,50 · excelente abaixo de R$ 0,30')}
+  ${lin('Extras',x=>{const v=q(x,x.T.comp.extras); return brl(v,2)+chip(v,0.50,0.70,'ok','atenção','alto');},'combustível, sanidade, manutenção, energia… · média R$ 0,50')}
+  ${lin('Suplementação',x=>brl(q(x,x.T.comp.supl),2),'cocho (ou compra de nutrição)')}
+  ${lin('<b>Diária total</b>',x=>`<b>${brl(x.T.d,2)}</b>`,'',true)}
+  ${lin('GMD',x=>x.gmd?nf(x.gmd.g,3)+' kg<br><span class="small muted">'+x.gmd.n+' lote'+(x.gmd.n>1?'s':'')+'</span>':'<span class="muted">—</span>','pelas pesagens: duas últimas de cada lote')}
+  ${lin('Dias para 1 @',x=>x.gmd&&x.gmd.g>0?nf(kg/x.gmd.g,1):'—',kg+' kg ÷ GMD')}
+  ${lin('<b>Custo da @ produzida</b>',x=>{const v=custoArr(x); return ok(v)?`<b>${brl(v,2)}</b>${BGI&&BGI.spot>0?`<br><span class="small muted">${pct(v/BGI.spot*100,0)} da @ B3</span>`:''}`:'—';},'diária × dias para 1 @',true)}
+  </tbody></table></div>
+  ${C.some(x=>!x.gmd)?'<p class="note">Sem GMD numa parte: lance duas pesagens do mesmo lote (Rebanho → Pesagens, ou pelo Telegram) para ver o custo da @ produzida.</p>':''}`; }
 function diariaHTML(){ const hoje=today(), ms=Array.from({length:12},(_,i)=>addM(ym(hoje),-i)), mes=ms.includes(UI.diaMes)?UI.diaMes:addM(ym(hoje),-1);
   const L=(partes().length?partes():[{id:SEDE,nome:'Fazenda'}]).map(p=>diariaParte(p,mes)).filter(x=>x.T.cab>0||x.T.custo>0);
   const junta=a=>{ const o={cab:sum(a,x=>x.cab),custo:sum(a,x=>x.custo),fix:sum(a,x=>x.fix),supl:sum(a,x=>x.supl),pasto:sum(a,x=>x.pasto),dias:a[0]?.dias||diasMes(mes)}; const q=v=>o.cab>0?v/o.cab/o.dias:NaN; o.d=q(o.fix+o.supl); o.df=q(o.fix); o.ds=q(o.supl); o.dp=q(o.pasto); return o; };
   const tot=L.length>1?{p:{nome:'Fazenda toda'},T:junta(L.map(x=>x.T)),fases:Object.fromEntries(FASES.map(([k])=>[k,junta(L.map(x=>x.fases[k]))]))}:null;
+  if(tot){ tot.T.comp=Object.fromEntries(['pasto','mao','extras','supl'].map(k=>[k,sum(L,x=>x.T.comp[k])]));
+    const G=L.filter(x=>x.gmd), c=sum(G,x=>x.gmd.cab); tot.gmd=c?{g:sum(G,x=>x.gmd.g*x.gmd.cab)/c,cab:c,n:sum(G,x=>x.gmd.n)}:null; }
   const cel=o=>o&&o.cab>0?`<b>${brl(o.d,2)}</b><br><span class="small" style="white-space:nowrap">fixo ${brl(o.df,2)}</span><br><span class="small" style="white-space:nowrap;color:var(--good)">supl. ${brl(o.ds,2)}</span>`:'<span class="muted">—</span>';
   const tr=(x,sub)=>`<tr${sub?' class="sub"':''}><td>${esc(x.p.nome)}${x.arr?' <span class="small muted">(arrendado)</span>':''}</td><td>${nf(x.T.cab)}</td><td>${cel(x.T)}${x.T.cab>0&&x.T.pasto>0?`<br><span class="small muted">(fixo inclui ${brl(x.T.dp,2)} de pasto)</span>`:''}</td>${FASES.map(([k])=>`<td>${cel(x.fases[k])}</td>`).join('')}</tr>`;
   return `<div class="panel" id="diaria"><div class="row-head"><h2>Diária por cabeça</h2><label class="fl" style="margin:0"><select id="diaMes" aria-label="Mês da diária">${ms.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${mLabel(m)}${m===ym(hoje)?' (até hoje)':''}</option>`).join('')}</select></label></div>
     ${L.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Parte</th><th>Cab. médias</th><th>Diária</th>${FASES.map(([,n])=>`<th>${n}</th>`).join('')}</tr></thead><tbody>${L.map(x=>tr(x)).join('')}</tbody>${tot?`<tfoot>${tr(tot,true)}</tfoot>`:''}</table></div>`
       :'<p class="empty">Sem rebanho nem custos neste mês. Faça o fechamento do mês e lance os custos para ver a diária.</p>'}
+    ${L.length?compHTML(L,tot):''}
     <p class="note"><b>Diária = fixo + suplementação</b>, por cabeça por dia. <b>Fixo</b> = todos os gastos do mês (menos nutrição) + pasto. <b>Suplementação</b> = o que foi para o cocho. Tudo ÷ cabeças médias ÷ ${ym(hoje)===mes?'dias até hoje':'dias do mês'}. Investimentos não entram. Pasto: nos arrendados, o aluguel lançado como custo; nas áreas próprias, o custo de oportunidade de <b>${brl(custoPasto(),2)} por cabeça/mês</b> (${brl(custoPasto()/30,2)}/dia; muda em Ajustes). Custo lançado para a "fazenda toda" de uma parte é dividido entre as fases pelo peso do gado. <b>Suplementação:</b> entra o que foi para o cocho no mês (fornecimentos × preço do kg), na fase do fornecimento; onde há cocho lançado, a compra de nutrição do mês não entra, para não contar duas vezes. Sem fornecimento lançado, fica a compra.</p>${L.some(x=>x.semPreco)?'<p class="note neg">Algum fornecimento do mês está sem preço (produto ou ingrediente sem compra com valor): o custo dele ficou fora da diária. Dê entrada com o valor pago.</p>':''}</div>`; }
 /* ---------- comercial x P.O.: custos de cada rebanho e o total ---------- */
 const rebTxt=x=>rebOf(x)==='po'?' · P.O.':rebOf(x)==='com'?' · comercial':'';
