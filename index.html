@@ -1087,6 +1087,7 @@ function renderAjustes(){
       <label class="fl">Seu nome (saudação)<input id="cfg-usuario" name="usuario" value="${esc(FID?nomeDe(UID):(c.usuario||''))}"></label>
       <label class="fl">Área produtiva total (ha)<input id="cfg-area" name="area" type="number" step="0.1" min="0" value="${esc(c.area||'')}"></label>
       <label class="fl">Kg vivo por @<input id="cfg-kg" name="kgArroba" type="number" step="0.5" min="1" value="${esc(kgA())}"></label>
+      <label class="fl">Custo de oportunidade do pasto próprio (R$ por cabeça/mês, entra na diária)<input id="cfg-pasto" name="custoPasto" type="number" step="0.01" min="0" value="${esc(custoPasto())}"></label>
       <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="fl">Selic / custo de oportunidade (% a.a.)<input id="cfg-selic" name="selic" type="number" step="0.01" min="0" value="${esc(c.selic)}"></label>
       <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="selicAuto" ${c.selicAuto!==false?'checked':''} style="width:auto"> Usar a Selic do Banco Central (atualiza sozinha; hoje ${nf(+SELIC.meta,2)}%). Desmarque para usar a taxa digitada acima.</label>
@@ -1329,11 +1330,11 @@ function chartRebanho(F){
   F.forEach((f,i)=>{const c=fCab(f),x0=L+i*cw+cw*.2;s+=`<rect x="${x0}" y="${y(c)}" width="${cw*.6}" height="${T+ch-y(c)}" rx="2" fill="var(--capim)" opacity="${i===n-1?1:.55}"><title>${mLabel(f.mes)}: ${nf(c)} cab.</title></rect><text x="${L+i*cw+cw/2}" y="${H-6}" text-anchor="middle" font-size="9" fill="var(--muted)">${MES[+f.mes.slice(5)-1]}</text>`;});
   return s+'</svg>';
 }
-function prefillFech(mes){
-  const ex=S.fech.find(f=>f.mes===mes); if(ex) return ex.cats;
-  const base=[...S.fech].filter(f=>f.mes<mes).sort((a,b)=>a.mes<b.mes?-1:1).pop();
+function prefillFech(mes,FF=S.fech,MM=S.movs){
+  const ex=FF.find(f=>f.mes===mes); if(ex) return ex.cats;
+  const base=[...FF].filter(f=>f.mes<mes).sort((a,b)=>a.mes<b.mes?-1:1).pop();
   const cats={}; CK.forEach(c=>cats[c]={cab:cabOf(base,c),peso:pesoOf(base,c)});
-  S.movs.filter(x=>ym(x.data)<=mes&&(!base||ym(x.data)>base.mes)).forEach(x=>{
+  MM.filter(x=>ym(x.data)<=mes&&(!base||ym(x.data)>base.mes)).forEach(x=>{
     const n=+x.cab||0; const add=(c,v)=>{if(cats[c]) cats[c].cab+=v;};
     if(x.tipo==='nascimento'){ if(!cats[x.categoria].peso) cats[x.categoria].peso=+x.pesoMedio||30; add(x.categoria,n);}
     else if(x.tipo==='compra'){ const c=cats[x.categoria]; if(c){ const kg=c.cab*c.peso+n*(+x.pesoMedio||c.peso); c.cab+=n; c.peso=c.cab?kg/c.cab:0; } }
@@ -1833,6 +1834,36 @@ function porRetiroHTML(J){ if(UI.ret||!retiros().length) return '';
   return `<div class="panel"><div class="row-head"><h2>Por parte da fazenda</h2><span class="small muted">${esc(J.nome)}</span></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Parte</th><th>Custos</th><th>Vendas de gado</th><th>Compras de gado</th><th>Saldo</th></tr></thead><tbody>${L.map(x=>tr(x)).join('')}</tbody><tfoot>${tr(T)}</tfoot></table></div>
     <p class="note">Saldo = vendas − compras de gado − custos, no caixa do período. Para ver os indicadores e a planilha de um retiro só, toque nele no topo da tela.</p></div>`; }
+/* ---------- diária: custo por cabeça por dia, no mês, de cada parte e de cada fase ----------
+   diária = (custeio do mês + custo do pasto) ÷ cabeças médias ÷ dias do mês. Investimento não entra.
+   Custo do pasto: nos pastos arrendados é o aluguel lançado como custo da parte; nas áreas próprias (Sede e retiros)
+   entra o custo de oportunidade do pasto (Ajustes, padrão R$ 50/cab/mês), porque ali não se paga aluguel.
+   Cabeças médias = média do rebanho no fim do mês anterior e no fim do mês (fechamento ou calculado pelos movimentos).
+   Custo "Fazenda toda" de uma parte vai para as fases pelo peso (UA) de cada fase na parte, como no resto do app. */
+const custoPasto=()=>S.config.custoPasto==null||S.config.custoPasto===''?50:+S.config.custoPasto||0;
+const diasMes=m=>+mEnd(m).slice(8,10);
+function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>!retiros().length||daParte(p.id,x)), M=retiros().length?movsDaParte(RAW.movs||[],p.id):(RAW.movs||[]);
+  const fim=prefillFech(mes,F,M), ini=prefillFech(addM(mes,-1),F,M), arr=ehArr(p.id), hoje=today();
+  const dias=ym(hoje)===mes?+hoje.slice(8,10):diasMes(mes);
+  const de=(RAW.desemb||[]).filter(x=>(!retiros().length||daParte(p.id,x))&&ym(x.data)===mes&&x.tipo!=='investimento');
+  const cabDe=(cs,cats)=>sum(cs,c=>+cats[c]?.cab||0), kgDe=(cs,cats)=>sum(cs,c=>(+cats[c]?.cab||0)*(+cats[c]?.peso||0));
+  const med=cs=>{ const a=cabDe(cs,ini), b=cabDe(cs,fim); return a>0&&b>0?(a+b)/2:Math.max(a,b); };
+  const kgT=kgDe(CK,fim)||kgDe(CK,ini), geral=sum(de.filter(x=>!CENTROS.includes(x.centro)),x=>x.valor);
+  const um=(cs,direto,share)=>{ const cab=med(cs), custo=direto+geral*share, pasto=arr?0:custoPasto()*cab*dias/diasMes(mes);
+    return {cab,custo,pasto,dias,d:cab>0?(custo+pasto)/cab/dias:NaN,dc:cab>0?custo/cab/dias:NaN,dp:cab>0?pasto/cab/dias:NaN}; };
+  const T=um(CK,sum(de.filter(x=>CENTROS.includes(x.centro)),x=>x.valor),1), fases={};
+  FASES.forEach(([k])=>{ const cs=CK.filter(c=>faseOf(c)===k), sh=kgT?(kgDe(cs,fim)||kgDe(cs,ini))/kgT:0; fases[k]=um(cs,sum(de.filter(x=>x.centro===k),x=>x.valor),sh); });
+  return {p,arr,T,fases}; }
+function diariaHTML(){ const hoje=today(), ms=Array.from({length:12},(_,i)=>addM(ym(hoje),-i)), mes=ms.includes(UI.diaMes)?UI.diaMes:addM(ym(hoje),-1);
+  const L=(partes().length?partes():[{id:SEDE,nome:'Fazenda'}]).map(p=>diariaParte(p,mes)).filter(x=>x.T.cab>0||x.T.custo>0);
+  const junta=a=>{ const o={cab:sum(a,x=>x.cab),custo:sum(a,x=>x.custo),pasto:sum(a,x=>x.pasto),dias:a[0]?.dias||diasMes(mes)}; o.d=o.cab>0?(o.custo+o.pasto)/o.cab/o.dias:NaN; o.dc=o.cab>0?o.custo/o.cab/o.dias:NaN; o.dp=o.cab>0?o.pasto/o.cab/o.dias:NaN; return o; };
+  const tot=L.length>1?{p:{nome:'Fazenda toda'},T:junta(L.map(x=>x.T)),fases:Object.fromEntries(FASES.map(([k])=>[k,junta(L.map(x=>x.fases[k]))]))}:null;
+  const cel=o=>o&&o.cab>0?`<b>${brl(o.d,2)}</b>`:'<span class="muted">—</span>';
+  const tr=(x,sub)=>`<tr${sub?' class="sub"':''}><td>${esc(x.p.nome)}${x.arr?' <span class="small muted">(arrendado)</span>':''}</td><td>${nf(x.T.cab)}</td><td>${cel(x.T)}${x.T.cab>0?`<br><span class="small muted">${brl(x.T.dc,2)} custos + ${brl(x.T.dp,2)} pasto</span>`:''}</td>${FASES.map(([k])=>`<td>${cel(x.fases[k])}</td>`).join('')}</tr>`;
+  return `<div class="panel" id="diaria"><div class="row-head"><h2>Diária por cabeça</h2><label class="fl" style="margin:0"><select id="diaMes" aria-label="Mês da diária">${ms.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${mLabel(m)}${m===ym(hoje)?' (até hoje)':''}</option>`).join('')}</select></label></div>
+    ${L.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Parte</th><th>Cab. médias</th><th>Diária</th>${FASES.map(([,n])=>`<th>${n}</th>`).join('')}</tr></thead><tbody>${L.map(x=>tr(x)).join('')}</tbody>${tot?`<tfoot>${tr(tot,true)}</tfoot>`:''}</table></div>`
+      :'<p class="empty">Sem rebanho nem custos neste mês. Faça o fechamento do mês e lance os custos para ver a diária.</p>'}
+    <p class="note">Diária = (custos do mês + pasto) ÷ cabeças médias ÷ ${ym(hoje)===mes?'dias até hoje':'dias do mês'}. Investimentos não entram. Pasto: nos arrendados, o aluguel lançado como custo; nas áreas próprias, o custo de oportunidade de <b>${brl(custoPasto(),2)} por cabeça/mês</b> (${brl(custoPasto()/30,2)}/dia; muda em Ajustes). Custo lançado para a "fazenda toda" de uma parte é dividido entre as fases pelo peso do gado.</p></div>`; }
 /* ---------- comercial x P.O.: custos de cada rebanho e o total ---------- */
 const rebTxt=x=>rebOf(x)==='po'?' · P.O.':rebOf(x)==='com'?' · comercial':'';
 const PO_K=CATS_PO.map(c=>c[0]), COM_K=CATS_COM.map(c=>c[0]);
@@ -1862,6 +1893,7 @@ function renderFin(){
   <div class="page-title"><h2>Custos</h2></div>
   ${entryHTML('custos')}
   ${segPer()}${janelaTxt(J)}
+  ${diariaHTML()}
   ${porRetiroHTML(J)}
   ${porRebanhoHTML(J,de)}
   ${contasHTML()}
@@ -2908,12 +2940,13 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
     /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
-    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,custoPasto:f.custoPasto&&f.custoPasto.value!==''?Number(f.custoPasto.value):50,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); const fm=f.dataset.kind==='fechamento'&&f.mes?f.mes.value:''; /* fechamento: continua no mesmo mês para a próxima etapa da contagem */
       if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent=err?.dup?'Lançar mesmo assim':'Salvar';dbErr(err);} }
 });
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#frm[data-inline]')) DIRTY=true;});
+document.addEventListener('change',e=>{ if(e.target.id==='diaMes'){ UI.diaMes=e.target.value; e.target.blur(); render(); $('#diaria')?.scrollIntoView({block:'start'}); } });
 document.addEventListener('change',e=>{ if(e.target.id!=='fazSel') return; lsRaw('cf_fid_'+UID,e.target.value); location.reload(); });
 document.addEventListener('keydown',e=>{if(e.key==='Escape') closeSheet();});
 document.addEventListener('input',e=>{const id=e.target.dataset?.mix; if(!id) return; const fo=S.form.find(x=>x.id===id), kg=+e.target.value||0, ig=(fo?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct);
