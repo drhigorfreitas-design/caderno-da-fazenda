@@ -773,7 +773,7 @@ function detalhe(R,comExtra=true){
   if(f==='cria'){ const e=[...S.estacoes].sort((a,b)=>(a.dataDG||'')<(b.dataDG||'')?1:-1)[0];
     if(e){ const I=indRepro(e), desBez=R.desembMatriz*12/(I.taxaDesm/100)+(+e.desembBezerro||0);
       extra=`<div class="panel"><div class="row-head"><h2>Reprodução</h2><span class="small muted">${esc(e.nome)}</span></div>
-        ${ind('Prenhez geral',pct(I.prenhez))}${ind('Taxa de desmame',pct(I.taxaDesm),{f:'desmamados ÷ fêmeas em cobertura'})}
+        ${ind('Prenhez geral',pct(I.prenhez),{ref:'meta acima de 80%',st:ok(I.prenhez)?st(I.prenhez>=80):null})}${ind('Taxa de desmame',pct(I.taxaDesm),{f:'desmamados ÷ fêmeas em cobertura'})}
         ${ind('Kg desmamados por vaca exposta',nf(I.kgVaca,1)+' kg')}${ind('Desembolso por matriz ao mês',brl(R.desembMatriz,2),{f:'desembolso da cria ÷ matrizes médias'})}
         ${ind('Desembolso por bezerro desmamado',brl(desBez),{f:'por matriz × 12 ÷ taxa de desmame + gasto com o bezerro'})}
         <button class="btn link" type="button" data-tab="cria">Ver a reprodução</button></div>`; }
@@ -1233,7 +1233,7 @@ const IND_LIN=[
  ['Cabeças',I=>nf(I.cab),'no último fechamento'],
  ['Matrizes',I=>nf(I.mat),'vacas comerciais + vacas P.O.'],
  ['Lotação',I=>ok(I.uaHa)?nf(I.uaHa,2)+' UA/ha':'—','UA ÷ área da parte · Brasil 0,6 · meta 1,5',I=>ok(I.uaHa)?(I.uaHa>=1.5?'ok':I.uaHa<0.6?'bad':null):null],
- ['Natalidade',I=>pct(I.natal,0),'nascidos ÷ matrizes · boa: 80% ou mais',I=>ok(I.natal)&&I.nasc?st(I.natal>=80):null],
+ ['Nascimentos por matriz',I=>pct(I.natal,0),'nascidos ÷ matrizes, 12 meses · boa: 80% ou mais. A natalidade (nascidos ÷ prenhes, meta 95%) fica na estação de monta, aba Cria',I=>ok(I.natal)&&I.nasc?st(I.natal>=80):null],
  ['Desmame por matriz',I=>pct(I.desmMat,0),'desmamados ÷ matrizes · boa: 75% ou mais',I=>ok(I.desmMat)&&I.desm?st(I.desmMat>=75):null],
  ['Mortalidade geral',I=>pct(I.mortal,1),'mortes ÷ rebanho médio · ideal: até 2%',I=>ok(I.mortal)?st(I.mortal<=2):null],
  ['Mortalidade de bezerros',I=>pct(I.mortBezP,1),'bezerros mortos ÷ nascidos · ideal: até 4%',I=>ok(I.mortBezP)?st(I.mortBezP<=4):null],
@@ -1367,14 +1367,14 @@ function reproHTML(){
         ${RCATS.map(([k,nm])=>{const c=e.cats?.[k]||{};return +c.expostas?ind('Prenhez · '+nm,pct(c.prenhes/c.expostas*100),{ref:nf(c.prenhes)+' de '+nf(c.expostas)}):''}).join('')}
         ${ind('Fertilidade na IATF',pct(I.iatf),{f:'prenhes na IATF ÷ fêmeas inseminadas'})}
         ${ind('Doses por prenhez',nf(I.servico,2),{f:'doses gastas ÷ prenhes na IATF'})}
-        ${ind('Natalidade',pct(I.natalidade),{f:'nascidos vivos ÷ fêmeas prenhes'})}
+        ${ind('Natalidade',pct(I.natalidade),{f:'nascidos vivos ÷ fêmeas prenhes',ref:'meta acima de 95%',st:ok(I.natalidade)?st(I.natalidade>=95):null})}
         ${ind('Perda pré-parto',pct(I.perdaPre),{f:'(prenhes no DG − nascidos) ÷ prenhes'})}
-        ${ind('Mortalidade de bezerros',pct(I.mortBez),{f:'(nascidos vivos − desmamados) ÷ nascidos vivos'})}
+        ${ind('Mortalidade de bezerros',pct(I.mortBez),{f:'(nascidos vivos − desmamados) ÷ nascidos vivos',ref:'aceitável 2 a 5% · média no Brasil 10%',st:ok(I.mortBez)?st(I.mortBez<=5):null})}
         ${ind('Perda pré-desmame',pct(I.perdaDesm),{f:'(prenhes − desmamados) ÷ prenhes'})}
-        ${ind('Taxa de desmame',pct(I.taxaDesm),{f:'desmamados ÷ fêmeas em cobertura'})}
+        ${ind('Taxa de desmame',pct(I.taxaDesm),{f:'desmamados ÷ fêmeas em cobertura',ref:'meta 75 a 78% · abaixo de 70% é prejuízo',st:ok(I.taxaDesm)?st(I.taxaDesm>=70):null})}
         ${ind('Peso médio ao desmame',nf(I.pDesm,0)+' kg',{ref:'machos '+nf(I.pM)+' · fêmeas '+nf(I.pF)})}
-        ${ind('Relação de desmame',pct(I.relDesm),{f:'peso do bezerro ÷ peso da vaca'})}
-        ${ind('Kg desmamados por vaca exposta',nf(I.kgVaca,1)+' kg')}
+        ${ind('Relação de desmame',pct(I.relDesm),{f:'peso do bezerro ÷ peso da vaca',ref:'meta: metade do peso da vaca (50%)',st:ok(I.relDesm)?st(I.relDesm>=50):null})}
+        ${ind('Kg desmamados por vaca exposta',nf(I.kgVaca,1)+' kg',{ref:'meta acima de 163 kg · abaixo de 145 kg é prejuízo',st:ok(I.kgVaca)&&I.kgVaca>0?st(I.kgVaca>=145):null})}
         ${I.diasVazias!=null?ind('Dias para vender as vazias',nf(I.diasVazias)+' dias',{f:'data da venda − data do DG',st:st(I.diasVazias<=60)}):''}
         ${ind('Desembolso por bezerro desmamado',brl(desBez),{f:'desembolso por matriz/mês × 12 ÷ taxa de desmame + gasto com o bezerro',ref:'matriz '+brl(R.desembMatriz,2)+'/mês'})}
       </div></details>
@@ -2034,7 +2034,7 @@ const METAS=[
  ['uaHa','Lotação',R=>R.uaHa,1.5,true,v=>nf(v,2)+' UA/ha','média do Brasil 0,6',null,'Inttegra','UA/ha'],
  ['resValReb','Resultado sobre o valor do rebanho',R=>R.resValReb,25,true,pct0,()=>'compare com a Selic: '+nf(selicAA(),2)+'%',null,'Inttegra','%'],
  ['desfrute','Desfrute ao ano',R=>R.desfrute*R.anual,null,true,pct0,'@ produzidas ÷ @ do rebanho no início',null,'','%'],
- ['natal','Natalidade',(R,I)=>I.nasc?I.natal:NaN,80,true,pct0,'nascidos ÷ matrizes, últimos 12 meses',['total','cria'],'referência','%'],
+ ['natal','Nascimentos por matriz',(R,I)=>I.nasc?I.natal:NaN,80,true,pct0,'nascidos ÷ matrizes, últimos 12 meses (natalidade ÷ prenhes fica na estação de monta)',['total','cria'],'referência','%'],
  ['desmMat','Desmame por matriz',(R,I)=>I.desm?I.desmMat:NaN,75,true,pct0,'desmamados ÷ matrizes, últimos 12 meses',['total','cria'],'referência','%'],
  ['mortal','Mortalidade',(R,I)=>I.mortal,2,false,v=>pct(v,1),'mortes ÷ rebanho médio, últimos 12 meses',['total'],'referência','%']];
 const metasDe=fase=>METAS.filter(d=>!d[7]||d[7].includes(fase));
@@ -2407,21 +2407,34 @@ function selicHTML(R){
 const BOI_ARROBAS=18, TRC0={"2026-10-27":[5.74,2.041,1.301,35.7],"2026-10-28":[5.793,2.054,1.31,34.83],"2026-10-29":[5.755,2.018,1.295,37.21],"2026-11-03":[6.08,2.134,1.37,29.77],"2026-11-04":[6.047,2.122,1.362,30.48],"2026-11-05":[6.045,2.1,1.348,31.87]};
 let TRC=TRC0;
 function trocasHoje(){ const spot=+BGI.spot, mi=+(MIL.v[0]||[])[1], d=REP.v.find(x=>x[0]==='Desmama'), m=REP.v.find(x=>x[0]==='Boi magro');
-  return [spot/mi, d?BOI_ARROBAS*spot/d[4]:NaN, m?BOI_ARROBAS*spot/m[4]:NaN, d?(d[4]/d[3]/spot-1)*100:NaN]; }
+  const fd=REPF.v.find(x=>x[0]==='Desmama'), vb=REPF.v.find(x=>x[0]==='Vaca boiadeira'), at=r=>r[4]/r[3];
+  return [spot/mi, d?BOI_ARROBAS*spot/d[4]:NaN, m?BOI_ARROBAS*spot/m[4]:NaN, d?(at(d)/spot-1)*100:NaN,
+    m?(at(m)/spot-1)*100:NaN, d&&fd?(at(d)/at(fd)-1)*100:NaN, vb?(at(vb)/spot-1)*100:NaN]; }
+/* faixas de referência (Pecuária Brasil, nos resumos do usuário): [classe do chip, texto] */
+const FAIXA_TRC=[
+ v=>v>=4?['good','acima de 4 sacas: cocho e confinamento compensam']:['bad','abaixo de 4 sacas: cocho fica caro'],null,null,
+ v=>v<=30?['good','até 30%: bom negócio']:['bad','acima de 30%: perigoso'],
+ v=>v<=10?['good','até 10%: dentro']:['bad','acima de 10%: caro'],
+ v=>v>30?['warn','acima de 30%: compre fêmeas']:['good','até 30%: compre machos'],
+ v=>v<=-20?['good','deságio de 20% ou mais: bom começo']:['warn','deságio menor que 20%']];
 const TROCAS=[
  ['Milho por arroba',v=>nf(v,1)+' sacas','1 @ do boi gordo compra','Maior = milho barato frente ao boi: bom momento para estocar milho e para a TIP.',1],
  ['Bezerros por boi gordo',v=>nf(v,2)+' bezerros','1 boi gordo de '+BOI_ARROBAS+' @ paga desmamas de 8 meses','Maior = bezerro barato: bom para comprar reposição; ruim para quem vende bezerro.',2],
  ['Bois magros por boi gordo',v=>nf(v,2)+' bois magros','1 boi gordo de '+BOI_ARROBAS+' @ paga bois magros','Maior = boi magro barato: bom para repor a engorda.',2],
- ['Ágio da desmama',v=>(v>0?'+':'')+nf(v,1)+'%','@ da desmama sobre a @ do boi gordo','Menor = reposição mais barata em arroba.',1]];
+ ['Ágio da desmama',v=>(v>0?'+':'')+nf(v,1)+'%','@ da desmama sobre a @ do boi gordo','Menor = reposição mais barata em arroba.',1],
+ ['Ágio do boi magro',v=>(v>0?'+':'')+nf(v,1)+'%','@ do boi magro sobre a @ do boi gordo','Referência: no máximo 10%.',1],
+ ['Ágio do macho sobre a fêmea',v=>(v>0?'+':'')+nf(v,1)+'%','@ do bezerro de desmama sobre a @ da bezerra','Acima de 30%: compre fêmeas; abaixo, compre machos.',1],
+ ['Vaca boiadeira',v=>(v>0?'+':'')+nf(v,1)+'%','@ da vaca boiadeira sobre a @ do boi gordo','Deságio de 20% sobre o boi já é um bom começo.',1]];
 function trocasCard(){ const H=trocasHoje(), dias=Object.keys(TRC).sort(), vals=i=>dias.map(d=>TRC[d][i]).filter(ok);
   return `<div class="panel"><div class="row-head"><h2>Relações de troca</h2><span class="small muted">com as cotações acima</span></div>
   ${TROCAS.map(([n,fmt,f,dica,dec],i)=>{ const v=H[i], a=vals(i), med=a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN, mn=Math.min(...a), mx=Math.max(...a);
     const dif=ok(v)&&ok(med)&&a.length>1?(v-med)/Math.abs(med)*100:NaN, tag=ok(dif)?(Math.abs(dif)<2?'na média':dif>0?'acima da média':'abaixo da média'):'';
+    const fx=FAIXA_TRC[i]&&ok(v)?FAIXA_TRC[i](v):null;
     return `<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row-head" style="margin:0"><b>${n}</b><b class="num" style="font-size:18px">${ok(v)?fmt(v):'—'}</b></div>
-      <div class="small muted">${f}</div>
-      <div class="small" style="margin-top:2px">${a.length>1?`<b>${tag}</b> · média ${fmt(med)} em ${a.length} dias (de ${nf(mn,dec)} a ${nf(mx,dec)})`:'a média aparece com alguns dias de cotação'}</div>
+      <div class="small muted">${f}</div>${fx?`<div style="margin-top:3px"><span class="chip ${fx[0]}">${fx[1]}</span></div>`:''}
+      ${i<4?`<div class="small" style="margin-top:2px">${a.length>1?`<b>${tag}</b> · média ${fmt(med)} em ${a.length} dias (de ${nf(mn,dec)} a ${nf(mx,dec)})`:'a média aparece com alguns dias de cotação'}</div>`:''}
       <div class="small muted" style="margin-top:2px">${dica}</div></div>`; }).join('')}
-  <p class="note">Boi gordo à vista (B3), milho no primeiro vencimento da B3 e reposição Nelore MT (Scot). O boi gordo de referência tem ${BOI_ARROBAS} @. O app guarda as relações de cada dia útil para comparar com a média.</p></div>`; }
+  <p class="note">Boi gordo à vista (B3), milho no primeiro vencimento da B3 e reposição Nelore MT, machos e fêmeas (Scot). Faixas de referência: Pecuária Brasil. O boi gordo de referência tem ${BOI_ARROBAS} @. O app guarda as relações de cada dia útil para comparar com a média.</p></div>`; }
 function selicCard(){ const t=ym(today()), p12=selicPer(addM(t,-13),addM(t,-1)), am=(Math.pow(1+selicAA()/100,1/12)-1)*100, usd=BGI.spot/DOL.v;
   const st_=(v,l,sub,cls='')=>`<div class="stat"><div class="v ${cls}">${v}</div><div class="l">${l}</div>${sub?`<div class="small muted">${sub}</div>`:''}</div>`;
   return `<div class="panel"><div class="row-head"><h2>Indicadores econômicos</h2><span class="small muted">Banco Central</span></div>
