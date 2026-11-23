@@ -2451,7 +2451,11 @@ const TROCAS=[
  ['Ágio do macho sobre a fêmea',v=>(v>0?'+':'')+nf(v,1)+'%','@ do bezerro de desmama sobre a @ da bezerra','Acima de 30%: compre fêmeas; abaixo, compre machos.',1],
  ['Vaca boiadeira',v=>(v>0?'+':'')+nf(v,1)+'%','@ da vaca boiadeira sobre a @ do boi gordo','Deságio de 20% sobre o boi já é um bom começo.',1]];
 function trocasCard(){ const H=trocasHoje(), dias=Object.keys(TRC).sort(), vals=i=>dias.map(d=>TRC[d][i]).filter(ok);
-  return `<div class="panel"><div class="row-head"><h2>Relações de troca</h2><span class="small muted">com as cotações acima</span></div>
+  const fx=TROCAS.map((t,i)=>FAIXA_TRC[i]&&ok(H[i])?FAIXA_TRC[i](H[i]):null), nRuim=fx.filter(x=>x&&x[0]==='bad').length;
+  const res=[ok(H[0])?'Milho '+nf(H[0],1)+' sacas/@':'', ok(H[3])?'ágio da desmama '+(H[3]>0?'+':'')+nf(H[3],1)+'%':''].filter(Boolean).join(' · ')+(nRuim?` · <b style="color:var(--bad)">${nRuim} fora da faixa</b>`:' · todas na faixa');
+  return `<details class="panel cortina" data-cort="trocas" ${cortAberta('trocas')?'open':''}><summary><div style="flex:1;min-width:0"><h2>Relações de troca</h2><span class="cort-res">${res}</span></div>
+    <span class="cort-btn" role="presentation"><span class="f">Abrir</span><span class="a">Fechar</span></span></summary>
+  <div class="small muted" style="margin-top:6px">com as cotações acima</div>
   ${TROCAS.map(([n,fmt,f,dica,dec],i)=>{ const v=H[i], a=vals(i), med=a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN, mn=Math.min(...a), mx=Math.max(...a);
     const dif=ok(v)&&ok(med)&&a.length>1?(v-med)/Math.abs(med)*100:NaN, tag=ok(dif)?(Math.abs(dif)<2?'na média':dif>0?'acima da média':'abaixo da média'):'';
     const fx=FAIXA_TRC[i]&&ok(v)?FAIXA_TRC[i](v):null;
@@ -2459,7 +2463,7 @@ function trocasCard(){ const H=trocasHoje(), dias=Object.keys(TRC).sort(), vals=
       <div class="small muted">${f}</div>${fx?`<div style="margin-top:3px"><span class="chip ${fx[0]}">${fx[1]}</span></div>`:''}
       ${i<4?`<div class="small" style="margin-top:2px">${a.length>1?`<b>${tag}</b> · média ${fmt(med)} em ${a.length} dias (de ${nf(mn,dec)} a ${nf(mx,dec)})`:'a média aparece com alguns dias de cotação'}</div>`:''}
       <div class="small muted" style="margin-top:2px">${dica}</div></div>`; }).join('')}
-  <p class="note">Boi gordo à vista (B3), milho no primeiro vencimento da B3 e reposição Nelore MT, machos e fêmeas (Scot). Faixas de referência: Pecuária Brasil. O boi gordo de referência tem ${BOI_ARROBAS} @. O app guarda as relações de cada dia útil para comparar com a média.</p></div>`; }
+  <p class="note">Boi gordo à vista (B3), milho no primeiro vencimento da B3 e reposição Nelore MT, machos e fêmeas (Scot). Faixas de referência: Pecuária Brasil. O boi gordo de referência tem ${BOI_ARROBAS} @. O app guarda as relações de cada dia útil para comparar com a média.</p></details>`; }
 function selicCard(){ const t=ym(today()), p12=selicPer(addM(t,-13),addM(t,-1)), am=(Math.pow(1+selicAA()/100,1/12)-1)*100, usd=BGI.spot/DOL.v;
   const st_=(v,l,sub,cls='')=>`<div class="stat"><div class="v ${cls}">${v}</div><div class="l">${l}</div>${sub?`<div class="small muted">${sub}</div>`:''}</div>`;
   return `<div class="panel"><div class="row-head"><h2>Indicadores econômicos</h2><span class="small muted">Banco Central</span></div>
