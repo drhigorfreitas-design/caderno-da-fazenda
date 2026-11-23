@@ -181,6 +181,20 @@ fieldset{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margi
 legend{font-size:13px;font-weight:700;padding:0 4px}
 .calc{background:var(--sunk);border-radius:9px;padding:10px 12px;font-size:14px}
 details summary{cursor:pointer;color:var(--capim);font-weight:600;font-size:14px}
+/* cortina: painel que abre e fecha deslizando (reposição macho e fêmea) */
+:root{interpolate-size:allow-keywords}
+details.cortina>summary{list-style:none;display:flex;align-items:center;gap:10px;color:inherit;font-weight:inherit;font-size:inherit}
+details.cortina>summary::-webkit-details-marker{display:none}
+details.cortina>summary h2{margin:0;flex:1}
+details.cortina .cort-res{display:block;font-size:13px;color:var(--muted);font-weight:500;margin-top:2px}
+details.cortina[open] .cort-res{display:none}
+details.cortina .cort-btn{flex:none;display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--sunk);color:var(--capim);font-size:13px;font-weight:700;white-space:nowrap}
+details.cortina .cort-btn::after{content:"";width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .3s}
+details.cortina[open] .cort-btn::after{transform:rotate(-135deg) translate(-2px,0)}
+details.cortina .cort-btn .a{display:none} details.cortina[open] .cort-btn .a{display:inline} details.cortina[open] .cort-btn .f{display:none}
+details.cortina::details-content{block-size:0;overflow:hidden;transition:block-size .35s ease,content-visibility .35s allow-discrete}
+details.cortina[open]::details-content{block-size:auto}
+@media (prefers-reduced-motion:reduce){details.cortina::details-content{transition:none}}
 .fases{display:grid;gap:12px}
 .fase-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .fase-card[data-sel]{border-color:var(--ink)}
@@ -2369,14 +2383,19 @@ const REPF0={uf:'MT',v:[['Desmama','8 meses',180,6,2870.97,'2026-11-04'],['Bezer
 const repoGuardado=(k,pad)=>{try{const o=JSON.parse(localStorage.getItem(k)||'null'); return o&&o.v&&o.v.length===4?o:pad;}catch(e){return pad;}};
 let REP=repoGuardado('repoNelore',REP0), REPF=repoGuardado('repoNeloreF',REPF0);
 /* a mesma tabela para macho (form repF, campos rc/rd) e fêmea (form repFF, campos fc/fd) */
-function repoTab(R,sexo,form,pre,url){
-  return `<div class="panel"><div class="row-head"><h2>Reposição: ${sexo} Nelore em ${R.uf}</h2><span class="small muted">Scot Consultoria${COT_AUTO?' · automático':''}</span></div>
+/* cortina aberta ou fechada fica lembrada neste aparelho (fechada na primeira vez) */
+const cortAberta=k=>{ try{ return localStorage.getItem('cort_'+k)==='1'; }catch(e){ return false; } };
+function repoTab(R,sexo,form,pre,url){ const ext=[R.v[0],R.v[R.v.length-1]].filter(Boolean);
+  return `<details class="panel cortina" data-cort="repo_${pre}" ${cortAberta('repo_'+pre)?'open':''}><summary><div style="flex:1;min-width:0"><h2>Reposição: ${sexo} Nelore em ${R.uf}</h2>
+    <span class="cort-res">${ext.map(([n,,,,cab])=>esc(n)+' '+brl(cab,0)).join(' · ')} · Scot Consultoria</span></div>
+    <span class="cort-btn" role="presentation"><span class="f">Abrir</span><span class="a">Fechar</span></span></summary>
+  <div class="small muted" style="margin-top:6px">Scot Consultoria${COT_AUTO?' · automático':''}</div>
   <div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Categoria</th><th>R$/cabeça</th><th>R$/kg</th><th>R$/@</th></tr></thead><tbody>
   ${R.v.map(([n,i,kg,arr,cab,d])=>`<tr><td><b>${n}</b><br><span class="small muted">${i?i+' · ':''}${nf(kg)} kg · ${nf(arr,1)} @</span></td><td><b>${brl(cab,2)}</b><br><span class="small muted">${dBR(d).slice(0,5)}</span></td><td>${brl(cab/kg,2)}</td><td>${brl(cab/arr,2)}</td></tr>`).join('')}
   </tbody></table></div>
   <p class="note" style="margin-top:8px">Data de cada cotação abaixo do valor. R$/@ é o preço da cabeça dividido pelas @ de peso vivo da categoria.</p>
   <details><summary>Atualizar os valores</summary><form class="f" id="${form}"><div class="grid2">${R.v.map(([n,i,kg,arr,cab,d],k)=>fld(n+' (R$/cabeça)',pre+'c'+k,'number','step="0.01"',cab)+fld('Data '+n.toLowerCase(),pre+'d'+k,'date','',d)).join('')}</div><div class="btns"><button class="btn primary" type="submit">Salvar valores</button></div></form>
-  <p class="note">Fonte: <a href="${url}" target="_blank" rel="noopener">Scot Consultoria, via Notícias Agrícolas</a>. Pesos de referência: ${R.v.map(([n,,kg])=>n.toLowerCase()+' '+nf(kg)+' kg').join(', ')}. Os valores ficam salvos neste aparelho.</p></details></div>`;}
+  <p class="note">Fonte: <a href="${url}" target="_blank" rel="noopener">Scot Consultoria, via Notícias Agrícolas</a>. Pesos de referência: ${R.v.map(([n,,kg])=>n.toLowerCase()+' '+nf(kg)+' kg').join(', ')}. Os valores ficam salvos neste aparelho.</p></details></details>`;}
 const repoHTML=()=>repoTab(REP,'macho','repF','r','https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/reposicao-nelore-macho');
 const repoFHTML=()=>repoTab(REPF,'fêmea','repFF','f','https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/reposicao-nelore-femea');
 
@@ -3006,6 +3025,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
       if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent=err?.dup?'Lançar mesmo assim':'Salvar';dbErr(err);} }
 });
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#frm[data-inline]')) DIRTY=true;});
+document.addEventListener('toggle',e=>{ const k=e.target?.dataset?.cort; if(k){ try{ localStorage.setItem('cort_'+k,e.target.open?'1':'0'); }catch(x){} } },true);
 document.addEventListener('change',e=>{ if(e.target.id==='diaMes'){ UI.diaMes=e.target.value; e.target.blur(); render(); $('#diaria')?.scrollIntoView({block:'start'}); } });
 document.addEventListener('change',e=>{ if(e.target.id!=='fazSel') return; lsRaw('cf_fid_'+UID,e.target.value); location.reload(); });
 document.addEventListener('keydown',e=>{if(e.key==='Escape') closeSheet();});
