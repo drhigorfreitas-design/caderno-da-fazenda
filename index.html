@@ -1087,7 +1087,7 @@ function renderAjustes(){
       <label class="fl">Seu nome (saudação)<input id="cfg-usuario" name="usuario" value="${esc(FID?nomeDe(UID):(c.usuario||''))}"></label>
       <label class="fl">Área produtiva total (ha)<input id="cfg-area" name="area" type="number" step="0.1" min="0" value="${esc(c.area||'')}"></label>
       <label class="fl">Kg vivo por @<input id="cfg-kg" name="kgArroba" type="number" step="0.5" min="1" value="${esc(kgA())}"></label>
-      <label class="fl">Custo de oportunidade do pasto próprio (R$ por cabeça/mês, entra na diária)<input id="cfg-pasto" name="custoPasto" type="number" step="0.01" min="0" value="${esc(custoPasto())}"></label>
+      <label class="fl">Custo de oportunidade do pasto próprio (R$ por cabeça/mês, entra na diária)<input id="cfg-pasto" name="custoPasto" type="number" step="0.01" min="0" value="${esc(custoPasto())}"><span class="small muted">${+BGI.spot>0?`Referência de arrendamento com a @ a ${brl(+BGI.spot,2)}: boi 15–20% = ${brl(BGI.spot*.15,2)} a ${brl(BGI.spot*.2,2)}; vaca parida 40% = ${brl(BGI.spot*.4,2)}. Hoje ${brl(custoPasto(),2)} = ${pct(custoPasto()/BGI.spot*100,1)} da @.`:''}</span></label>
       <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="fl">Selic / custo de oportunidade (% a.a.)<input id="cfg-selic" name="selic" type="number" step="0.01" min="0" value="${esc(c.selic)}"></label>
       <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="selicAuto" ${c.selicAuto!==false?'checked':''} style="width:auto"> Usar a Selic do Banco Central (atualiza sozinha; hoje ${nf(+SELIC.meta,2)}%). Desmarque para usar a taxa digitada acima.</label>
@@ -1272,11 +1272,17 @@ function arrResumo(r){ const id=r.id, F=(RAW.fech||[]).filter(f=>daParte(id,f)),
   const estV=sum(G.est,e=>e.n*((e.p||G.pE||0)+(G.ganhoP||0))/kgA()*preco(e.c)), arr=(G.kg+G.kgP)/kgA();
   const ant=addM(ym(hoje),-1);
   return {r,cab:cabNoDia(F,M,hoje),al:aluguelMes(id,ant),alAt:aluguelMes(id,ym(hoje)),ant,G,custos,aluguel,cabMes:cabDias/30,arr,res:sai+estV-ent-custos,ini}; }
+/* referência do aluguel de pasto (usuário, 23/11/2026): por cabeça/mês, boi 15–20% da @ do boi gordo; vaca parida 40% */
+const ehCriaParte=id=>{ const f=(RAW.fech||[]).filter(x=>x.retiro===id).sort((a,b)=>a.mes<b.mes?-1:1).pop(); if(!f) return false; const t=fCab(f); return t>0&&fCab(f,CK.filter(c=>faseOf(c)==='cria'))/t>=0.5; };
+function aluguelRef(precoCab,cria){ const spot=+BGI.spot; if(!(precoCab>0)||!(spot>0)) return '—'; const p=precoCab/spot*100;
+  const [cls,txt]=cria?(p<=40?['good','dentro da referência de 40% (vaca parida)']:['bad','acima de 40% (vaca parida)']):(p<15?['good','abaixo do mercado (15–20%)']:p<=20?['','no mercado: 15–20%']:['bad','acima de 20%: caro']);
+  return `${pct(p,1)}<br><span class="chip ${cls}">${txt}</span>`; }
 function arrHTML(){ if(!ehArr(UI.ret)&&!UI.arrAberto) return ''; /* só com "Arrendamentos" aberto no topo */
   const A=arrs().filter(r=>!ehArr(UI.ret)||UI.ret===r.id); if(!A.length) return '';
   const L=A.map(arrResumo), g=(v,d=3)=>ok(v)?nf(v,d)+' kg/dia':'—';
   const lin=[['Cabeças hoje',x=>nf(x.cab)],
     ['Aluguel de '+mLabel(L[0].ant),x=>x.r.precoCab?`${brl(x.al.valor)}<br><span class="small muted">média ${nf(x.al.med,1)} cab. × ${brl(+x.r.precoCab,2)}</span>`:'<span class="small muted">falta o R$/cab. em Ajustes</span>'],
+    ['Aluguel em % da @ do boi',x=>aluguelRef(+x.r.precoCab,ehCriaParte(x.r.id))],
     ['Este mês até hoje',x=>x.r.precoCab?`${brl(x.alAt.valor)}<br><span class="small muted">média ${nf(x.alAt.med,1)} cab.</span>`:'—'],
     ['GMD de quem já saiu',x=>g(x.G.gmd)+(x.G.nS?`<br><span class="small muted">${nf(x.G.nS)} cab.</span>`:'')],
     ['GMD de quem está lá',x=>g(x.G.gmdP)+(x.G.pes?`<br><span class="small muted">pesagem de ${dBR(x.G.pes.data)}</span>`:'<br><span class="small muted">sem pesagem</span>')],
@@ -1867,9 +1873,9 @@ function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>!retiros().length|
   /* composição (treinamento de recria): pasto (custo de oportunidade ou aluguel) + mão de obra + extras + suplementação */
   const mao=soma(x=>x.grupo==='mao'), alug=soma(x=>x.grupo==='arrendamento');
   T.comp={pasto:T.pasto+alug,mao,extras:T.fix-T.pasto-mao-alug,supl:T.supl};
-  return {p,arr,T,fases,temCocho,semPreco,gmd:gmdParte(p.id,mes)}; }
+  return {p,arr,T,fases,temCocho,semPreco,gmd:gmdPesParte(p.id,mes)}; }
 /* GMD pelas pesagens da parte: em cada lote, as duas últimas pesagens até o fim do mês (a última com até 1 ano); média ponderada pelas cabeças */
-function gmdParte(id,mes){ const fimM=mEnd(mes), G={};
+function gmdPesParte(id,mes){ const fimM=mEnd(mes), G={};
   (S.config.pesagens||[]).filter(p=>+p.peso>0&&p.data&&p.data<=fimM&&(!retiros().length||daParte(id,p))).forEach(p=>{ const k=loteK(p.lote)||'?'; (G[k]=G[k]||[]).push(p); });
   const L=Object.values(G).map(a=>{ a.sort((x,y)=>x.data<y.data?-1:1); const p1=a[a.length-1], p0=a.length>1?a[a.length-2]:null, d=p0?days(p0.data,p1.data):0;
     return p0&&d>0&&days(p1.data,fimM)<=365?{g:(p1.peso-p0.peso)/d,cab:+p1.cab||1}:null; }).filter(Boolean);
@@ -1904,7 +1910,7 @@ function diariaHTML(){ const hoje=today(), ms=Array.from({length:12},(_,i)=>addM
     ${L.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Parte</th><th>Cab. médias</th><th>Diária</th>${FASES.map(([,n])=>`<th>${n}</th>`).join('')}</tr></thead><tbody>${L.map(x=>tr(x)).join('')}</tbody>${tot?`<tfoot>${tr(tot,true)}</tfoot>`:''}</table></div>`
       :'<p class="empty">Sem rebanho nem custos neste mês. Faça o fechamento do mês e lance os custos para ver a diária.</p>'}
     ${L.length?compHTML(L,tot):''}
-    <p class="note"><b>Diária = fixo + suplementação</b>, por cabeça por dia. <b>Fixo</b> = todos os gastos do mês (menos nutrição) + pasto. <b>Suplementação</b> = o que foi para o cocho. Tudo ÷ cabeças médias ÷ ${ym(hoje)===mes?'dias até hoje':'dias do mês'}. Investimentos não entram. Pasto: nos arrendados, o aluguel lançado como custo; nas áreas próprias, o custo de oportunidade de <b>${brl(custoPasto(),2)} por cabeça/mês</b> (${brl(custoPasto()/30,2)}/dia; muda em Ajustes). Custo lançado para a "fazenda toda" de uma parte é dividido entre as fases pelo peso do gado. <b>Suplementação:</b> entra o que foi para o cocho no mês (fornecimentos × preço do kg), na fase do fornecimento; onde há cocho lançado, a compra de nutrição do mês não entra, para não contar duas vezes. Sem fornecimento lançado, fica a compra.</p>${L.some(x=>x.semPreco)?'<p class="note neg">Algum fornecimento do mês está sem preço (produto ou ingrediente sem compra com valor): o custo dele ficou fora da diária. Dê entrada com o valor pago.</p>':''}</div>`; }
+    <p class="note"><b>Diária = fixo + suplementação</b>, por cabeça por dia. <b>Fixo</b> = todos os gastos do mês (menos nutrição) + pasto. <b>Suplementação</b> = o que foi para o cocho. Tudo ÷ cabeças médias ÷ ${ym(hoje)===mes?'dias até hoje':'dias do mês'}. Investimentos não entram. Pasto: nos arrendados, o aluguel lançado como custo; nas áreas próprias, o custo de oportunidade de <b>${brl(custoPasto(),2)} por cabeça/mês</b> (${brl(custoPasto()/30,2)}/dia${+BGI.spot>0?', '+pct(custoPasto()/BGI.spot*100,1)+' da @; referência de arrendamento: boi 15–20% da @, vaca parida 40%':''}; muda em Ajustes). Custo lançado para a "fazenda toda" de uma parte é dividido entre as fases pelo peso do gado. <b>Suplementação:</b> entra o que foi para o cocho no mês (fornecimentos × preço do kg), na fase do fornecimento; onde há cocho lançado, a compra de nutrição do mês não entra, para não contar duas vezes. Sem fornecimento lançado, fica a compra.</p>${L.some(x=>x.semPreco)?'<p class="note neg">Algum fornecimento do mês está sem preço (produto ou ingrediente sem compra com valor): o custo dele ficou fora da diária. Dê entrada com o valor pago.</p>':''}</div>`; }
 /* ---------- comercial x P.O.: custos de cada rebanho e o total ---------- */
 const rebTxt=x=>rebOf(x)==='po'?' · P.O.':rebOf(x)==='com'?' · comercial':'';
 const PO_K=CATS_PO.map(c=>c[0]), COM_K=CATS_COM.map(c=>c[0]);
