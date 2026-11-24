@@ -28,10 +28,12 @@ const ONDE: Record<string, string> = { geral: "Fazenda toda", cria: "Cria", recr
 const CATS: Record<string, string> = { matrizes: "Matrizes", descarte: "Matrizes de descarte", bezerros: "Bezerros mamando", touros: "Touros",
   f8_12: "Fêmeas 8 a 12 meses", f13_24: "Fêmeas 13 a 24 meses", f24: "Fêmeas > 24 meses",
   m8_12: "Machos 8 a 12 meses", m13_24: "Machos 13 a 24 meses", m25_36: "Machos 25 a 36 meses", m36: "Machos > 36 meses", outras: "Outras categorias",
+  // gado leiteiro (comercial, separado do corte)
+  leite_vaca: "Vaca leiteira", leite_bezerro: "Bezerro leiteiro",
   // gado P.O. (puro de origem), separado do comercial
   po_vaca_cria: "P.O. Vaca com cria", po_vaca_solteira: "P.O. Vaca solteira", po_vaca_prenha: "P.O. Vaca prenha", po_touro: "P.O. Touro",
   po_bezerro: "P.O. Bezerro", po_bezerra: "P.O. Bezerra", po_novilha: "P.O. Novilha", po_garrote: "P.O. Garrote" };
-const NASC = ["bezerros", "po_bezerro", "po_bezerra"];
+const NASC = ["bezerros", "po_bezerro", "po_bezerra", "leite_bezerro"];
 const TIPOS_MOV: Record<string, string> = { nascimento: "Nascimento", compra: "Compra", venda: "Venda", morte: "Morte", transferencia: "Mudança de categoria", transfParte: "Transferência de gado" };
 const TP = "transfParte"; // gado que passa de uma parte para outra (retiro = origem, paraRet = destino; "" = Sede)
 const FRIG_CATS = ["m25_36", "m36", "descarte"]; // gado gordo: venda sem dizer o modo vai como frigorífico (igual ao app)
@@ -186,6 +188,7 @@ custos: cada gasto pago (nota fiscal, cupom, recibo, boleto pago, "gastei", "pag
 movimentos: nascimento, compra, venda, morte ou mudança de categoria de animais (ex.: "nasceram 5 bezerros machos", "morreu 1 vaca de picada de cobra", "vendi 20 bois de 540 kg a 310 a arroba", "comprei 30 garrotes por 90 mil", "desmamei 40 bezerros machos para a recria"). Um item por movimento. Compra ou venda de animais vai só aqui, com o valor no movimento, nunca também em custos.
   Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join("; ")}.
   Nascimento do gado comercial é sempre "bezerros" (anote o sexo em obs). Vaca/matriz = matrizes; vaca de descarte/vaca gorda para abate = descarte; desmama/bezerro desmamado macho = m8_12, fêmea = f8_12; garrote ou novilho de 1 a 2 anos = m13_24; boi magro de 2 a 3 anos = m25_36; boi gordo/boi acima de 3 anos = m36; novilha de 1 a 2 anos = f13_24; novilha acima de 2 anos = f24. Se só disser "boi" sem idade, use m25_36 em compra e m36 em venda. Desmame = mudança de categoria de bezerros para m8_12 ou f8_12 (machos e fêmeas em itens separados).
+  Gado leiteiro (vaca de leite, leiteira, vaca de ordenha, bezerro de leite/leiteiro) tem categorias próprias: leite_vaca e leite_bezerro (nascimento de bezerro leiteiro = leite_bezerro). Use-as SÓ quando a mensagem disser leite/leiteiro/leiteira/ordenha.
   Gado P.O. (puro de origem, "PO", registrado, elite) tem categorias próprias, com "po_" na frente; use-as SÓ quando a mensagem disser P.O./PO, senão é gado comercial. Vaca P.O. com bezerro ao pé/parida = po_vaca_cria; vaca P.O. vazia/solteira = po_vaca_solteira; vaca P.O. prenha/prenhe = po_vaca_prenha (se não disser qual, use po_vaca_solteira e avise em "resposta"); bezerro P.O. macho = po_bezerro; bezerra P.O. = po_bezerra; novilha P.O. = po_novilha; garrote/tourinho P.O. = po_garrote; touro P.O./reprodutor P.O. = po_touro. Nascimento P.O.: macho = po_bezerro, fêmea = po_bezerra (sem dizer o sexo, po_bezerro e anote em obs). Desmame P.O. = mudança de po_bezerro para po_garrote ou de po_bezerra para po_novilha. Vaca P.O. que pariu, emprenhou ou desmamou = mudança entre po_vaca_prenha, po_vaca_cria e po_vaca_solteira.
 anotacao: o que é para lembrar e não é gasto nem movimento (chuva, vacinação feita, observação do pasto, "anotar: ..."), escrito de forma curta, sem o "anotar:". Várias observações vão juntas no mesmo texto, separadas por "; ".
 lembretes: pedidos para o robô avisar num dia ("lembrar: vacina da aftosa dia 15/11", "me lembra de pagar o boleto do sal dia 20", "boleto do sal vence dia 20"). data = o dia citado; se só disser o número do dia, é o próximo dia com esse número a partir de hoje; "amanhã" = hoje + 1. Lembrete sem dia não entra: peça o dia em "resposta". O que vai para lembretes não vai também para anotacao.

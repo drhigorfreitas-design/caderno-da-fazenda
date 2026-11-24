@@ -70,7 +70,7 @@ const relatorio = await roda(async () => {
     pesagens: [{ id: "p1", lote: "garrotes", data: ant + "-01", peso: 250, cab: 50 }, { id: "p2", lote: "garrotes", data: hoje, peso: 280, cab: 50 },
       { id: "p3", lote: "recria a", retiro: "sh", data: ant + "-02", peso: 280, cab: 40 }, { id: "p4", lote: "recria a", retiro: "sh", data: hoje, peso: 300, cab: 40 }],
     lembretes: [], alertas: [], contas: [], notas: { [mes]: "anotação de teste" } } }];
-  for (const [id, ret, cats] of [["", "", { matrizes: { cab: 100, peso: 450 }, bezerros: { cab: 60, peso: 120 }, m13_24: { cab: 50, peso: 300 }, po_vaca_cria: { cab: 20, peso: 480 } }],
+  for (const [id, ret, cats] of [["", "", { matrizes: { cab: 100, peso: 450 }, bezerros: { cab: 60, peso: 120 }, m13_24: { cab: 50, peso: 300 }, po_vaca_cria: { cab: 20, peso: 480 }, leite_vaca: { cab: 15, peso: 400 }, leite_bezerro: { cab: 7, peso: 120 } }],
     ["sh_", "sh", { m13_24: { cab: 40, peso: 290 } }], ["sf_", "sf", { m25_36: { cab: 30, peso: 480 } }], ["a1_", "a1", { m13_24: { cab: 98, peso: 280 } }], ["a2_", "a2", { matrizes: { cab: 32, peso: 450 } }]])
     for (const m of [ant, mes]) add("fechamentos", id + m, { mes: m, cats, ...(ret ? { retiro: ret } : {}) });
   add("movimentos", "m1", { tipo: "nascimento", data: hoje, categoria: "bezerros", cab: 5, pesoMedio: 30 });
