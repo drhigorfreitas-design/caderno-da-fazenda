@@ -5,7 +5,7 @@
 // Verde do pasto (satélite): CDSE_CLIENT_ID e CDSE_CLIENT_SECRET, do Copernicus Data Space.
 // SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY o próprio Supabase fornece.
 // Depois de publicar, abra .../functions/v1/telegram?setup=1 uma vez para ligar o webhook.
-import Anthropic from "npm:@anthropic-ai/sdk";
+import Anthropic from "npm:@anthropic-ai/sdk@1.13.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
 import { zipSync } from "npm:fflate@0.8.2";
@@ -2306,6 +2306,32 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
         r = await verdeApp(deps, url.searchParams.get("verde") || "", jwt, await req.json());
       } catch (e) { console.error("verde", e); }
       return new Response(JSON.stringify(r.json), { status: r.status, headers: { ...CORS, "content-type": "application/json" } });
+    }
+    if (url.searchParams.has("aviso")) {
+      // aviso avulso a todos os sócios (ex.: relatório que o Claude preparou no chat)
+      // só com a chave secreta do projeto; corpo {texto, fazenda_id?}; texto em HTML do Telegram
+      const chave = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+      const validas = [Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "", chaveServico as string,
+        ...(() => { try { return Object.values(JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}")) as string[]; } catch { return []; } })()].filter(Boolean);
+      if (req.method !== "POST" || !chave) return new Response("não autorizado", { status: 401 });
+      try {
+        const { texto, fazenda_id } = await req.json();
+        if (!validas.includes(chave)) {
+          // ou senha de uso único gravada em config.dados.avisoChave (≥ 32 caracteres) da fazenda; apagada ao usar
+          if (!fazenda_id || chave.length < 32) return new Response("não autorizado", { status: 401 });
+          const { data: cfg } = await deps.db.from("config").select("dados").eq("fazenda_id", fazenda_id).maybeSingle();
+          if (!cfg?.dados?.avisoChave || cfg.dados.avisoChave !== chave) return new Response("não autorizado", { status: 401 });
+          const { avisoChave: _, ...resto } = cfg.dados;
+          await deps.db.from("config").update({ dados: resto }).eq("fazenda_id", fazenda_id);
+        }
+        if (!texto || String(texto).length > 4000) return new Response("texto vazio ou longo demais", { status: 400 });
+        let q = deps.db.from("telegram_contas").select("chat_id,nome_telegram");
+        if (fazenda_id) q = q.eq("fazenda_id", fazenda_id);
+        const { data: contas } = await q;
+        const res: string[] = [];
+        for (const c of contas || []) { const r = await tg("sendMessage", { chat_id: c.chat_id, text: String(texto), parse_mode: "HTML" }); res.push(`${c.nome_telegram}: ${r.ok ? "enviado" : "erro " + (r.description || "")}`); }
+        return new Response(res.join("\n") || "nenhum sócio ligado", { headers: { "content-type": "text/plain; charset=utf-8" } });
+      } catch (e) { console.error("aviso", e); return new Response("erro", { status: 500 }); }
     }
     if (url.searchParams.has("resumo")) {
       // chamado toda segunda pelo GitHub Actions; manda no máximo uma vez por semana
