@@ -646,6 +646,8 @@ const areaFase=f=>{ const r=retAtual(); return +((r?r.areaFase:S.config.areaFase
 const preco=c=>Number((S.config.precos||{})[c])||PRECO_PADRAO[c]||0;
 const sum=(a,f)=>a.reduce((s,x)=>s+(Number(f(x))||0),0);
 const cabOf=(f,c)=>Number(f?.cats?.[c]?.cab)||0, pesoOf=(f,c)=>Number(f?.cats?.[c]?.peso)||0;
+/* fechamentos antes do primeiro inventário completo (Ajustes) não entram em GMD, resultado, lotação média e Selic */
+const fechOk=f=>!S.config.inicioRebanho||f.mes>=S.config.inicioRebanho;
 const fCab=(f,cs=CK)=>sum(cs,c=>cabOf(f,c)), fKg=(f,cs=CK)=>sum(cs,c=>cabOf(f,c)*pesoOf(f,c));
 const fVal=(f,cs=CK)=>sum(cs,c=>cabOf(f,c)*pesoOf(f,c)/kgA()*preco(c));
 const faseOf=c=>(S.config.fases||{})[c]||FASE_PADRAO[c];
@@ -659,7 +661,7 @@ function janela(per=UI.per){
   if(per==='safra'){s=ini;e=t;nome='Safra '+sy+'/'+String(sy+1).slice(2);}
   else if(per==='safraAnt'){s=addM(ini,-12);e=addM(ini,-1);nome='Safra '+(sy-1)+'/'+String(sy).slice(2);}
   else {s=addM(t,-11);e=t;nome='Últimos 12 meses';}
-  const F=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1);
+  const F=S.fech.filter(fechOk).sort((a,b)=>a.mes<b.mes?-1:1);
   let ei=F.filter(f=>f.mes<s).pop(); const inW=F.filter(f=>f.mes>=s&&f.mes<=e);
   if(!ei) ei=inW[0];
   const ef=ei?inW.filter(f=>f.mes>ei.mes).pop():null;
@@ -702,6 +704,11 @@ function calc(per=UI.per,fase=null){
   R.var=dv(de.filter(x=>GVAR.has(x.grupo))); R.fix=R.despesas-R.var;
   R.insPas=dv(de.filter(x=>INS_PAS.has(x.grupo))); R.invest=dv(de.filter(x=>x.tipo==='investimento'));
   const A=fase?areaFase(fase):area(); R.area=A;
+  /* lotes de engorda vendidos no período mas antes do primeiro fechamento que conta: o rebanho não os enxerga, então o resultado do lote entra aqui */
+  if(!fase||fase==='engorda'){ const Fv=S.fech.filter(fechOk).sort((a,b)=>a.mes<b.mes?-1:1), ref=J.ok?J.ei.mes:(Fv[0]||{}).mes;
+    const L=(S.engorda||[]).filter(l=>l.dataSaida&&+l.pesoSaida&&ym(l.dataSaida)>=J.s&&(!ref||ym(l.dataSaida)<=ref));
+    if(L.length){ const E={cab:0,res:0,cap:0,sel:0,nomes:L.map(l=>l.nome),ini:L.map(l=>l.dataEntrada).sort()[0],fim:L.map(l=>l.dataSaida).sort().pop()};
+      L.forEach(l=>{ const I=indLote(l), c=+l.cab||0; E.cab+=c; E.res+=I.res*c; E.cap+=I.desBoi*c; E.sel+=I.desBoi*c*selicAte(I.dias); }); R.engAnt=E; } }
   if(J.ok){
     R.prodKg=fKg(J.ef,cats)-fKg(J.ei,cats)-R.comprasKg+R.vendasKg; R.prodArr=R.prodKg/kgA();
     R.gmd=R.prodKg/R.rebMed/J.dias; R.arrHa=R.prodArr/A*R.anual;
@@ -711,9 +718,13 @@ function calc(per=UI.per,fase=null){
     R.desembArr=R.despesas/R.prodArr; R.resArr=R.precoArr-R.desembArr; R.margem=R.resArr/R.precoArr*100; R.pctDesVenda=R.desembArr/R.precoArr*100;
     R.valIni=fVal(J.ei,cats); R.varReb=fVal(J.ef,cats)-R.valIni;
     R.varIns=fase?0:estoqueValor(mEnd(J.ef.mes))-estoqueValor(mEnd(J.ei.mes));
-    R.caixa=R.receita-R.despesas-R.reposicao; R.resFinal=R.caixa+R.varReb+R.varIns;
+    R.caixa=R.receita-R.despesas-R.reposicao; R.resFinal=R.caixa+R.varReb+R.varIns+(R.engAnt?R.engAnt.res:0);
     R.resHa=R.resFinal/A*R.anual; R.resValReb=R.resFinal/R.valIni*100*R.anual; R.prodPatr=(R.prodArr*R.precoArr)/R.valIni*100*R.anual;
     R.desembMatriz=R.despesas/R.matrizesMed/J.meses;
+    /* confere o rebanho: primeiro fechamento + nascimentos e compras − vendas e mortes deve dar perto do último */
+    if(!fase){ const mc=t=>cb(mv.filter(x=>x.tipo===t)); R.cabIni=fCab(J.ei); R.cabFim=fCab(J.ef);
+      R.cabEsp=R.cabIni+mc('nascimento')+mc('compra')-mc('venda')-mc('morte'); R.cabDif=R.cabFim-R.cabEsp;
+      R.cabNaoBate=Math.abs(R.cabDif)>Math.max(10,R.cabFim*0.1); }
   }
   R.pctVar=R.var/R.despesas*100; R.pctInsPas=R.insPas/R.despesas*100;
   /* fazenda toda com pastos arrendados: os índices por hectare usam só as áreas próprias (o gado do arrendamento não está nos hectares da fazenda) */
@@ -768,6 +779,7 @@ function renderPainel(){
     <div class="kpi"><span class="l">Margem</span><span class="v ${RT.margem>=35?'pos':''}">${pct(RT.margem,0)}</span><span class="s">sobre a venda · meta 35%</span></div>
   </div>
   ${!area()?`<p class="note neg">Informe a área produtiva em Ajustes para ver lotação, @/ha e resultado por hectare.</p>`:''}
+  ${RT.cabNaoBate?`<p class="note neg"><b>Atenção: o rebanho não fecha.</b> O fechamento de ${mLabel(RT.J.ei.mes)} tem ${nf(RT.cabIni)} cabeças. Somando os nascimentos e compras e tirando as vendas e mortes lançados, ${mLabel(RT.J.ef.mes)} deveria ter ${nf(RT.cabEsp)}, mas tem ${nf(RT.cabFim)}. Por isso GMD, resultado e a comparação com a Selic ficam errados. Se o fechamento de ${mLabel(RT.J.ei.mes)} não era do rebanho todo, informe em Ajustes o mês do primeiro inventário completo; senão, lance os movimentos que faltam.</p>`:''}
   ${selicHTML(RT)}
 
   <div class="sec-title"><h2>Por fase</h2><span class="small muted">participação no rebanho em UA</span></div>
@@ -1118,6 +1130,7 @@ function renderAjustes(){
       <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="fl">Selic / custo de oportunidade (% a.a.)<input id="cfg-selic" name="selic" type="number" step="0.01" min="0" value="${esc(c.selic)}"></label>
       <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="selicAuto" ${c.selicAuto!==false?'checked':''} style="width:auto"> Usar a Selic do Banco Central (atualiza sozinha; hoje ${nf(+SELIC.meta,2)}%). Desmarque para usar a taxa digitada acima.</label>
+      <label class="fl">Primeiro inventário completo do rebanho (mês)<input id="cfg-inireb" name="inicioRebanho" type="month" value="${esc(c.inicioRebanho||'')}"><span class="small muted">Fechamentos anteriores ficam na lista, mas não entram em GMD, resultado, lotação média e comparação com a Selic. Use quando o primeiro fechamento contou só parte do gado.</span></label>
     </div>
     <fieldset><legend>Área por fase (opcional)</legend><div class="grid2">${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-a-${k}" name="a_${k}" type="number" step="0.1" min="0" value="${esc(af[k]||'')}"></label>`).join('')}</div>
       <p class="note">Com a área de cada fase, o app mostra @/ha, lotação e resultado por hectare da cria, da recria e da engorda.</p></fieldset>
@@ -1246,7 +1259,7 @@ const ehDesm=x=>x.tipo==='transferencia'&&NASC.includes(x.categoria)&&!NASC.incl
 const jan12=()=>{const t=ym(today()); return {s:addM(t,-11),t};};
 function indicesDe(fech,movs,A){
   const {s,t}=jan12(), inR=d=>!!d&&ym(d)>=s&&ym(d)<=t;
-  const F=[...fech].sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1];
+  const F=fech.filter(fechOk).sort((a,b)=>a.mes<b.mes?-1:1), last=F[F.length-1];
   let FW=F.filter(f=>f.mes>=s&&f.mes<=t); if(!FW.length&&last) FW=[last];
   const med=cs=>FW.length?sum(FW,f=>fCab(f,cs))/FW.length:NaN;
   const mv=movs.filter(x=>inR(x.data)), cb=fn=>sum(mv.filter(fn),x=>x.cab);
@@ -2477,8 +2490,10 @@ const anualiza=(p,meses)=>p>-100&&meses>0?(Math.pow(1+p/100,12/meses)-1)*100:NaN
 const selicFonte=()=>selicAuto()?'Banco Central, '+dBR(SELIC.data):'taxa digitada em Ajustes';
 function selicHTML(R){
   const J=R.J, cab=`<div class="row-head"><h2>Fazenda × Selic</h2><span class="chip">Selic hoje ${nf(selicAA(),2)}% a.a.</span></div>`;
-  if(!J.ok||!(R.valIni>0)) return `<div class="panel">${cab}<p class="empty">Com dois fechamentos do rebanho o app compara o resultado da fazenda com o que o mesmo dinheiro renderia aplicado na Selic (custo de oportunidade).</p><p class="note">Fonte da Selic: ${selicFonte()}.</p></div>`;
-  const per=selicPer(J.ei.mes,J.ef.mes), rend=R.valIni*per/100, dif=R.resFinal-rend, fazPer=R.resFinal/R.valIni*100;
+  const E=R.engAnt, engTxt=E?`Engorda vendida antes do inventário (${esc(E.nomes.join(', '))}, ${nf(E.cab)} cab., ${dBR(E.ini)} a ${dBR(E.fim)})`:'';
+  const engInd=E?ind(engTxt,brl(E.res),{f:'capital '+brl(E.cap)+' · na Selic renderia '+brl(E.sel)+' · '+(E.res>=E.sel?'ganhou ':'perdeu ')+brl(Math.abs(E.res-E.sel))+(E.res>=E.sel?' além da Selic':' para a Selic'),st:st(E.res>=E.sel)}):'';
+  if(!J.ok||!(R.valIni>0)) return `<div class="panel">${cab}${E?`<div style="margin-top:6px">${engInd}</div>`:''}<p class="empty">Com dois fechamentos do rebanho o app compara o resultado da fazenda com o que o mesmo dinheiro renderia aplicado na Selic (custo de oportunidade).</p><p class="note">Fonte da Selic: ${selicFonte()}.</p></div>`;
+  const per=selicPer(J.ei.mes,J.ef.mes), cap=R.valIni+(E?E.cap:0), rend=R.valIni*per/100+(E?E.sel:0), dif=R.resFinal-rend, fazPer=R.resFinal/cap*100;
   const fAA=anualiza(fazPer,J.meses), sAA=anualiza(per,J.meses), mx=Math.max(1,Math.abs(fAA)||0,sAA||0);
   const barra=(l,v,cor)=>`<div style="margin:8px 0"><div class="row-head"><span class="small">${l}</span><b class="num ${v<0?'neg':''}">${pct(v,1)} ao ano</b></div><div style="height:10px;border-radius:5px;background:var(--sunk)"><div style="height:10px;border-radius:5px;width:${Math.max(0,Math.min(100,(v||0)/mx*100))}%;background:${cor}"></div></div></div>`;
   return `<div class="panel">${cab}
@@ -2486,7 +2501,8 @@ function selicHTML(R){
     ${barra('Fazenda',fAA,'var(--capim)')}${barra('Selic',sAA,'var(--gold)')}
     <div style="margin-top:10px">
     ${ind('Capital no rebanho',brl(R.valIni),{f:'valor do rebanho em '+mLabel(J.ei.mes)+', a preço de referência'})}
-    ${ind('Resultado da fazenda',brl(R.resFinal),{f:'caixa + variação do rebanho'+(R.fase?'':' e dos insumos')+' · '+pct(fazPer,1)+' no período'})}
+    ${engInd}
+    ${ind('Resultado da fazenda',brl(R.resFinal),{f:'caixa + variação do rebanho'+(R.fase?'':' e dos insumos')+(E?' + engorda vendida antes do inventário':'')+' · '+pct(fazPer,1)+' no período'})}
     ${ind('O mesmo capital na Selic',brl(rend),{f:'Selic acumulada de '+pct(per,2)+' de '+mLabel(J.ei.mes)+' a '+mLabel(J.ef.mes)})}
     ${ind('<b>Ganho além da Selic</b>',brl(dif),{f:'resultado − rendimento na Selic (lucro econômico)',st:st(dif>=0)})}
     </div>
@@ -3088,7 +3104,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
     /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
-    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,custoPasto:f.custoPasto&&f.custoPasto.value!==''?Number(f.custoPasto.value):50,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,custoPasto:f.custoPasto&&f.custoPasto.value!==''?Number(f.custoPasto.value):50,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),inicioRebanho:(f.inicioRebanho&&f.inicioRebanho.value)||"",precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); const fm=f.dataset.kind==='fechamento'&&f.mes?f.mes.value:''; /* fechamento: continua no mesmo mês para a próxima etapa da contagem */
       if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent=err?.dup?'Lançar mesmo assim':'Salvar';dbErr(err);} }
