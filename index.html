@@ -1055,14 +1055,22 @@ window.addEventListener('pagehide',()=>{ salvaNotaPendente(); });
 const linkApp=()=>location.origin+location.pathname;
 /* robô do Telegram: nome do robô criado no @BotFather (vazio = ainda não configurado) */
 const TG_BOT='recantoboqueirao_bot';
-let TG_COD=null;
+let TG_COD=null, TG_PEAO=null; /* TG_PEAO: {nome,cod} do código "só cocho" que acabou de ser gerado */
 const telegramHTML=()=>{ if(!TG_BOT) return `<h3 style="margin-top:16px">Robô do Telegram</h3><p class="note">O robô ainda está sendo configurado.</p>`;
   const minhas=S.telegram||[];
   return `<h3 style="margin-top:16px">Robô do Telegram</h3>
   <p class="note" style="margin:4px 0 8px">Mande a foto da nota ou escreva "gastei 300 de vacina na recria" para <b>@${esc(TG_BOT)}</b> e o custo entra aqui com o seu nome. "nasceram 5 bezerros machos" ou "morreu 1 vaca" entra no Rebanho. "anotar: choveu 40 mm" vai para o Bloco de notas. Pode juntar tudo numa mensagem só, que sai mais barato. Também dá para perguntar ("quantas vacas eu tenho?"), lançar pesagens ("pesei a recria, média 280 kg"), marcar lembretes ("lembrar: vacina dia 15/11") e pedir aviso da arroba ("me avisa quando o boi passar de 320"). Toda segunda de manhã o robô manda o resumo da semana e o backup com todos os dados. Cada sócio conecta o próprio Telegram. Para um retiro, diga antes: "despesa Santa Helena: 300 de sal", "Santa Faustina: nasceram 3 bezerros". Sem dizer, fica para a Sede. Qualquer sócio lança em qualquer parte, e dá para trocar no botão da resposta do robô. Nas perguntas: "dados Santa Faustina: quanto gastei em outubro?"; sem dizer a parte, a resposta é da fazenda toda (Santa Helena + Santa Faustina + Sede).</p>
   ${minhas.length?`<div class="list">${minhas.map(t=>`<div class="item"><span class="t">Telegram conectado${t.nome_telegram?' · '+esc(t.nome_telegram):''}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(t.chat_id))}">Desconectar</button></span></div>`).join('')}</div>`:''}
   ${TG_COD?`<div class="calc" style="margin-top:8px">Seu código: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_COD)}</b> · vale 10 minutos<br><a class="btn primary" style="margin-top:8px;display:inline-flex" href="https://t.me/${esc(TG_BOT)}?start=${esc(TG_COD)}" target="_blank" rel="noopener">Abrir o robô no Telegram</a><br><span class="small">No Telegram, toque em <b>Iniciar</b>. Se não abrir, procure @${esc(TG_BOT)} e mande o código.</span></div>`
-    :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}`; };
+    :`<div class="btns"><button class="btn" type="button" data-tg-on>${minhas.length?'Conectar outro Telegram':'Conectar meu Telegram'}</button></div>`}
+  ${peoesHTML()}`; };
+/* peão: acesso só ao cocho pelo Telegram (lança o trato; não vê custos, rebanho nem valores) */
+const peoesHTML=()=>{ const P=S.peoes||[];
+  return `<h3 style="margin-top:16px">Peões no cocho (Telegram)</h3>
+  <p class="note" style="margin:4px 0 8px">O peão manda para <b>@${esc(TG_BOT)}</b> o trato do dia ("tratei 250 kg de ração TIP na engorda 3"), por escrito ou áudio, e o fornecimento entra em Suplementação com o nome dele. Ele <b>só lança cocho</b>: não vê custos, rebanho nem valores, e não recebe os resumos, relatórios e backup dos sócios.</p>
+  ${P.length?`<div class="list">${P.map(p=>`<div class="item"><span class="t">🥣 ${esc(p.nome_pessoa||p.nome_telegram||'Peão')}</span><span class="meta">${p.nome_telegram?'Telegram: '+esc(p.nome_telegram)+' · ':''}desde ${dBR(String(p.created_at||'').slice(0,10))}</span><span class="act"><button class="btn del" type="button" data-tg-off="${esc(String(p.chat_id))}" data-peao>Desligar</button></span></div>`).join('')}</div>`:''}
+  ${TG_PEAO?`<div class="calc" style="margin-top:8px">Código de <b>${esc(TG_PEAO.nome)}</b>: <b class="num" style="font-size:20px;letter-spacing:.12em">${esc(TG_PEAO.cod)}</b> · vale 10 minutos<br><span class="small">No celular do peão: abra o Telegram, procure <b>@${esc(TG_BOT)}</b>, toque em <b>Iniciar</b> e mande este código. Ou mande para ele este link: t.me/${esc(TG_BOT)}?start=${esc(TG_PEAO.cod)}</span></div>`
+    :`<form class="f" id="peaoForm" style="margin-top:6px"><div class="grid2"><label class="fl">Nome do peão<input name="peao" maxlength="40" required placeholder="Ex.: Zé do cocho"></label></div><div class="btns"><button class="btn" type="submit">Gerar código do peão</button></div></form>`}`; };
 /* ---------- acessos: o dono cria a conta dos sócios com senha provisória, troca senhas e bloqueia (sem e-mail) ---------- */
 let ACESSOS=null, AC_SENHA=null; /* AC_SENHA: senha provisória que acabou de ser criada, para copiar ou mandar */
 async function acessoApi(acao,corpo={}){
@@ -3085,7 +3093,7 @@ document.addEventListener('click',async e=>{
     try{ if(navigator.share){ await navigator.share({title:'Caderno da Fazenda',text:txt,url:linkApp()}); return; } }catch(x){ return; }
     try{ await navigator.clipboard.writeText(txt+' '+linkApp()); toast('Link copiado. Cole no WhatsApp para ele.'); }catch(x){ toast(linkApp()); } return; }
   if(b.hasAttribute('data-tg-on')){ const {data,error}=await sb.rpc('telegram_codigo',{p_fazenda:FID}); if(error) return toast(semRede(error)?'Sem internet.':'Não foi possível gerar o código.'); TG_COD=data; render(); return; }
-  if(b.dataset.tgOff){ if(arma(b)) return; const {error}=await sb.from('telegram_contas').delete().eq('chat_id',+b.dataset.tgOff).eq('user_id',UID); if(error) return toast('Não foi possível desconectar.'); toast('Telegram desconectado'); return carregaSocios(); }
+  if(b.dataset.tgOff){ if(arma(b)) return; let qd=sb.from('telegram_contas').delete().eq('chat_id',+b.dataset.tgOff); qd=b.hasAttribute('data-peao')?qd.eq('papel','cocho'):qd.eq('user_id',UID); const {error}=await qd; if(error) return toast('Não foi possível desconectar.'); toast('Telegram desconectado'); return carregaSocios(); }
   if(b.hasAttribute('data-socios')){ showTab('painel'); setTimeout(()=>document.getElementById('socios')?.scrollIntoView({block:'start'}),50); return; }
   if(b.dataset.relfase){UI.relFase=b.dataset.relfase; return render();}
   /* tira o foco do texto antes de trocar (com foco, o render não redesenha a tela) */
@@ -3110,6 +3118,9 @@ document.addEventListener('click',async e=>{
 document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.target;
   if(f.id==='metasF'){ if(!db||!writable) return toast('Entre na sua conta para salvar.'); const fase=f.dataset.fase, o={}; METAS.forEach(d=>{ const el=f.elements[d[0]]; if(el&&el.value!==''&&Number.isFinite(+el.value)) o[d[0]]=+el.value; });
     try{ await db.configMod(b=>({...b,metas:{...(b.metas||{}),[fase]:o}})); guardaSitMetas.dia=null; toast('Metas salvas'); render(); }catch(x){ dbErr(x); } return; }
+  if(f.id==='peaoForm'){ const nome=String(f.peao.value||'').trim(); if(!nome) return toast('Escreva o nome do peão.');
+    const {data,error}=await sb.rpc('telegram_codigo_peao',{p_fazenda:FID,p_nome:nome}); if(error) return toast(semRede(error)?'Sem internet.':'Não foi possível gerar o código.');
+    TG_PEAO={nome,cod:data}; render(); return; }
   if(f.id==='pesF'||f.id==='lembF') return salvaCfgItem(f);
   if(f.id==='contaF') return salvaConta(f);
   if(f.id==='senhaF'||f.id==='novaSenhaF') return salvaMinhaSenha(f);
@@ -3314,9 +3325,10 @@ async function carregaSocios(){ if(!FID||!sb||!UID) return;
   try{ const [m,c]=await Promise.all([sb.from('membros').select('user_id,email,nome,created_at').eq('fazenda_id',FID).order('created_at'),sb.from('convites').select('email,created_at').eq('fazenda_id',FID).order('created_at')]);
     if(!m.error){ S.membros=m.data||[]; locPut('membros',S.membros); } if(!c.error) S.convites=c.data||[];
     await carregaAcessos();
-    if(TG_BOT){ const t=await sb.from('telegram_contas').select('chat_id,nome_telegram').eq('user_id',UID); if(!t.error){ const novo=(t.data||[]).length>(S.telegram||[]).length; S.telegram=t.data||[]; if(novo) TG_COD=null; } }
+    if(TG_BOT){ const t=await sb.from('telegram_contas').select('chat_id,nome_telegram').eq('user_id',UID).neq('papel','cocho'); if(!t.error){ const novo=(t.data||[]).length>(S.telegram||[]).length; S.telegram=t.data||[]; if(novo) TG_COD=null; }
+      const pq=await sb.from('telegram_contas').select('chat_id,nome_telegram,nome_pessoa,created_at').eq('fazenda_id',FID).eq('papel','cocho'); if(!pq.error){ const novo=(pq.data||[]).length>(S.peoes||[]).length; S.peoes=pq.data||[]; if(novo) TG_PEAO=null; } }
     render(); }catch(e){} }
-function encerrar(){ try{ localStorage.removeItem('vozResp'); }catch(e){} VOZ_R=[]; ACESSOS=null; AC_SENHA=null; started=false; TG_COD=null; S.telegram=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>{S[k]=[]; delete RAW[k];}); S.config={...CFG0}; render(); showAuth(true); }
+function encerrar(){ try{ localStorage.removeItem('vozResp'); }catch(e){} VOZ_R=[]; ACESSOS=null; AC_SENHA=null; started=false; TG_COD=null; TG_PEAO=null; S.telegram=[]; S.peoes=[]; FID=null; MEMB=[]; MEU_EMAIL=''; S.membros=[]; S.convites=[]; FILA=[]; OFF=false; UID=null; db=null; subs={}; cache={}; clearInterval(tick); Object.keys(COL).forEach(k=>{S[k]=[]; delete RAW[k];}); S.config={...CFG0}; render(); showAuth(true); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&db) db.refreshAll(); });
 (async()=>{
   if(!sb){ showAuth(true); authMsg('Não consegui carregar o Supabase. Confira a internet e recarregue a página.','bad'); render(); return; }

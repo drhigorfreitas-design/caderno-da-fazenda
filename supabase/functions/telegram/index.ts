@@ -276,12 +276,16 @@ const botoes = (base: string, custoId = "", onde = "", rets: Retiro[] = [], ret 
 });
 const AJUDA = "Mande a <b>foto da nota</b> ou escreva. Pode juntar várias coisas numa mensagem só (sai mais barato), por exemplo: <i>gastei 300 de sal e 200 de diesel, nasceram 5 bezerros e choveu 30 mm</i>\n\nTambém pode mandar <b>áudio</b> 🎤 falando a mesma coisa.\n\nOutros exemplos:\n• <i>gastei 300 de vacina na recria</i>\n• <i>nasceram 5 bezerros machos</i>\n• <i>morreu 1 vaca de picada de cobra</i>\n• <i>vendi 20 bois de 540 kg a 310 a arroba</i>\n• <i>anotar: choveu 40 mm hoje</i>\n• <i>pesei o lote da recria, 40 cabeças, média 280 kg</i>\n• <i>coloquei 4.200 kg da mistura recria no pasto 4, 300 cabeças, 7 dias</i>\nEu lanço no Caderno da Fazenda com o seu nome.\n\n🏠 <b>Retiros:</b> diga antes de qual é: <i>despesa Santa Helena: 300 de sal</i> · <i>Santa Faustina: nasceram 3 bezerros</i>. Sem dizer, fica para a <b>Sede</b>. Qualquer sócio lança em qualquer um. Para perguntar de uma parte: <i>dados Santa Faustina: quanto gastei em outubro?</i> Sem dizer a parte, a resposta é da <b>fazenda toda</b> (Santa Helena + Santa Faustina + Sede).\n\n🤝 <b>Pastos arrendados:</b> <i>transferi 80 garrotes de 250 kg da Sede para o arrendamento do João</i> · <i>trouxe 40 garrotes de 330 kg do João para a Sede</i>. No dia do pagamento eu marco a conta do aluguel (média de cabeças do mês anterior × valor por cabeça).\n\n🧾 <b>Contas a pagar:</b> <i>boleto do sal 4.500 vence dia 20</i>. Aviso na véspera e no dia, com o botão Paguei. Mande <b>contas</b> para ver todas.\n📎 Para o contador: <b>planilha</b> (do mês), <b>notas</b> (fotos das notas do mês), <b>planilha do ano</b> (Imposto de Renda).\n\n⏰ <b>Lembretes:</b> <i>lembrar: vacina da aftosa dia 15/11</i> (aviso às 7h do dia)\n📈 <b>Arroba:</b> <i>me avisa quando o boi passar de 320</i>\nPara ver ou cancelar, mande <b>lembretes</b>. Para receber a cópia dos dados agora, mande <b>backup</b> (ela também chega toda segunda). Todo dia 1º chega o relatório do mês e a planilha para o contador; para receber agora, mande <b>relatório</b> ou <b>planilha</b> (ou <i>planilha de outubro</i>).\n\nTambém respondo perguntas: <i>quantas vacas eu tenho?</i> · <i>quanto gastei de sal em outubro?</i>";
 
+// peão (conta "só cocho"): só lança trato no cocho; não vê custos, rebanho, valores nem recebe os avisos dos sócios
+const AJUDA_COCHO = "Por aqui você lança o <b>trato do cocho</b>. Escreva ou mande <b>áudio</b> 🎤 dizendo o produto, a quantidade, o lote e para quantos dias. Exemplos:\n• <i>tratei 250 kg de ração TIP na engorda 3</i>\n• <i>coloquei 4 sacos de sal mineral na recria, 60 cabeças, para 7 dias</i>\n\nSe errar, toque em <b>↩ Desfazer</b> logo abaixo da confirmação.";
 /* ---------- ligar o Telegram a uma conta ---------- */
 async function liga(d: Deps, chat: number, codigo: string, nome: string) {
-  const { data: c } = await d.db.from("telegram_codigos").select("user_id,fazenda_id,expira").eq("codigo", codigo).maybeSingle();
+  const { data: c } = await d.db.from("telegram_codigos").select("user_id,fazenda_id,expira,papel,nome_pessoa").eq("codigo", codigo).maybeSingle();
   if (!c || new Date(c.expira) < new Date()) return responde(d, chat, "Código inválido ou vencido. No app, vá em <b>Mais → Sócios → Conectar meu Telegram</b> e use o código novo.");
-  await d.db.from("telegram_contas").upsert({ chat_id: chat, user_id: c.user_id, fazenda_id: c.fazenda_id, nome_telegram: nome }, { onConflict: "chat_id" });
+  const peao = c.papel === "cocho";
+  await d.db.from("telegram_contas").upsert({ chat_id: chat, user_id: c.user_id, fazenda_id: c.fazenda_id, nome_telegram: nome, papel: peao ? "cocho" : "socio", nome_pessoa: peao ? c.nome_pessoa || nome : null }, { onConflict: "chat_id" });
   await d.db.from("telegram_codigos").delete().eq("codigo", codigo);
+  if (peao) return responde(d, chat, `Pronto, ${esc(c.nome_pessoa || nome)}! Seu Telegram está ligado ao cocho da fazenda.\n\n${AJUDA_COCHO}`);
   const { data: m } = await d.db.from("membros").select("nome,email").eq("fazenda_id", c.fazenda_id).eq("user_id", c.user_id).maybeSingle();
   return responde(d, chat, `Pronto, ${esc(m?.nome || nome)}! Seu Telegram está ligado ao Caderno da Fazenda.\n\n${AJUDA}`);
 }
@@ -511,7 +515,7 @@ async function lancaNota(d: Deps, chat: number, conta: any, quem: string, texto:
 }
 async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura, nota = "") {
   const hoje = hojeMT(), base = crypto.randomUUID(), criadoEm = new Date().toISOString();
-  const autor = { criadoEm, porId: conta.user_id, por: quem, origem: d.origem || "telegram" };
+  const autor = { criadoEm, porId: conta.user_id, por: quem, origem: d.origem || "telegram", ...(conta.papel === "cocho" ? { peaoChat: String(chat) } : {}) };
   const txt: string[] = [], avisos: string[] = [];
   const cfgD = (await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle()).data?.dados || {};
   const kgA = Number(cfgD.kgArroba) || 30;
@@ -847,7 +851,7 @@ export async function resumoSemanal(d: Deps) {
   // uma vez por semana: se alguém chamar de novo, não manda repetido
   const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -Number(ini.replace(/-/g, "")) });
   if (ja) return "já enviado";
-  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id").neq("papel", "cocho");
   const porFaz: Record<string, number[]> = {};
   (contas || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
   let n = 0;
@@ -893,7 +897,7 @@ export async function relatorioMensal(d: Deps, so?: { faz: string; chat: number 
   if (!forcar) { const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: -Number(mes.replace("-", "")) }); if (ja) return "já enviado"; }
   const porFaz: Record<string, number[]> = {};
   if (so) porFaz[so.faz] = [so.chat];
-  else ((await d.db.from("telegram_contas").select("chat_id,fazenda_id")).data || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
+  else ((await d.db.from("telegram_contas").select("chat_id,fazenda_id").neq("papel", "cocho")).data || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
   let n = 0;
   for (const [faz, chats] of Object.entries(porFaz)) {
     const { data: fz } = await d.db.from("fazendas").select("nome").eq("id", faz).maybeSingle();
@@ -1290,7 +1294,7 @@ export async function imeaSemanal(d: Deps) {
   try { cep = cepeaDe(await (await busca("https://www.noticiasagricolas.com.br/cotacoes/boi-gordo/boi-gordo-indicador-esalq-bmf")).text()); } catch (e) { console.error("cepea", e); }
   const linhaCep = cep ? `\n📌 <b>Indicador do boi Cepea/B3</b> (SP, à vista): <b>${brl(cep.v)}/@</b> em ${cep.data}${cep.varia ? ` (${cep.varia}%)` : ""}` : "";
   const diaB = somaDias(IMEA_REF.dia, 7 * (n - IMEA_REF.n));
-  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id").neq("papel", "cocho");
   const porFaz: Record<string, number[]> = {};
   (contas || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
   let env = 0;
@@ -1367,7 +1371,7 @@ export async function mercadoDiario(d: Deps) {
   const marca = -(970000000 + dias("2020-01-01", m.imea.data));
   const { error: ja } = await d.db.from("telegram_updates").insert({ update_id: marca });
   if (ja) return "boi do dia: já enviado";
-  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id").neq("papel", "cocho");
   const porFaz: Record<string, number[]> = {};
   (contas || []).forEach((c: any) => (porFaz[c.fazenda_id] ||= []).push(c.chat_id));
   let n = 0;
@@ -1467,7 +1471,7 @@ const kgOuT = (kg: number) => (Math.abs(kg) >= 1000 ? (kg / 1000).toLocaleString
 export async function avisosDiarios(d: Deps) {
   const hoje = hojeMT();
   const { data: cfgs } = await d.db.from("config").select("fazenda_id,dados");
-  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,user_id,fazenda_id");
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,user_id,fazenda_id").neq("papel", "cocho");
   // só usa a cotação se for recente (o arquivo do app atualiza nos dias úteis)
   let cot = d.cotacao ? await d.cotacao().catch(() => null) : null;
   if (cot && (!okData(cot.data) || dias(cot.data, hoje) > 5 || !(cot.spot > 0))) cot = null;
@@ -1604,7 +1608,7 @@ export async function verdeDiario(d: Deps, so?: { faz: string; forca?: boolean }
   let q = d.db.from("config").select("fazenda_id,dados");
   if (so) q = q.eq("fazenda_id", so.faz);
   const { data: cfgs } = await q;
-  const { data: contas } = avisa ? await d.db.from("telegram_contas").select("chat_id,fazenda_id") : { data: [] as any[] };
+  const { data: contas } = avisa ? await d.db.from("telegram_contas").select("chat_id,fazenda_id").neq("papel", "cocho") : { data: [] as any[] };
   let n = 0, er = 0;
   for (const c of cfgs || []) {
     if (!c.fazenda_id) continue;
@@ -1720,7 +1724,7 @@ export async function fogoVerifica(d: Deps, agora = Date.now()) {
   const comContorno = (cfgs || []).filter((c: any) => c.fazenda_id && Object.values(c.dados?.contornos || {}).some((p: any) => Array.isArray(p) && p.length >= 3));
   if (!comContorno.length) return "fogo: nenhuma fazenda com contorno";
   const todos = (await d.focos()).filter((f) => agora - f.t <= FOGO_IDADE_H * 36e5);
-  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id");
+  const { data: contas } = await d.db.from("telegram_contas").select("chat_id,fazenda_id").neq("papel", "cocho");
   let enviados = 0;
   for (const c of comContorno) {
     const D = c.dados, linhas: string[] = [], novo: Record<string, any> = {};
@@ -1818,9 +1822,17 @@ const marca = (markup: any, prefixo: string, escolhido: string) => (markup?.inli
   String(b.callback_data || "").startsWith(prefixo) ? { ...b, text: (b.callback_data === escolhido ? "• " : "") + String(b.text).replace(/^• /, "") } : b));
 async function botao(d: Deps, q: any, contaApp?: any) {
   const chat = q.message?.chat?.id, [acao, id, onde] = String(q.data || "").split(":");
-  const conta = contaApp || (await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle()).data;
+  const conta = contaApp || (await d.db.from("telegram_contas").select("user_id,fazenda_id,papel").eq("chat_id", chat).maybeSingle()).data;
   const fim = (t: string) => d.tg("answerCallbackQuery", { callback_query_id: q.id, text: t });
   if (!conta) return fim("Telegram não está ligado ao app.");
+  // peão: só desfaz o trato que ele mesmo lançou
+  if (conta.papel === "cocho") {
+    if (acao !== "desf" || !/^[0-9a-f-]{36}$/.test(id)) return fim("Só um sócio pode mudar isso.");
+    const { data: es } = await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").eq("dados->>peaoChat", String(chat)).select("id");
+    const k = (es || []).length;
+    if (k) await d.tg("editMessageText", { chat_id: chat, message_id: q.message?.message_id, text: "↩ Desfeito: " + (k === 1 ? "1 trato do cocho apagado." : k + " tratos do cocho apagados."), parse_mode: "HTML" });
+    return fim(k ? "Desfeito" : "Nada para desfazer");
+  }
   if (acao === "desf" && /^[0-9a-f-]{36}$/.test(id)) {
     const { data: cs } = await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
     const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
@@ -1936,12 +1948,14 @@ export async function trata(d: Deps, up: any) {
   let texto = String(msg.text || msg.caption || "").trim();
   const cod = texto.match(/^(?:\/start\s+)?(\d{8})$/);
   if (cod) return liga(d, chat, cod[1], nomeTg);
-  const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id").eq("chat_id", chat).maybeSingle();
+  const { data: conta } = await d.db.from("telegram_contas").select("user_id,fazenda_id,papel,nome_pessoa").eq("chat_id", chat).maybeSingle();
   if (!conta) return responde(d, chat, "Olá! Para usar o robô, ligue seu Telegram pelo app: <b>Mais → Sócios → Conectar meu Telegram</b>. Depois mande aqui o código de 6 números.");
-  if (/^\/(start|ajuda|help)\b/i.test(texto)) return responde(d, chat, AJUDA);
+  const peao = conta.papel === "cocho";
+  if (/^\/(start|ajuda|help)\b/i.test(texto)) return responde(d, chat, peao ? AJUDA_COCHO : AJUDA);
   const { data: m } = await d.db.from("membros").select("nome,email").eq("fazenda_id", conta.fazenda_id).eq("user_id", conta.user_id).maybeSingle();
-  if (!m) return responde(d, chat, "Você não faz mais parte desta fazenda no app. Peça para um sócio te convidar de novo.");
-  const quem = m.nome || String(m.email || "").split("@")[0] || nomeTg || "sócio";
+  if (!m) return responde(d, chat, peao ? "Seu acesso ao cocho foi desligado. Peça um código novo a um sócio." : "Você não faz mais parte desta fazenda no app. Peça para um sócio te convidar de novo.");
+  const quem = peao ? String(conta.nome_pessoa || nomeTg || "peão") : m.nome || String(m.email || "").split("@")[0] || nomeTg || "sócio";
+  if (peao && (msg.photo || msg.document)) return responde(d, chat, "Por aqui você só lança o trato do cocho, por escrito ou por áudio.\n\n" + AJUDA_COCHO);
 
   // áudio: vira texto e segue igual a uma mensagem escrita
   const audio = msg.voice || msg.audio;
@@ -1957,7 +1971,25 @@ export async function trata(d: Deps, up: any) {
     await responde(d, chat, `🎤 <i>${esc(ouvido)}</i>`);
     texto = ouvido;
   }
-  return trataTexto(d, chat, conta, quem, texto, msg, !!audio);
+  return peao ? trataCocho(d, chat, conta, quem, texto) : trataTexto(d, chat, conta, quem, texto, msg, !!audio);
+}
+
+// peão: a mensagem é lida igual, mas só o cocho é lançado; perguntas, comandos e o resto ficam de fora
+async function trataCocho(d: Deps, chat: number, conta: any, quem: string, texto: string) {
+  if (!texto) return responde(d, chat, AJUDA_COCHO);
+  const { data: cfgT } = await d.db.from("config").select("dados").eq("fazenda_id", conta.fazenda_id).maybeSingle();
+  const retsT = retirosDe(cfgT?.dados);
+  const prodT = (await todosId(d, "insumos", conta.fazenda_id)).filter((i: any) => i.grupo === "nutricao" && i.tipo !== "ingrediente");
+  const conteudo = [{ type: "text", text: `Hoje é ${hojeMT()}.` + (retsT.length ? `\nPartes da fazenda: ${[...retsT.map((r) => r.nome), GERAL].join(", ")}.` : "") +
+    (prodT.length ? `\nProdutos do cocho: ${prodT.map((i: any) => `${i.nome} (embalagem ${i.unidade || "kg"} de ${+i.kgUn || 1} kg)`).join("; ")}.` : "") +
+    `\nQuem manda é o peão da fazenda: só o trato no cocho (fornecimento) será lançado.\nMensagem: ${texto}` }];
+  await d.tg("sendChatAction", { chat_id: chat, action: "typing" });
+  const L = await d.le(conteudo);
+  if (!L) return responde(d, chat, "Não consegui ler agora. Tente de novo em instantes.");
+  if (!L.cocho?.length) return responde(d, chat, "Por aqui você só lança o trato do cocho.\n\n" + AJUDA_COCHO);
+  const resto = !!((L.custos || []).length || (L.movimentos || []).length || (L.pesagens || []).length || (L.lembretes || []).length || (L.alertas || []).length ||
+    (L.contas || []).length || (L.pagou || []).length || (L.areas || []).length || String(L.anotacao || "").trim());
+  return lanca(d, chat, conta, quem, { tipo: "lancamento", cocho: L.cocho, resposta: resto ? "Só o cocho foi lançado. O resto da mensagem um sócio precisa lançar." : "" });
 }
 
 // texto (escrito, falado no Telegram ou falado no microfone do app): comandos, anotação, pergunta ou lançamento
@@ -2328,7 +2360,7 @@ function evaluatePixel(s){var t=s.B08+s.B04,ok=s.dataMask===1&&t>0&&${RUIM}.inde
           await deps.db.from("config").update({ dados: resto }).eq("fazenda_id", fazenda_id);
         }
         if (!texto || String(texto).length > 4000) return new Response("texto vazio ou longo demais", { status: 400 });
-        let q = deps.db.from("telegram_contas").select("chat_id,nome_telegram");
+        let q = deps.db.from("telegram_contas").select("chat_id,nome_telegram").neq("papel", "cocho");
         if (fazenda_id) q = q.eq("fazenda_id", fazenda_id);
         const { data: contas } = await q;
         const res: string[] = [];
