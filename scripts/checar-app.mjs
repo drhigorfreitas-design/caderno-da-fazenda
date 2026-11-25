@@ -91,6 +91,7 @@ const relatorio = await roda(async () => {
   add("estoque_movs", "f1", { tipo: "saida", fornecimento: true, insumoId: "mix", data: hoje, qtd: 500, dias: 7, fase: "recria", lote: "garrotes", cab: 50, peso: 280 });
   add("estacoes", "es1", { nome: "Estação teste", dataDG: ant + "-01", cats: {}, nascidosVivos: 80, desmMachos: 40, desmFemeas: 38, pesoDesmMachos: 200, pesoDesmFemeas: 185, pesoVacas: 420 });
   add("engorda", "l1", { nome: "Lote teste", sistema: "semi", cab: 28, dataEntrada: ant + "-01", pesoEntrada: 450, aquisicao: 6000, nutricaoDia: 8, operacionalDia: 2, dataSaida: hoje, pesoSaida: 560, carcaca: 300, precoVenda: 300 });
+  add("engorda", "l2", { nome: "garrotes", sistema: "semi", cab: 50, dataEntrada: ant + "-01", pesoEntrada: 250, aquisicao: 3000, formulacaoId: "proteico-ddg", consumoPV: 0.7, maoMes: 1500, operacionalDia: 0.5, somaPasto: true });
   add("adaptacoes", "ad1", { nome: "Garrotes", tipo: "proteico", fase: "recria", inicio: hoje, cab: 50, peso: 280 });
 
   const f = document.querySelector("#authForm"); f.email.value = "teste@teste.test"; f.senha.value = "segredo1"; f.requestSubmit(); await w(3500);
@@ -111,6 +112,12 @@ const relatorio = await roda(async () => {
   document.querySelector('[data-ret=""]')?.click(); await w(300);
   document.querySelector('[data-tab="custos"]')?.click(); await w(400);
   const s = document.querySelector("#diaMes"); if (s) { s.value = s.options[0].value; s.dispatchEvent(new Event("change", { bubbles: true })); await w(400); } else out.vazias.push("quadro da diária não apareceu");
+  // engorda: lote com formulação mostra a diária calculada e a simulação; o formulário tem os campos novos
+  document.querySelector('[data-tab="engorda"]')?.click(); await w(400);
+  const card = [...document.querySelectorAll("#v-engorda article.card")].find((c) => c.querySelector("h3")?.textContent === "garrotes");
+  if (!card || !/Diária: R/.test(card.textContent) || !/Simular o consumo/.test(card.textContent)) out.vazias.push("diária calculada do lote de engorda não apareceu");
+  document.querySelector('#v-engorda [data-open="lote"][data-edit="l2"]')?.click(); await w(400);
+  const fm = document.querySelector('form [name="consumoPV"]'); if (!fm || fm.value !== "0.7") out.vazias.push("formulário do lote sem o consumo em % do PV");
   return out;
 });
 
