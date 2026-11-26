@@ -1866,7 +1866,7 @@ function renderSupl(){
   <div class="hero">
     <div class="kpi"><span class="l">Custo no cocho</span><span class="v">${brl(tCusto)}</span><span class="s">${nf(tKg)} kg fornecidos</span></div>
     <div class="kpi"><span class="l">Custo por cabeça</span><span class="v">${brl(tCusto/tCd,2)}</span><span class="s">por dia</span></div>
-    <div class="kpi"><span class="l">Consumo médio</span><span class="v">${nf(tKg*1000/tCd)} g</span><span class="s">por cabeça ao dia</span></div>
+    <div class="kpi"><span class="l">Consumo médio</span><span class="v">${kgcd(tKg*1000/tCd)} kg</span><span class="s">por cabeça ao dia</span></div>
     <div class="kpi"><span class="l">% do peso vivo</span><span class="v">${pct(pvW,2)}</span><span class="s">média ponderada</span></div>
   </div>
   <div class="row-head"><h2>Lotes em adaptação</h2><button class="btn" type="button" data-open="adaptacao">Iniciar adaptação</button></div>
