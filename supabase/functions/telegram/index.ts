@@ -1420,7 +1420,8 @@ export function estoqueIngredientes(ins: any[], emovs: any[], forms: any[], hoje
       kgDia = r.reduce((s, x) => s + x.kg, 0) / Math.max(1, dias(ini, fim));
     }
     const ult = emovs.filter((m) => m.insumoId === g.id && m.tipo === "entrada").reduce((a, m) => (m.data > a ? m.data : a), "");
-    return { id: g.id, nome: g.nome, kg, kgDia, dias: kgDia > 0 ? kg / kgDia : NaN, ultEntrada: ult };
+    // sem nenhuma entrada = estoque sem controle: não avisa que acabou
+    return { id: g.id, nome: g.nome, kg, kgDia, dias: ult && kgDia > 0 ? kg / kgDia : NaN, ultEntrada: ult };
   });
 }
 /* avisa uma vez com 15 dias e outra com 5; uma compra nova (entrada depois do aviso) zera a conta */
