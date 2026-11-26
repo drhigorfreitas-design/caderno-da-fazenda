@@ -81,8 +81,8 @@ const relatorio = await roda(async () => {
   add("desembolsos", "d2", { data: hoje, valor: 2000, item: "combustivel", grupo: "maquinas", centro: "engorda", tipo: "custeio", retiro: "sh" });
   add("desembolsos", "d3", { data: hoje, valor: 4500, item: "arrendamento", grupo: "arrendamento", centro: "recria", tipo: "custeio", retiro: "a1" });
   add("desembolsos", "d4", { data: hoje, valor: 30000, item: "outros", grupo: "outros", centro: "geral", tipo: "investimento" });
-  add("insumos", "ddg", { nome: "DDG", tipo: "ingrediente", unidade: "tonelada", kgUn: 1000, grupo: "nutricao" });
-  add("insumos", "nuc", { nome: "Núcleo mineral", tipo: "ingrediente", unidade: "saco", kgUn: 30, grupo: "nutricao" });
+  add("insumos", "ddg", { nome: "DDG", tipo: "ingrediente", unidade: "tonelada", kgUn: 1000, grupo: "nutricao", precoKg: 1.5 });
+  add("insumos", "nuc", { nome: "Núcleo mineral", tipo: "ingrediente", unidade: "saco", kgUn: 30, grupo: "nutricao", precoKg: 3 });
   add("insumos", "mix", { nome: "Proteico recria", tipo: "proteico", unidade: "kg", kgUn: 1, grupo: "nutricao", formulacaoId: "proteico-ddg", metaTipo: "pv", metaMin: 0.3, metaMax: 0.5 });
   add("insumos", "vac", { nome: "Vacina aftosa", unidade: "dose", minimo: 10, grupo: "sanidade" });
   add("formulacoes", "proteico-ddg", { nome: "Proteico-energético recria (DDG + núcleo)", tipo: "proteico", ingredientes: [{ nome: "DDG", pct: 95, preco: 0 }, { nome: "Núcleo mineral", pct: 5, preco: 0 }] });
