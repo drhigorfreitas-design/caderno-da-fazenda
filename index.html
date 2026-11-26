@@ -1879,9 +1879,11 @@ function renderSupl(){
   </div>
 
   <div class="row-head"><h2>Formulações próprias</h2><button class="btn" type="button" data-open="formulacao">Nova formulação</button></div>
-  ${S.form.length?`<div class="cards">${S.form.map(f=>{const ig=(f.ingredientes||[]).filter(x=>x.nome||+x.pct), tp=sum(ig,x=>x.pct), c=formCost(f), semPreco=ig.some(x=>!(ingPreco(x,IL)>0));
-    return `<article class="card"><div class="row-head"><h3>${esc(f.nome)}</h3><span class="chip ${Math.abs(tp-100)<0.01?'':'warn'}">${nf(tp,1)}%</span></div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ingrediente</th><th>%</th><th>R$/kg</th><th>R$ na mistura</th></tr></thead><tbody>
+  ${S.form.length?`${S.form.map(f=>{const ig=(f.ingredientes||[]).filter(x=>x.nome||+x.pct), tp=sum(ig,x=>x.pct), c=formCost(f), semPreco=ig.some(x=>!(ingPreco(x,IL)>0));
+    return `<details class="panel cortina" data-cort="form_${esc(f.id)}" ${cortAberta('form_'+f.id)?'open':''}><summary><div style="flex:1;min-width:0"><h2>${esc(f.nome)}</h2>
+      <span class="cort-res">${ok(c)&&c>0?brl(c,2)+'/kg':'sem preço'} · ${ig.map(x=>esc(x.nome)+' '+nf(+x.pct,1)+'%').join(' + ')}${Math.abs(tp-100)<0.01?'':' · soma '+nf(tp,1)+'%'}</span></div>
+      <span class="cort-btn" role="presentation"><span class="f">Abrir</span><span class="a">Fechar</span></span></summary>
+      <div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Ingrediente</th><th>%</th><th>R$/kg</th><th>R$ na mistura</th></tr></thead><tbody>
       ${ig.map(x=>{const g=ingDe(x.nome,IL), pu=g?precoUlt(g):NaN, pr=ingPreco(x,IL);
         return `<tr><td>${esc(x.nome)}${g?`<br><span class="small muted" style="white-space:normal">${EST()?'sai do estoque de ':'preço de '}${esc(g.nome)}${ok(pu)&&pu>0?' · preço da última compra':+g.precoKg>0?' (Preço dos ingredientes)':''}</span>`:''}</td><td>${nf(+x.pct,1)}</td><td>${pr?brl(pr,2):'—'}</td><td>${pr&&tp?brl(x.pct/tp*pr,3):'—'}</td></tr>`;}).join('')}
       </tbody><tfoot><tr><td>Custo da mistura</td><td>${nf(tp,1)}</td><td></td><td>${ok(c)?brl(c,3)+'/kg':'—'}</td></tr></tfoot></table></div>
@@ -1890,7 +1892,7 @@ function renderSupl(){
       <div id="mixout-${f.id}" class="small"></div>
       ${SUP_REF[f.tipo]?`<details><summary>Adaptação e uso · ${SUP_REF[f.tipo].nome}</summary>${adaptTabela(f.tipo)}<p class="note" style="margin-top:6px">Consumo esperado: ${SUP_REF[f.tipo].consumo?faixa(SUP_REF[f.tipo].consumo)+' do peso vivo':'à vontade'} · cocho ${faixa(SUP_REF[f.tipo].cocho,' cm')} por cabeça${SUP_REF[f.tipo].tratos?' · '+SUP_REF[f.tipo].tratos:''}.</p></details>`:''}
       ${ig.some(x=>/ur[eé]ia/i.test(x.nome))?'<p class="note">Tem ureia: siga a adaptação, mantenha o cocho com acesso para todo o lote e não deixe faltar nem molhar o produto. Ajustes na fórmula com um zootecnista.</p>':''}
-      <div class="btns"><button class="btn" type="button" data-open="formulacao" data-edit="${f.id}">Editar</button><button class="btn del" type="button" data-del="${COL.form}:${f.id}">Excluir</button></div></article>`;}).join('')}</div>`
+      <div class="btns"><button class="btn" type="button" data-open="formulacao" data-edit="${f.id}">Editar</button><button class="btn del" type="button" data-del="${COL.form}:${f.id}">Excluir</button></div></details>`;}).join('')}`
   :`<div class="panel"><p class="empty">Cadastre a receita do suplemento feito na fazenda com o percentual e o preço de cada ingrediente para ver o custo por kg.</p></div>`}
 
 `;
