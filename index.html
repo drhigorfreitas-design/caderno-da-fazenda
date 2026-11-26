@@ -717,7 +717,7 @@ function calc(per=UI.per,fase=null){
     R.desembCab=R.despesas/R.rebMed/J.meses; R.fixCab=R.fix/R.rebMed/J.meses; R.varCab=R.var/R.rebMed/J.meses;
     R.desembArr=R.despesas/R.prodArr; R.resArr=R.precoArr-R.desembArr; R.margem=R.resArr/R.precoArr*100; R.pctDesVenda=R.desembArr/R.precoArr*100;
     R.valIni=fVal(J.ei,cats); R.varReb=fVal(J.ef,cats)-R.valIni;
-    R.varIns=fase?0:estoqueValor(mEnd(J.ef.mes))-estoqueValor(mEnd(J.ei.mes));
+    R.varIns=fase||!EST()?0:estoqueValor(mEnd(J.ef.mes))-estoqueValor(mEnd(J.ei.mes));
     R.caixa=R.receita-R.despesas-R.reposicao; R.resFinal=R.caixa+R.varReb+R.varIns+(R.engAnt?R.engAnt.res:0);
     R.resHa=R.resFinal/A*R.anual; R.resValReb=R.resFinal/R.valIni*100*R.anual; R.prodPatr=(R.prodArr*R.precoArr)/R.valIni*100*R.anual;
     R.desembMatriz=R.despesas/R.matrizesMed/J.meses;
@@ -860,7 +860,7 @@ function detalhe(R,comExtra=true){
     ${ind(f?'Reposição (compras + entrada da fase anterior)':'Reposição (compra de bovinos)',brl(R.reposicao),{ref:f&&R.transfIn?brl(R.transfIn)+' em passagem de fase':''})}
     ${ind('Resultado de caixa',brl(R.caixa),{f:'receita − desembolso − reposição',st:ok(R.caixa)?st(R.caixa>=0):null})}
     ${ind('Variação do rebanho',brl(R.varReb),{f:'valor do estoque final − inicial, a preço de referência'})}
-    ${f?'':ind('Variação dos insumos',brl(R.varIns),{f:'estoque de insumos final − inicial'})}
+    ${f||!EST()?'':ind('Variação dos insumos',brl(R.varIns),{f:'estoque de insumos final − inicial'})}
     ${ind('<b>Resultado da operação</b>',brl(R.resFinal),{f:f?'caixa + variação do rebanho':'caixa + variação do rebanho + variação dos insumos',st:ok(R.resFinal)?st(R.resFinal>=0):null})}
     ${ind('Resultado por hectare ao ano',brl(R.resHa),{f:'resultado ÷ área produtiva'+(R.soPropria?' · só áreas próprias':''),ref:'alvo acima de R$ 1.200',st:ok(R.resHa)?st(R.resHa>=1200):null})}
     ${ind('Resultado sobre o valor do rebanho',pct(R.resValReb),{f:'resultado ÷ valor inicial do rebanho',ref:'alvo 25% · Selic '+nf(selicAA(),2)+'%',st:ok(R.resValReb)?st(R.resValReb>=selicAA()):null})}
@@ -1138,6 +1138,7 @@ function renderAjustes(){
       <label class="fl">Mês de início da safra<select id="cfg-mes" name="safraMes">${MES.map((m,i)=>`<option value="${i+1}" ${+c.safraMes===i+1?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="fl">Selic / custo de oportunidade (% a.a.)<input id="cfg-selic" name="selic" type="number" step="0.01" min="0" value="${esc(c.selic)}"></label>
       <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="selicAuto" ${c.selicAuto!==false?'checked':''} style="width:auto"> Usar a Selic do Banco Central (atualiza sozinha; hoje ${nf(+SELIC.meta,2)}%). Desmarque para usar a taxa digitada acima.</label>
+      <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="estoque" ${c.estoque?'checked':''} style="width:auto"> Controlar estoque de insumos (entradas, saldo e avisos de acabar). Desligado, o app usa só o preço por kg para o custo.</label>
       <label class="fl">Primeiro inventário completo do rebanho (mês)<input id="cfg-inireb" name="inicioRebanho" type="month" value="${esc(c.inicioRebanho||'')}"><span class="small muted">Fechamentos anteriores ficam na lista, mas não entram em GMD, resultado, lotação média e comparação com a Selic. Use quando o primeiro fechamento contou só parte do gado.</span></label>
     </div>
     <fieldset><legend>Área por fase (opcional)</legend><div class="grid2">${FASES.map(([k,n])=>`<label class="fl">${n} (ha)<input id="cfg-a-${k}" name="a_${k}" type="number" step="0.1" min="0" value="${esc(af[k]||'')}"></label>`).join('')}</div>
@@ -1653,7 +1654,7 @@ function nutLoteHTML(l,I){ const N=I.NL, cab=+l.cab||0, pr=+l.precoVenda||+BGI.s
   const sim=N.fo&&N.pk>0?PV_OPC.map(x=>{ const kg=x/100*N.pAt, rs=kg*N.pk, d=rs+N.maoDia+N.outDia+N.pastoDia, extra=rs-N.nutDia;
     return `<tr${Math.abs(x-N.pv)<1e-9?' style="font-weight:700"':''}><td>${nf(x,1)}%</td><td class="num">${nf(kg,1)} kg</td><td class="num">${brl(rs,2)}</td><td class="num">${brl(d,2)}</td><td class="num">${nf(kg*cab*DM)} kg</td><td class="num">${kgVivo>0&&N.pv?(extra>0?'+':'')+nf(extra/kgVivo,2):'—'}</td></tr>`; }).join(''):'';
   return `<details${I.saiu?'':' open'}><summary>Diária: ${brl(N.diaria,2)}/cab/dia${N.fo?' · '+esc(N.fo.nome):''}</summary><div>
-    ${N.semPreco?`<p class="note neg">A formulação ${esc(N.fo.nome)} está sem preço. Lance a compra dos ingredientes em Suplementação → Entrada ou digite o preço na formulação.</p>`:''}
+    ${N.semPreco?`<p class="note neg">A formulação ${esc(N.fo.nome)} está sem preço. Digite o preço por kg dos ingredientes em Suplementação → Preço dos ingredientes.</p>`:''}
     ${N.fo?ind('Ração',N.pk>0?brl(N.pk,2)+'/kg':'sem preço',{f:esc(N.fo.nome)+' · '+((N.fo.ingredientes||[]).filter(x=>+x.pct>0).map(x=>esc(x.nome)+' '+nf(+x.pct)+'%').join(' + '))}):''}
     ${I.CL?ind('Ração no cocho (lançada)',nf(I.CL.kg)+' kg · '+brl(I.CL.rs,2),{f:'média '+nf(I.CL.kgCabDia,2)+' kg/cab/dia'+(ok(I.CL.pv)?' = '+pct(I.CL.pv,2)+' do PV':''),ref:I.CL.n+' fornecimento'+(I.CL.n>1?'s':'')+' · entra no custo do lote no lugar do consumo abaixo'+(I.CL.semPreco?' · algum sem preço':'')}):''}
     ${N.pv?ind(I.CL?'Consumo atual':'Consumo',nf(N.kgCab,2)+' kg/cab/dia',{f:nf(N.pv,2)+'% de '+nf(N.pAt)+' kg'+(N.up?' (pesagem de '+dBR(N.up.data)+')':' (peso de entrada)'),ref:'lote: '+nf(N.kgLote)+' kg/dia · '+nf(N.kgLote*DM)+' kg/mês'}):''}
@@ -1743,7 +1744,7 @@ const TSN=Object.fromEntries(TIPOS_PROD);
 const supl=()=>S.insumos.filter(i=>i.grupo==='nutricao');
 const kgUn=i=>+i?.kgUn||1;
 const formCost=f=>{const ig=(f?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct), L=ingrs(); return t?sum(ig,x=>x.pct*ingPreco(x,L))/t:NaN;};
-function precoKgIns(i){ if(ehIng(i)) return precoUlt(i); const f=i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId); const fc=formCost(f); if(ok(fc)&&fc>0) return fc;
+function precoKgIns(i){ if(ehIng(i)){ const p=precoUlt(i); return ok(p)&&p>0?p:+i.precoKg>0?+i.precoKg:NaN; } const f=i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId); const fc=formCost(f); if(ok(fc)&&fc>0) return fc; if(+i.precoKg>0) return +i.precoKg;
   const ent=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrada'); const kg=sum(ent,m=>m.qtd*kgUn(i)); return kg?sum(ent,m=>m.valor)/kg:NaN; }
 function fornCalc(m){ const i=S.insumos.find(x=>x.id===m.insumoId), kg=(+m.qtd||0)*kgUn(i), cd=(+m.cab||0)*(+m.dias||0), pk=i?precoKgIns(i):NaN;
   return {i,kg,cd,g:kg*1000/cd,pv:kg/cd/(+m.peso||0)*100,custo:kg*pk,rcd:kg*pk/cd}; }
@@ -1780,11 +1781,13 @@ const addD=(s,n)=>{const x=new Date(s+'T12:00:00'); x.setDate(x.getDate()+n); re
 function taxaDia(L){ const h=today(), d30=addD(h,-30), r=L.filter(x=>x.data&&x.data>=d30&&x.data<=h); if(!r.length) return NaN;
   const ini=r.reduce((a,x)=>x.data<a?x.data:a,h), fim=r.reduce((a,x)=>{const e=addD(x.data,x.dias); return e>a?e:a;},h);
   return sum(r,x=>x.kg)/Math.max(1,days(ini,fim)); }
-const precoUlt=i=>{const e=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrada'&&+m.valor>0&&+m.qtd>0).sort((a,b)=>a.data<b.data?1:-1)[0]; return e?e.valor/(e.qtd*kgUn(i)):NaN;};
+/* estoque de insumos ligado? (Ajustes; desligado por padrão: o custo vem do preço por kg digitado) */
+const EST=()=>!!S.config.estoque;
+const precoUlt=i=>{if(!EST()) return NaN; const e=S.emovs.filter(m=>m.insumoId===i.id&&m.tipo==='entrada'&&+m.valor>0&&+m.qtd>0).sort((a,b)=>a.data<b.data?1:-1)[0]; return e?e.valor/(e.qtd*kgUn(i)):NaN;};
 /* preço por kg do ingrediente na formulação: o da última compra, se ligado ao estoque; senão o digitado */
-const ingPreco=(x,L)=>{const g=ingDe(x.nome,L), p=g?precoUlt(g):NaN; return ok(p)&&p>0?p:+x.preco||0;};
+const ingPreco=(x,L)=>{const g=ingDe(x.nome,L), p=g?precoUlt(g):NaN; return ok(p)&&p>0?p:(g&&+g.precoKg>0?+g.precoKg:(+x.preco||0));};
 /* ingrediente sem nenhuma entrada = sem controle de estoque: não mostra saldo nem avisa que acabou (o custo vem do preço da formulação) */
-const semCtrl=g=>!S.emovs.some(m=>m.insumoId===g.id&&m.tipo==='entrada');
+const semCtrl=g=>!EST()||!S.emovs.some(m=>m.insumoId===g.id&&m.tipo==='entrada');
 function estIng(g){ const sc=semCtrl(g), kg=sc?NaN:saldoKg(g), kgDia=taxaDia(consIng(g,true)); return {g,kg,kgDia,sc,dias:!sc&&kgDia>0?kg/kgDia:NaN}; }
 const kgOuT=kg=>Math.abs(kg)>=1000?nf(kg/1000,1)+' t':nf(kg)+' kg';
 /* ganho de peso do lote pelas pesagens (mesmo nome de lote e mesma parte): da última pesagem antes do cocho começar até a mais recente */
@@ -1835,18 +1838,18 @@ function renderSupl(){
   const ps=supl().filter(i=>!ehIng(i)), IL=ingrs(), EI=IL.map(estIng);
   $('#v-suplementacao').innerHTML=`
   <div class="page-title"><h2>Suplementação</h2></div>
-  <div class="row-head"><h2>Produtos e estoque</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto ou ingrediente</button><button class="btn" type="button" data-open="entrada">Entrada</button></div></div>
-  ${IL.length?`<div class="panel"><h3 style="margin:0 0 6px">Ingredientes das misturas</h3><div class="list">${EI.map(({g,kg,kgDia,dias,sc})=>{const pu=precoUlt(g), fim=ok(dias)?addD(today(),Math.floor(dias)):'';
-      return `<div class="item"><span class="t">${esc(g.nome)} <span class="chip">Ingrediente</span>${ok(dias)&&dias<15?' <span class="chip warn">Comprar</span>':''}</span><span class="amt ${kg<0?'neg':''}">${sc?'<span class="small muted">sem controle</span>':kgOuT(kg)}</span>
-      <span class="meta">${sc?'Estoque sem controle: lance uma compra ou contagem em Entrada para começar':nf(saldo(g),1)+' '+esc(g.unidade)} · ${ok(pu)?brl(pu,2)+'/kg na última compra':'preço da formulação'}${ok(kgDia)?` · sai ${kgOuT(kgDia)} por dia`:' · sem fornecimento nos últimos 30 dias'}</span>
+  <div class="row-head"><h2>${EST()?'Produtos e estoque':'Produtos e preços'}</h2><div class="btns"><button class="btn" type="button" data-open="suplemento">Novo produto ou ingrediente</button>${EST()?'<button class="btn" type="button" data-open="entrada">Entrada</button>':''}</div></div>
+  ${IL.length?`<div class="panel"><h3 style="margin:0 0 6px">${EST()?'Ingredientes das misturas':'Preço dos ingredientes'}</h3>${EST()?'':'<p class="note" style="margin:0 0 6px">O preço por kg de cada ingrediente vale para todas as rações e lotes. Mudou o preço? Toque em Editar.</p>'}<div class="list">${EI.map(({g,kg,kgDia,dias,sc})=>{const pu=precoUlt(g), fim=ok(dias)?addD(today(),Math.floor(dias)):'';
+      return `<div class="item"><span class="t">${esc(g.nome)} <span class="chip">Ingrediente</span>${ok(dias)&&dias<15?' <span class="chip warn">Comprar</span>':''}</span><span class="amt ${kg<0?'neg':''}">${!EST()?(+g.precoKg>0?brl(+g.precoKg,2)+'/kg':'<span class="small neg">sem preço</span>'):sc?'<span class="small muted">sem controle</span>':kgOuT(kg)}</span>
+      <span class="meta">${!EST()?(+g.precoKg>0?'preço por kg':'digite o preço por kg em Editar'):sc?'Estoque sem controle: lance uma compra ou contagem em Entrada para começar':nf(saldo(g),1)+' '+esc(g.unidade)}${EST()?' · '+(ok(pu)?brl(pu,2)+'/kg na última compra':'preço da formulação'):''}${ok(kgDia)?` · sai ${kgOuT(kgDia)} por dia`:' · sem fornecimento nos últimos 30 dias'}</span>
       <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${dias<0?'acabou':nf(Math.max(0,dias))+' dias'}${dias>=0?'<br>até '+dBR(fim):''}</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${g.id}">Editar</button></span></div>`;}).join('')}</div>
-    <p class="note" style="margin-top:8px">Entram pela <b>Entrada</b> (compra) e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação. Os dias usam o que foi para o cocho nos últimos 30 dias: lance o fornecimento toda semana para a conta ficar certa.</p></div>`:''}
-  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), mi=mixIngs(i), kgDia=taxaDia(r.map(x=>({data:x.m.data,kg:x.kg,dias:+x.m.dias||1}))), dias=mi.length?NaN:saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
-      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${mi.length?'<span class="small muted">sai dos ingredientes</span>':nf(saldo(i),1)+' '+esc(i.unidade)}</span>
+    <p class="note" style="margin-top:8px" ${EST()?"":"hidden"}>Entram pela <b>Entrada</b> (compra) e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação. Os dias usam o que foi para o cocho nos últimos 30 dias: lance o fornecimento toda semana para a conta ficar certa.</p></div>`:''}
+  <div class="panel"><div class="list">${ps.length?ps.map(i=>{const r=rec.filter(x=>x.m.insumoId===i.id), mi=mixIngs(i), kgDia=taxaDia(r.map(x=>({data:x.m.data,kg:x.kg,dias:+x.m.dias||1}))), dias=mi.length||!EST()?NaN:saldoKg(i)/kgDia, cd=sum(r,x=>x.cd), real={g:sum(r,x=>x.kg)*1000/cd,pv:sum(r.filter(x=>ok(x.pv)),x=>x.pv*x.cd)/sum(r.filter(x=>ok(x.pv)),x=>x.cd)}, ms=metaSt(i,real), pk=precoKgIns(i);
+      return `<div class="item"><span class="t">${esc(i.nome)} <span class="chip">${esc(TSN[i.tipo]||'Suplemento')}</span></span><span class="amt">${!EST()?(ok(pk)?brl(pk,2)+'/kg':'<span class="small neg">sem preço</span>'):mi.length?'<span class="small muted">sai dos ingredientes</span>':nf(saldo(i),1)+' '+esc(i.unidade)}</span>
       <span class="meta">${mi.length?mi.map(x=>esc(x.ing.nome)+' '+nf(x.frac*100,1)+'%').join(' + ')+' · ':''}${ok(pk)?brl(pk,2)+'/kg':'sem preço'}${i.formulacaoId?' (formulação)':''} · ${metaTxt(i)}${r.length?` · últimos 30 dias: ${i.metaTipo==='g'?nf(real.g)+' g/cab/dia':pct(real.pv,2)+' PV'}`:''}${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
       <span class="act">${ok(dias)?`<span class="small ${dias<15?'neg':'muted'}">${nf(dias)} dias</span><br>`:''}<button class="btn link" type="button" data-open="suplemento" data-edit="${i.id}">Editar</button></span></div>`;}).join('')
     :'<p class="empty">Cadastre os suplementos (sal mineral, proteinado, ração) com o peso da embalagem e a meta de consumo. Eles aparecem também no estoque de insumos do Financeiro.</p>'}</div>
-    <p class="note" style="margin-top:8px">Os dias de estoque usam o consumo dos últimos 30 dias. Mistura feita na fazenda: dê <b>Entrada</b> nos ingredientes quando chegarem (ex.: 30 toneladas de DDG, 50 sacas de milho); a mistura pronta não precisa de entrada, porque sai dos ingredientes quando vai para o cocho.</p></div>
+    <p class="note" style="margin-top:8px">${EST()?'':'Ração feita na fazenda: o custo do kg sai da formulação e do preço dos ingredientes acima. Produto comprado pronto (sal, proteinado): digite o preço por kg em Editar.'}</p><p class="note" style="margin-top:8px" ${EST()?'':'hidden'}>Os dias de estoque usam o consumo dos últimos 30 dias. Mistura feita na fazenda: dê <b>Entrada</b> nos ingredientes quando chegarem (ex.: 30 toneladas de DDG, 50 sacas de milho); a mistura pronta não precisa de entrada, porque sai dos ingredientes quando vai para o cocho.</p></div>
 
   ${entryHTML('suplementacao')}
   <h2>Fornecimentos</h2>
@@ -1877,7 +1880,7 @@ function renderSupl(){
     return `<article class="card"><div class="row-head"><h3>${esc(f.nome)}</h3><span class="chip ${Math.abs(tp-100)<0.01?'':'warn'}">${nf(tp,1)}%</span></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ingrediente</th><th>%</th><th>R$/kg</th><th>R$ na mistura</th></tr></thead><tbody>
       ${ig.map(x=>{const g=ingDe(x.nome,IL), pu=g?precoUlt(g):NaN, pr=ingPreco(x,IL);
-        return `<tr><td>${esc(x.nome)}${g?`<br><span class="small muted" style="white-space:normal">sai do estoque de ${esc(g.nome)}${ok(pu)&&pu>0?' · preço da última compra':''}</span>`:''}</td><td>${nf(+x.pct,1)}</td><td>${pr?brl(pr,2):'—'}</td><td>${pr&&tp?brl(x.pct/tp*pr,3):'—'}</td></tr>`;}).join('')}
+        return `<tr><td>${esc(x.nome)}${g?`<br><span class="small muted" style="white-space:normal">${EST()?'sai do estoque de ':'preço de '}${esc(g.nome)}${ok(pu)&&pu>0?' · preço da última compra':+g.precoKg>0?' (Preço dos ingredientes)':''}</span>`:''}</td><td>${nf(+x.pct,1)}</td><td>${pr?brl(pr,2):'—'}</td><td>${pr&&tp?brl(x.pct/tp*pr,3):'—'}</td></tr>`;}).join('')}
       </tbody><tfoot><tr><td>Custo da mistura</td><td>${nf(tp,1)}</td><td></td><td>${ok(c)?brl(c,3)+'/kg':'—'}</td></tr></tfoot></table></div>
       ${semPreco?'<p class="note neg">Falta o preço por kg de algum ingrediente. Toque em Editar para preencher.</p>':`<p class="note">Saco de 30 kg: <b>${brl(c*30,2)}</b> · saco de 25 kg: <b>${brl(c*25,2)}</b></p>`}
       <div class="mixcalc"><label class="fl">Quantos kg vai misturar?<input type="number" min="0" step="1" inputmode="numeric" id="mix-${f.id}" data-mix="${f.id}" placeholder="1000"></label></div>
@@ -2066,9 +2069,9 @@ function renderFin(){
   <div class="panel">${S.desemb.length?lfHTML('custos',[...S.desemb].sort((a,b)=>a.data<b.data?1:-1).map(custoLf),[...new Set(S.desemb.map(itemOf))].map(k=>[k,ITN[k]]).sort((a,b)=>a[1]<b[1]?-1:1),'brl'):'<p class="empty">Nenhum custo lançado ainda. Use "Lançar custos do mês" para registrar tudo de uma vez.</p>'}</div>
   <p class="note">Custeio é o gasto que se consome em menos de 12 meses. Investimento dura mais de 12 meses e vira patrimônio. Compra de boi não entra aqui: registre como compra no Rebanho, ela vai para a reposição.</p>
 
-  <div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
+  ${EST()?`<div class="row-head"><h2>Estoque de insumos</h2><div class="btns"><button class="btn" type="button" data-open="insumo">Novo</button><button class="btn" type="button" data-open="saida">Saída</button><button class="btn primary" type="button" data-open="entrada">Entrada</button></div></div>
   <div class="panel"><div class="list">${S.insumos.length?[...S.insumos].sort((a,b)=>a.nome<b.nome?-1:1).map(i=>{const sd=saldo(i),min=+i.minimo||0; if(usaIng(i)) return `<div class="item"><span class="t">${esc(i.nome)}</span><span class="amt small muted">sai dos ingredientes</span><span class="meta">mistura: o estoque é o de ${mixIngs(i).map(x=>esc(x.ing.nome)).join(', ')}</span></div>`; if(ehIng(i)&&semCtrl(i)) return `<div class="item"><span class="t">${esc(i.nome)}</span><span class="amt small muted">sem controle</span><span class="meta">ingrediente sem entrada lançada: o estoque não é controlado</span><span class="act"><button class="btn del" type="button" data-del="${COL.insumos}:${i.id}">Excluir</button></span></div>`; return `<div class="item"><span class="t">${esc(i.nome)} ${sd<=min?'<span class="chip warn">Repor</span>':''}</span><span class="amt ${sd<=min?'neg':''}">${nf(sd,1)} ${esc(i.unidade)}</span><span class="meta">mínimo ${nf(min,1)} ${esc(i.unidade)}</span><span class="act"><button class="btn del" type="button" data-del="${COL.insumos}:${i.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Cadastre os insumos que você controla, como sal mineral, proteinado, vacinas e diesel.</p>'}</div>
-    <p class="note" style="margin-top:8px">Valor do estoque hoje: ${brl(estoqueValor(today()))}. A variação entra no resultado da operação.</p></div>
+    <p class="note" style="margin-top:8px">Valor do estoque hoje: ${brl(estoqueValor(today()))}. A variação entra no resultado da operação.</p></div>`:''}
 `; lfAplica('custos');
 }
 const ICO={
@@ -2226,8 +2229,8 @@ function hojeItens(){ const h=today(), am=addD(h,1), A=[], last=lastFech();
   contasAbertas().filter(c=>c.venc<=am).forEach(c=>A.push({ic:'caixa',cls:c.venc<=h?'warn':'',t:esc(c.descricao)+' · '+brl(+c.valor,2),s:(c.venc<h?'conta vencida em '+dBR(c.venc):c.venc===h?'conta vence hoje':'conta vence amanhã')+retTxt(c),btn:`<button class="btn" type="button" data-pagar="${esc(c.id)}">Paguei</button>`}));
   cochoAtrasado().forEach(({m,fim})=>{ const p=S.insumos.find(i=>i.id===m.insumoId); A.push({ic:'alerta',cls:'warn',t:'Cocho sem lançamento: '+esc(m.lote||FN[m.fase]||'lote'),s:esc(p?p.nome:'Suplemento')+' · o último fornecimento acabou em '+dBR(fim),attr:'data-tab="suplementacao"'}); });
   (S.config.lembretes||[]).filter(x=>x.data===h||(!x.enviado&&x.data<h)).sort((a,b)=>a.data<b.data?-1:1).forEach(x=>A.push({ic:'cal',cls:x.data<h?'warn':'',t:esc(x.texto),s:x.data<h?'lembrete atrasado, era para '+dBR(x.data):'lembrete de hoje',attr:'data-tab="notas"'}));
-  ingrs().map(estIng).filter(e=>ok(e.dias)&&e.dias<15).forEach(e=>A.push({ic:'alerta',cls:'warn',t:esc(e.g.nome)+(e.dias<=0?' acabou':' acaba em ~'+nf(e.dias)+' dias'),s:kgOuT(Math.max(0,e.kg))+' no estoque · sai '+kgOuT(e.kgDia)+' por dia',attr:'data-tab="suplementacao"'}));
-  S.insumos.filter(i=>!usaIng(i)&&!ehIng(i)&&saldo(i)<=(+i.minimo||0)).slice(0,3).forEach(i=>A.push({ic:'alerta',cls:'warn',t:'Repor: '+esc(i.nome),s:nf(saldo(i),1)+' '+esc(i.unidade)+' em estoque',attr:'data-tab="suplementacao"'}));
+  if(EST()) ingrs().map(estIng).filter(e=>ok(e.dias)&&e.dias<15).forEach(e=>A.push({ic:'alerta',cls:'warn',t:esc(e.g.nome)+(e.dias<=0?' acabou':' acaba em ~'+nf(e.dias)+' dias'),s:kgOuT(Math.max(0,e.kg))+' no estoque · sai '+kgOuT(e.kgDia)+' por dia',attr:'data-tab="suplementacao"'}));
+  if(EST()) S.insumos.filter(i=>!usaIng(i)&&!ehIng(i)&&saldo(i)<=(+i.minimo||0)).slice(0,3).forEach(i=>A.push({ic:'alerta',cls:'warn',t:'Repor: '+esc(i.nome),s:nf(saldo(i),1)+' '+esc(i.unidade)+' em estoque',attr:'data-tab="suplementacao"'}));
   metasFora().forEach(x=>A.push({ic:'alvo',cls:'warn',t:'Meta fora do rumo: '+esc(x.nome),s:x.v+' · sua meta '+x.meta+(x.fase!=='total'?' · '+FN[x.fase]:'')+' · últimos 12 meses',attr:'data-tab="relatorios"'}));
   if(!last) A.push({ic:'cal',cls:'warn',t:'Fazer o primeiro fechamento',s:'Cabeças e peso por categoria',attr:'data-open="fechamento"'});
   else { const prox=addM(last.mes,1); if(prox<ym(h)||(prox===ym(h)&&+h.slice(8)>=25)) A.push({ic:'cal',cls:'warn',t:'Fechamento de '+mLabel(prox)+(prox<ym(h)?' pendente':' já pode ser feito'),s:'Último fechamento: '+mLabel(last.mes),attr:`data-open="fechamento" data-mes="${prox}"`}); }
@@ -2402,7 +2405,7 @@ const FORMS={
     <div class="grid2">${fld('Cabeças no cocho','cab','number','min="1" step="1" required',last?fCab(last,cs)||'':'')}${fld('Peso médio (kg)','peso','number','step="any" min="0"',last&&fCab(last,cs)?Math.round(fKg(last,cs)/fCab(last,cs)):'')}</div>
     <div class="calc" id="calc">Preencha para ver o consumo.</div>`;}},
   suplemento:{t:'Produto ou ingrediente',d:'Suplemento do cocho ou ingrediente da mistura',html:o=>{const i=S.insumos.find(x=>x.id===o.edit)||{metaTipo:'pv'};
-    return `${fld('Nome','nome','text','required placeholder="Ex.: Proteinado águas"',i.nome)}<div class="grid2">${sel('Tipo','tipo',TIPOS_PROD,i.tipo||'proteinado')}${fld('Embalagem','unidade','text','required placeholder="saco"',i.unidade||'saco')}${fld('Kg por embalagem','kgUn','number','step="any" min="0.01" required',i.kgUn||30)}${fld('Estoque mínimo (embalagens)','minimo','number','step="any" min="0"',i.minimo??0)}</div>
+    return `${fld('Nome','nome','text','required placeholder="Ex.: Proteinado águas"',i.nome)}<div class="grid2">${sel('Tipo','tipo',TIPOS_PROD,i.tipo||'proteinado')}${fld('Embalagem','unidade','text','required placeholder="saco"',i.unidade||'saco')}${fld('Kg por embalagem','kgUn','number','step="any" min="0.01" required',i.kgUn||30)}${EST()?fld('Estoque mínimo (embalagens)','minimo','number','step="any" min="0"',i.minimo??0):''}${fld('Preço por 1 kg (R$/kg)','precoKg','number','step="0.0001" min="0" placeholder="Ex.: 1,28"',i.precoKg||'')}</div><p class="note">Preço de 1 quilo, não o do saco ou da tonelada. Mistura feita na fazenda com formulação: o preço sai da formulação e este campo fica sem uso.</p>
     <p class="note" id="ingNota" ${ehIng(i)?'':'hidden'}>Ingrediente comprado por tonelada: embalagem <b>tonelada</b> e <b>1000</b> kg. Por saca de 60 kg: <b>saca</b> e <b>60</b>. O nome deve ser o mesmo usado na formulação (ex.: DDG, Milho moído, Núcleo mineral).</p>
     <div id="naoIng" ${ehIng(i)?'hidden':''}>${sel('Formulação própria (opcional)','formulacaoId',[['','Produto comprado pronto'],...S.form.map(f=>[f.id,f.nome])],i.formulacaoId||'')}
     <fieldset><legend>Meta de consumo</legend>${sel('Medida','metaTipo',[['pv','% do peso vivo'],['g','gramas por cabeça ao dia']],i.metaTipo||'pv')}<div class="grid2">${fld('Mínimo','metaMin','number','step="any" min="0"',i.metaMin)}${fld('Máximo','metaMax','number','step="any" min="0"',i.metaMax)}</div>
@@ -2422,7 +2425,7 @@ const FORMS={
       <datalist id="pv-opc">${PV_OPC.map(x=>`<option value="${x}">`).join('')}</datalist>
       <div class="btns" style="margin:4px 0">${PV_OPC.map(x=>`<button class="btn" type="button" onclick="this.form.consumoPV.value='${x}'">${nf(x,1)}%</button>`).join('')}</div>
       ${fld('Nutrição digitada (R$/cab/dia), só se não usar formulação','nutricaoDia','number',num,l.nutricaoDia)}
-      <p class="note">O app calcula o kg da ração pela formulação (preço da última compra de cada ingrediente em Suplementação → Entrada, ou o preço digitado na formulação) e o consumo pelo peso atual do lote (última pesagem com o mesmo nome do lote).</p></fieldset>
+      <p class="note">O app calcula o kg da ração pela formulação (preço por kg de cada ingrediente em Suplementação → Preço dos ingredientes) e o consumo pelo peso atual do lote (última pesagem com o mesmo nome do lote).</p></fieldset>
     <fieldset><legend>Custos operacionais</legend><div class="grid2">${fld('Mão de obra do lote (R$/mês)','maoMes','number',num,l.maoMes)}${fld('Outros operacionais (R$/cab/dia)','operacionalDia','number',num,l.operacionalDia)}</div>
       <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="somaPasto" ${(l.id?l.somaPasto:true)?'checked':''} style="width:auto"> Somar o custo do pasto (${brl(custoPasto(),2)}/cab/mês, de Ajustes)</label>
       <p class="note">Outros: sal, vacina, frete, combustível, impostos... Lotes antigos sem formulação, mão de obra e pasto continuam com a diária digitada.</p></fieldset>
@@ -2449,7 +2452,7 @@ function repeteMes(){ const f=$('#frm'); if(!f||f.dataset.kind!=='custosMes') re
     f['o_'+it].value=ks[0]; if(ks.length>1) div.push(nm+' ('+ks.map(k=>ondeTxt(parseOnde(k)).replace(' (rateado)','')+' '+brl(por[k])).join(' + ')+')'); n++; });
   const nota=$('#repeteNota'); nota.hidden=!div.length; nota.innerHTML=div.length?'Em '+mLabel(prev)+' estes custos foram divididos entre setores e aqui ficaram somados num só: <b>'+esc(div.join('; '))+'</b>. Para manter a divisão, apague o valor aqui e lance cada parte em "Um custo".':'';
   DIRTY=true; f.dispatchEvent(new Event('input',{bubbles:true})); toast(n+' custos copiados de '+mLabel(prev)+'. Confira e salve.'); }
-function entryHTML(tab){const ks=ENTRY[tab]; if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab], ed=!!(UI.eo&&UI.eo.edit);
+function entryHTML(tab){const ks=ENTRY[tab].filter(k=>EST()||(k!=='entrada'&&k!=='saida')); if(!ks.includes(UI.entry[tab])) UI.entry[tab]=ks[0]; const cur=UI.entry[tab], ed=!!(UI.eo&&UI.eo.edit);
   return `<div class="panel entry${ed?' editando':''}" id="entry"><div class="row-head"><h2>${ed?'Editar':'Lançar'}</h2><span class="small muted">${esc(FORMS[cur].d)}</span></div>
   <div class="seg" role="group" aria-label="O que lançar">${ks.map(k=>`<button type="button" data-entry="${k}" aria-pressed="${k===cur}">${ENTRY_T[k]}</button>`).join('')}</div><div id="entrySlot"></div></div>`;}
 /* retiro de cada lançamento: na tela de um retiro já vem escolhido; na fazenda toda fica "Fazenda toda (geral)", de nenhum retiro */
@@ -2774,7 +2777,7 @@ function renderInicio(){
   <div class="row-head"><h2>Lançar</h2><span class="small muted">toque e preencha na própria tela</span></div>
   <div class="tools">${toolCard('cifra','Custos do mês','Vários gastos de uma vez','custos:custosMes')}${toolCard('caixa','Um custo','Peão, diesel, vacina…','custos:desembolso')}
     ${toolCard('boi','Fechamento do mês','Cabeças e peso por categoria','rebanho:fechamento')}${toolCard('ua','Movimento do rebanho','Nascer, comprar, vender, morrer','rebanho:movimento')}
-    ${toolCard('caixa','Fornecimento no cocho','Suplemento por fase ou lote','suplementacao:fornecimento')}${toolCard('pasto','Entrada de insumo','Compra para o estoque','suplementacao:entrada')}
+    ${toolCard('caixa','Fornecimento no cocho','Suplemento por fase ou lote','suplementacao:fornecimento')}${EST()?toolCard('pasto','Entrada de insumo','Compra para o estoque','suplementacao:entrada'):''}
     ${toolCard('boi','Novo lote de engorda','Entrada no confinamento ou TIP','engorda:lote')}${toolCard('cal','Estação de monta','Prenhez, nascimento, desmame','cria:estacao')}
     ${toolCard('nota','Bloco de notas','Anotações de '+MESF[+today().slice(5,7)-1],'notas')}</div>
   <div class="row-head" style="margin-top:22px"><h2>Calculadoras</h2></div>
@@ -2915,7 +2918,7 @@ async function submitForm(f){
     if(!i) throw {code:'form',msg:'Escolha o produto.'};
     await add(COL.emovs,{tipo:'entrada',insumoId:i.id,data:v.data,qtd:N(v.qtd),valor:N(v.valor)||0,obs:v.obs||''}); if(v.lancar&&N(v.valor)>0) await add(COL.desemb,{data:v.data,valor:N(v.valor),grupo:i?.grupo||'nutricao',item:GRUPO_ITEM[i?.grupo||'nutricao']||'outros',tipo:'custeio',...parseOnde(v.onde),descricao:`${nf(N(v.qtd),1)} ${i?.unidade||''} de ${i?.nome||'insumo'}`}); }
   if(k==='fornecimento') await add(COL.emovs,{tipo:'saida',fornecimento:true,insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),dias:N(v.dias),fase:v.fase,lote:v.lote||'',cab:N(v.cab),peso:N(v.peso)||0,obs:''});
-  if(k==='suplemento'){ const d={nome:v.nome,tipo:v.tipo,unidade:v.unidade,kgUn:N(v.kgUn)||1,minimo:N(v.minimo)||0,grupo:'nutricao',formulacaoId:v.formulacaoId||'',metaTipo:v.metaTipo,metaMin:N(v.metaMin)||0,metaMax:N(v.metaMax)||0};
+  if(k==='suplemento'){ const d={nome:v.nome,tipo:v.tipo,unidade:v.unidade,kgUn:N(v.kgUn)||1,minimo:N(v.minimo)||0,precoKg:N(v.precoKg)||0,grupo:'nutricao',formulacaoId:v.formulacaoId||'',metaTipo:v.metaTipo,metaMin:N(v.metaMin)||0,metaMax:N(v.metaMax)||0};
     if(ed) await db.doc(COL.insumos+'/'+ed).update({...d,...rv}); else await add(COL.insumos,d); }
   if(k==='formulacao'){ const ingredientes=[]; for(let n=0;n<6;n++){ if(v['in_'+n]||N(v['ip_'+n])) ingredientes.push({nome:v['in_'+n]||'',pct:N(v['ip_'+n])||0,preco:N(v['iv_'+n])||0}); }
     const d={nome:v.nome,ingredientes,tipo:v.tipo};
@@ -3169,7 +3172,7 @@ document.addEventListener('submit',async e=>{ e.preventDefault(); const f=e.targ
     const nmF=f.nome.value.trim()||FAZ, nmU=f.usuario.value.trim();
     /* com sócios, o nome de cada um fica no cadastro dele (o config é da fazenda, igual para todos) */
     if(FID){ try{ await sb.from('membros').update({nome:nmU||null}).eq('fazenda_id',FID).eq('user_id',UID); await sb.from('fazendas').update({nome:nmF}).eq('id',FID); carregaSocios(); }catch(e){} }
-    try{ await db.doc('config/geral').update({nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,custoPasto:f.custoPasto&&f.custoPasto.value!==''?Number(f.custoPasto.value):50,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),inicioRebanho:(f.inicioRebanho&&f.inicioRebanho.value)||"",precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
+    try{ await db.doc('config/geral').update({estoque:!!(f.estoque&&f.estoque.checked),nome:nmF,...(FID?{}:{usuario:nmU||'Dr. Higor'}),area:Number(f.area.value)||0,kgArroba:Number(f.kgArroba.value)||30,custoPasto:f.custoPasto&&f.custoPasto.value!==''?Number(f.custoPasto.value):50,safraMes:Number(f.safraMes.value)||7,selic:Number(f.selic.value)||0,selicAuto:!!(f.selicAuto&&f.selicAuto.checked),inicioRebanho:(f.inicioRebanho&&f.inicioRebanho.value)||"",precos,fases,areaFase,retiros:retirosN,sede:sedeN,exemplo:false}); toast('Ajustes salvos'); }catch(err){dbErr(err);} return; }
   if(f.id==='frm'){ const btn=f.querySelector('[type=submit]'); btn.disabled=true; btn.textContent='Salvando…';
     try{ await submitForm(f); const fm=f.dataset.kind==='fechamento'&&f.mes?f.mes.value:''; /* fechamento: continua no mesmo mês para a próxima etapa da contagem */
       if(f.dataset.inline){DIRTY=false; UI.eo=fm?{mes:fm}:{}; document.activeElement?.blur(); render();} else closeSheet(); toast(fm?'Fechamento de '+mLabel(fm)+' salvo':f.dataset.edit?'Alterações salvas':'Registrado'); }catch(err){btn.disabled=false;btn.textContent=err?.dup?'Lançar mesmo assim':'Salvar';dbErr(err);} }

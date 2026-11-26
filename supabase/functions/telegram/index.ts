@@ -1500,7 +1500,7 @@ export async function avisosDiarios(d: Deps) {
     let ingAv: any[] = [], cochoAv: any[] = [];
     if (ins.some((i: any) => i.grupo === "nutricao")) {
       const [em, fo] = await Promise.all([todosId(d, "estoque_movs", c.fazenda_id), todosId(d, "formulacoes", c.fazenda_id)]);
-      if (ins.some((i: any) => i.tipo === "ingrediente")) ingAv = ingParaAvisar(estoqueIngredientes(ins, em, fo, hoje), D.avisoIng || {});
+      if (D.estoque && ins.some((i: any) => i.tipo === "ingrediente")) ingAv = ingParaAvisar(estoqueIngredientes(ins, em, fo, hoje), D.avisoIng || {});
       cochoAv = cochoAtrasados(ins, em, hoje, D.avisoCocho || {});
     }
     // metas da fazenda fora do rumo: o app calcula (últimos 12 meses) e guarda em metasSit; avisa só as que acabaram de sair do rumo
