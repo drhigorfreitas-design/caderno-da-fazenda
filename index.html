@@ -1750,6 +1750,8 @@ const saldoKg=i=>saldo(i)*kgUn(i);
 const ehIng=i=>i?.tipo==='ingrediente';
 /* produtos do celeiro que a Entrada oferece mesmo antes de cadastrar (o cadastro é feito na primeira entrada) */
 const CELEIRO=[['DDG','tonelada'],['Milho moído (fubá)','tonelada'],['Milho em grão','saca60'],['Caroço de algodão','tonelada'],['Núcleo mineral','saco30'],['Farelo de soja','tonelada'],['Ureia pecuária','saco50']];
+/* entrada: o usuário digita o preço pago por kg; o app grava o total da compra (preço/kg × kg) */
+const entTotal=(pkg,q,kgu)=>pkg*q*(kgu||1);
 const UNID_ENT={tonelada:['tonelada',1000,'Tonelada (1.000 kg)'],saca60:['saca',60,'Saca de 60 kg'],saco50:['saco',50,'Saco de 50 kg'],saco30:['saco',30,'Saco de 30 kg'],saco25:['saco',25,'Saco de 25 kg'],kg:['kg',1,'Quilo (kg)']};
 const ingrs=()=>supl().filter(ehIng);
 const normIng=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\([^)]*\)/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
@@ -2383,7 +2385,7 @@ const FORMS={
   entrada:{t:'Entrada de insumo',d:'Compra para o estoque ou chegada no celeiro',html:()=>{ const novos=CELEIRO.filter(([n])=>!S.insumos.some(i=>normIng(i.nome)===normIng(n))).map(([n])=>['novo:'+n,n+' (novo no celeiro)']);
     return `${sel('Produto','insumoId',[...[...S.insumos].sort((a,b)=>a.nome<b.nome?-1:1).map(i=>[i.id,i.nome+' ('+i.unidade+')']),...novos,['novo:','Outro produto (digite o nome)']])}
     <div id="novoProd" hidden><div class="grid2">${fld('Nome do produto','novoNome','text','placeholder="Ex.: Casca de soja"')}${sel('Vem em','novoUn',Object.entries(UNID_ENT).map(([k,u])=>[k,u[2]]),'tonelada')}</div><p class="note">O produto fica cadastrado no celeiro como ingrediente da mistura (aba Suplementação → Produtos e estoque). Ele baixa sozinho quando a mistura vai para o cocho, se o nome for o mesmo usado na formulação (ex.: DDG, Milho moído, Núcleo mineral).</p></div>
-    <div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade <span id="entUn" class="small muted"></span>','qtd','number','step="any" min="0.01" required')}</div><div class="calc" id="entKg"></div>${fld('Valor pago (R$), se houver','valor','number','step="0.01" min="0"')}${fld('Observação','obs','text')}<label class="ck"><input type="checkbox" id="f-lancar" name="lancar" checked> Lançar também como custo</label>${sel('Onde entra o custo','onde',ondeOpts(),'geral')}`;}},
+    <div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade <span id="entUn" class="small muted"></span>','qtd','number','step="any" min="0.01" required')}</div><div class="calc" id="entKg"></div>${fld('Preço pago por 1 kg (R$/kg), se houver','valor','number','step="0.0001" min="0" placeholder="Ex.: 1,28"')}<p class="note" style="margin:-4px 0 6px">Digite o preço de <b>1 quilo</b>, não o total nem o preço da tonelada ou do saco. Ex.: DDG a R$ 1.280 a tonelada → digite <b>1,28</b>. Saco de 30 kg a R$ 118,80 → digite <b>3,96</b>.</p><div class="calc" id="entVal"></div>${fld('Observação','obs','text')}<label class="ck"><input type="checkbox" id="f-lancar" name="lancar" checked> Lançar também como custo</label>${sel('Onde entra o custo','onde',ondeOpts(),'geral')}`;}},
   saida:{t:'Saída de insumo',d:'Uso no rebanho',need:()=>S.insumos.length>0||'Cadastre um insumo antes.',html:()=>`${sel('Insumo','insumoId',S.insumos.map(i=>[i.id,i.nome+' ('+i.unidade+')']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Quantidade','qtd','number','step="any" min="0.01" required')}</div>${fld('Observação','obs','text')}`},
   fornecimento:{t:'Fornecimento no cocho',d:'Suplemento por fase ou lote',need:()=>supl().some(i=>!ehIng(i))||'Cadastre a mistura ou o suplemento antes (aba Suplementação, Novo produto).',html:()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)==='recria');
     return `${sel('Suplemento','insumoId',supl().filter(i=>!ehIng(i)).map(i=>[i.id,i.nome+' ('+i.unidade+', '+nf(kgUn(i))+' kg)']))}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Dias que a quantidade cobre','dias','number','min="1" step="1" required','7')}</div>
@@ -2815,8 +2817,10 @@ function wireForm(k,o,inline){
       if(nv&&f.novoNome.dataset.de!==v){ f.novoNome.dataset.de=v; f.novoNome.value=v.slice(5); const c=CELEIRO.find(([n])=>n===v.slice(5)); f.novoUn.value=c?c[1]:'tonelada'; }
       const i=nv?null:S.insumos.find(x=>x.id===v), u=nv?UNID_ENT[f.novoUn.value]:[i?.unidade||'',kgUn(i)], q=+f.qtd.value||0;
       f.querySelector('#entUn').textContent=u[0]?'('+u[0]+(u[0]!=='kg'?'s':'')+')':'';
-      f.querySelector('#entKg').textContent=q&&u[1]>1?nf(q,2)+' '+u[0]+(q>1?'s':'')+' = '+nf(q*u[1])+' kg':''; };
-    f.insumoId.addEventListener('change',sync); f.novoUn.addEventListener('change',sync); f.qtd.addEventListener('input',sync); sync(); }
+      f.querySelector('#entKg').textContent=q&&u[1]>1?nf(q,2)+' '+u[0]+(q>1?'s':'')+' = '+nf(q*u[1])+' kg':'';
+      const vv=+f.valor.value||0, tot=entTotal(vv,q,u[1]);
+      f.querySelector('#entVal').innerHTML=vv&&q?brl(vv,2)+' por kg × '+nf(q*u[1])+' kg = <b>total da compra '+brl(tot,2)+'</b>'+(u[1]>1?' ('+brl(tot/q,2)+' por '+esc(u[0])+')':''):''; };
+    f.insumoId.addEventListener('change',sync); f.novoUn.addEventListener('change',sync); f.qtd.addEventListener('input',sync); f.valor.addEventListener('input',sync); sync(); }
   if(k==='suplemento') f.tipo.addEventListener('change',()=>{const ig=f.tipo.value==='ingrediente'; $('#naoIng').hidden=ig; $('#ingNota').hidden=!ig;
     if(ig){ if(f.unidade.value==='saco'&&+f.kgUn.value===30){ f.unidade.value='tonelada'; f.kgUn.value=1000; } f.formulacaoId.value=''; f.metaMin.value=''; f.metaMax.value=''; }
     const r=SUP_REF[f.tipo.value]; if(r?.consumo){f.metaTipo.value='pv'; f.metaMin.value=r.consumo[0]; f.metaMax.value=r.consumo[1];}});
@@ -2892,7 +2896,9 @@ async function submitForm(f){
     for(const [it] of ITENS){ const val=N(v['v_'+it]); lembraOnde(it,v['o_'+it]); if(val>0){ await add(COL.desemb,{data:dt,valor:val,item:it,grupo:ITG[it],tipo:'custeio',descricao:'',...parseOnde(v['o_'+it]),rebanho:v.rebanho||''}); n++; } }
     if(!n) throw {code:'form',msg:'Preencha o valor de pelo menos um custo.'}; }
   if(k==='insumo') await add(COL.insumos,{nome:v.nome,unidade:v.unidade,minimo:N(v.minimo)||0,grupo:v.grupo});
-  if(k==='entrada'){ if(v.lancar&&N(v.valor)>0) checaDup(f,N(v.valor),v.data); let i=S.insumos.find(x=>x.id===v.insumoId);
+  if(k==='entrada'){ let i=S.insumos.find(x=>x.id===v.insumoId);
+    { const nv=String(v.insumoId).startsWith('novo:'), kgu=nv?(UNID_ENT[v.novoUn]||UNID_ENT.tonelada)[1]:kgUn(i); v.valor=N(v.valor)>0?Math.round(entTotal(N(v.valor),N(v.qtd),kgu)*100)/100:0; }
+    if(v.lancar&&N(v.valor)>0) checaDup(f,N(v.valor),v.data);
     /* produto novo no celeiro: cadastra como ingrediente da mistura na hora da entrada */
     if(String(v.insumoId).startsWith('novo:')){ const nome=String(v.novoNome||'').trim(); if(!nome) throw {code:'form',msg:'Digite o nome do produto.'};
       i=S.insumos.find(x=>normIng(x.nome)===normIng(nome));
