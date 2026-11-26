@@ -662,7 +662,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       cochos.push({ id: `${base}-f${cochos.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, insumo_id: p.id, data, tipo: "saida", qtd, valor: null, fase, dados });
       const g = kg * 1000 / (cab * dd), pv = peso ? kg / (cab * dd) / peso * 100 : NaN;
       txt.push(`🥣 <b>Cocho</b> · ${esc(p.nome)} · ${kgOuT(kg)} · ${esc(lote || ONDE[fase])}${lote ? " · " + ONDE[fase] : ""} · ${nfBR(cab)} cab.${peso ? " de " + nfBR(peso) + " kg" : ""} × ${dd} dias` +
-        `\n   <b>${nfBR(Math.round(g))} g/cab/dia</b>${Number.isFinite(pv) ? ` = ${pv.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% do peso vivo` : ""} · ${dBR(data)}${tagRet(rets, r)}`);
+        `\n   <b>${(g / 1000).toLocaleString("pt-BR", { minimumFractionDigits: g < 1000 ? 3 : 2, maximumFractionDigits: g < 1000 ? 3 : 2 })} kg/cab/dia</b>${Number.isFinite(pv) ? ` = ${pv.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% do peso vivo` : ""} · ${dBR(data)}${tagRet(rets, r)}`);
     }
   }
 
