@@ -1974,10 +1974,18 @@ function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>!retiros().length|
   return {p,arr,T,fases,temCocho,semPreco,gmd:gmdPesParte(p.id,mes)}; }
 /* diária FIXA da fazenda toda no mês (todos os gastos menos ração + pasto, ÷ cabeças ÷ dias), igual à linha "Fazenda toda" de Indicadores → Diária */
 let DFZ={k:null,m:{}};
-function diariaFixaFaz(mes){ const k=[RAW.desemb,RAW.fech,RAW.movs,RAW.emovs,S.config]; if(!DFZ.k||DFZ.k.some((x,i)=>x!==k[i])) DFZ={k,m:{}};
+function diariaFaz(mes){ const k=[RAW.desemb,RAW.fech,RAW.movs,RAW.emovs,S.config]; if(!DFZ.k||DFZ.k.some((x,i)=>x!==k[i])) DFZ={k,m:{}};
   if(mes in DFZ.m) return DFZ.m[mes];
-  const L=(partes().length?partes():[{id:SEDE,nome:'Fazenda'}]).map(p=>diariaParte(p,mes).T).filter(x=>x.cab>0||x.custo>0), cab=sum(L,x=>x.cab), dias=L[0]?.dias||diasMes(mes);
-  return DFZ.m[mes]=cab>0?sum(L,x=>x.fix)/cab/dias:NaN; }
+  const L=(partes().length?partes():[{id:SEDE,nome:'Fazenda'}]).map(p=>diariaParte(p,mes).T).filter(x=>x.cab>0||x.custo>0), cab=sum(L,x=>x.cab), dias=L[0]?.dias||diasMes(mes), q=v=>cab>0?v/cab/dias:NaN;
+  const fix=sum(L,x=>x.fix), supl=sum(L,x=>x.supl);
+  return DFZ.m[mes]={cab,dias,d:q(fix+supl),df:q(fix),ds:q(supl)}; }
+const diariaFixaFaz=mes=>diariaFaz(mes).df;
+/* cartão no topo de Custos: diária da fazenda toda, como uma cotação */
+function diariaCard(){ const h=today(), m=ym(h), a=addM(m,-1), A=diariaFaz(m), B=diariaFaz(a), v=ok(A.d)&&ok(B.d)&&B.d>0?(A.d/B.d-1)*100:NaN;
+  const c=(l,val,s,cls)=>`<div class="bgi-c"><span class="l">${l}</span><b class="num">${ok(val)?brl(val,2):'—'}</b><span class="s ${cls||'muted'}">${s}</span></div>`;
+  return `<div class="panel bgi"><div class="row-head"><h2>Diária da fazenda toda</h2><span class="small muted">por cabeça por dia · atualizada com os lançamentos</span></div>
+  <div class="bgi-g">${c(mLabel(m)+' até hoje',A.d,ok(v)?(v>0?'▲':'▼')+' '+nf(Math.abs(v),1)+'% vs '+mLabel(a):'total',ok(v)?(v>0?'neg':'pos'):'')}${c('Fixo',A.df,'gastos + pasto')}${c('Ração/supl.',A.ds,'cocho')}${c(mLabel(a),B.d,'mês fechado')}</div>
+  <p class="note" style="margin-top:8px">${A.cab>0?`${nf(A.cab)} cabeças médias · ${brl(A.d*30,2)} por cabeça/mês · ${+BGI.spot>0&&ok(A.d)?pct(A.d*30/BGI.spot*100,1)+' da @ por mês':''}`:'Sem fechamento do rebanho neste mês: a diária aparece quando houver cabeças.'} Fixo = todos os gastos de Custos menos ração, mais o pasto. É o operacional usado nos lotes de engorda.</p></div>`; }
 /* média da diária fixa da fazenda nos meses do lote, ponderada pelos dias do lote em cada mês */
 function opFazLote(l){ const a=l.dataEntrada, b=l.dataSaida||today(); if(!a||b<a) return {d:NaN,meses:[]};
   const M=[]; for(let m=ym(a); m<=ym(b); m=addM(m,1)){ const i=m+'-01'>a?m+'-01':a, f=mEnd(m)<b?mEnd(m):b, dd=days(i,f)+1, v=diariaFixaFaz(m); M.push({m,dd,v}); }
@@ -2046,6 +2054,7 @@ function renderFin(){
   const kp=(l,v,sub)=>`<div class="kpi"><span class="l">${l}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
   $('#v-custos').innerHTML=`
   <div class="page-title"><h2>Custos</h2><button class="btn" type="button" data-lf-ir="custos">🔎 Procurar lançamento</button></div>
+  ${diariaCard()}
   ${entryHTML('custos')}
   ${segPer()}${janelaTxt(J)}
   ${diariaHTML()}
