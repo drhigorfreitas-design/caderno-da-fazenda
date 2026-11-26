@@ -1949,7 +1949,7 @@ function porRetiroHTML(J){ if(UI.ret||!retiros().length) return '';
    Parte/mês sem fornecimento lançado: ficam as compras de nutrição, como antes. */
 const custoPasto=()=>S.config.custoPasto==null||S.config.custoPasto===''?50:+S.config.custoPasto||0;
 const diasMes=m=>+mEnd(m).slice(8,10);
-function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>!retiros().length||daParte(p.id,x)), M=retiros().length?movsDaParte(RAW.movs||[],p.id):(RAW.movs||[]);
+function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>(!retiros().length||daParte(p.id,x))&&fechOk(x)), M=retiros().length?movsDaParte(RAW.movs||[],p.id):(RAW.movs||[]);
   const fim=prefillFech(mes,F,M), ini=prefillFech(addM(mes,-1),F,M), arr=ehArr(p.id), hoje=today();
   const dias=ym(hoje)===mes?+hoje.slice(8,10):diasMes(mes);
   const de0=(RAW.desemb||[]).filter(x=>(!retiros().length||daParte(p.id,x))&&ym(x.data)===mes&&x.tipo!=='investimento');
