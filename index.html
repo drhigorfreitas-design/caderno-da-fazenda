@@ -1446,15 +1446,17 @@ const DM=365/12, PV_OPC=[0.3,0.7,1,1.5,2];
 function pesLote(l){ const nm=String(l.nome||'').trim().toLowerCase(); return (S.config.pesagens||[]).filter(p=>String(p.lote||'').trim().toLowerCase()===nm&&+p.peso>0&&p.data>=(l.dataEntrada||'')&&(!l.dataSaida||p.data<=l.dataSaida)).sort((a,b)=>a.data<b.data?-1:1); }
 function nutLote(l,dias){ const n=k=>Number(l[k])||0, pe=n('pesoEntrada'), cab=n('cab')||1;
   const fo=l.formulacaoId?S.form.find(f=>f.id===l.formulacaoId):null, pv=n('consumoPV');
-  const auto=!!(fo||pv||n('maoMes')||l.somaPasto);
+  const auto=!!(fo||pv||n('maoMes')||l.somaPasto||l.opFaz);
   const P=pesLote(l), up=P[P.length-1], saiu=!!(l.dataSaida&&n('pesoSaida'));
   const pAt=saiu?n('pesoSaida'):up?+up.peso:pe, pMed=(pe+pAt)/2;
   const pk=fo?formCost(fo):NaN, semPreco=!!fo&&!(pk>0), pkU=pk>0?pk:0;
   const kgCab=pv/100*pAt, nutDia=kgCab*pkU, nutMed=pv/100*pMed*pkU;
-  const maoDia=n('maoMes')/DM/cab, outDia=n('operacionalDia'), pastoDia=l.somaPasto?custoPasto()/DM:0;
+  const OF=l.opFaz?opFazLote(l):null, fazDia=OF&&ok(OF.d)?OF.d:0;
+  /* operacional pela diária da fazenda: já inclui mão de obra, outros gastos e pasto, então os digitados no lote não entram */
+  const maoDia=OF?0:n('maoMes')/DM/cab, outDia=OF?0:n('operacionalDia'), pastoDia=!OF&&l.somaPasto?custoPasto()/DM:0;
   const gmdPes=up&&!saiu?(+up.peso-pe)/Math.max(1,days(l.dataEntrada,up.data)):NaN;
-  return {auto,fo,pv,pk,semPreco,pAt,pMed,up,kgCab,kgLote:kgCab*cab,nutDia,nutMed,maoDia,outDia,pastoDia,gmdPes,
-    diaria:nutDia+maoDia+outDia+pastoDia, diariaMed:nutMed+maoDia+outDia+pastoDia}; }
+  return {auto,fo,pv,pk,semPreco,pAt,pMed,up,kgCab,kgLote:kgCab*cab,nutDia,nutMed,maoDia,outDia,pastoDia,OF,fazDia,gmdPes,
+    diaria:nutDia+maoDia+outDia+pastoDia+fazDia, diariaMed:nutMed+maoDia+outDia+pastoDia+fazDia}; }
 /* ração que foi de fato para o cocho do lote (fornecimentos com o mesmo nome do lote, entre entrada e saída/hoje) */
 function cochoDoLote(l){ const k=loteK(l.nome), a=l.dataEntrada||'', b=l.dataSaida||today();
   const F=k?S.emovs.filter(m=>m.fornecimento&&loteK(m.lote)===k&&m.data&&m.data>=a&&m.data<=b).map(fornCalc):[];
@@ -1464,7 +1466,7 @@ function indLote(l){
   const n=k=>Number(l[k])||0, dias=l.dataSaida?days(l.dataEntrada,l.dataSaida):days(l.dataEntrada,today());
   const pe=n('pesoEntrada'), ps=n('pesoSaida'), carc=n('carcaca')||(ps?ps*.5:0), saiu=!!(l.dataSaida&&ps);
   const NL=nutLote(l,dias), CL=cochoDoLote(l), gmd=(ps-pe)/dias, ganhoCarc=(carc-pe*.5)/dias, diaria=NL.auto?NL.diaria:n('nutricaoDia')+n('operacionalDia');
-  const arrProd=(carc-pe*.5)/15, arrFinal=carc/15, custoLote=sum(S.desemb.filter(x=>x.loteId===l.id),x=>x.valor), oper=custoLote>0?custoLote/(n('cab')||1):CL?CL.rs/(n('cab')||1)+(NL.auto?NL.maoDia+NL.outDia+NL.pastoDia:n('operacionalDia'))*dias:(NL.auto?NL.diariaMed:diaria)*dias, desBoi=n('aquisicao')+oper, venda=arrFinal*n('precoVenda');
+  const arrProd=(carc-pe*.5)/15, arrFinal=carc/15, custoLote=sum(S.desemb.filter(x=>x.loteId===l.id),x=>x.valor), oper=custoLote>0?custoLote/(n('cab')||1):CL?CL.rs/(n('cab')||1)+(NL.auto?NL.maoDia+NL.outDia+NL.pastoDia+NL.fazDia:n('operacionalDia'))*dias:(NL.auto?NL.diariaMed:diaria)*dias, desBoi=n('aquisicao')+oper, venda=arrFinal*n('precoVenda');
   const desArrProd=oper/arrProd, desArrFinal=desBoi/arrFinal, aqArr=n('aquisicao')/(pe*.5/15);
   return {NL,CL,custoLote,dias,saiu,gmd,ganhoCarc,rendGanho:ganhoCarc/gmd*100,rendCarc:carc/ps*100,diaria,arrProd,arrFinal,oper,desBoi,venda,res:venda-desBoi,
     desArrProd,resArrProd:n('precoVenda')-desArrProd,margemProd:(n('precoVenda')-desArrProd)/n('precoVenda')*100,
@@ -1651,7 +1653,7 @@ function segHTML(){ const A=segAuto();
 /* composição da diária do lote e simulação do consumo em % do peso vivo */
 function nutLoteHTML(l,I){ const N=I.NL, cab=+l.cab||0, pr=+l.precoVenda||+BGI.spot||0, kgVivo=pr*0.55/15;
   const linha=(nm,v,f)=>ind(nm,brl(v,2)+'/cab/dia',{f});
-  const sim=N.fo&&N.pk>0?PV_OPC.map(x=>{ const kg=x/100*N.pAt, rs=kg*N.pk, d=rs+N.maoDia+N.outDia+N.pastoDia, extra=rs-N.nutDia;
+  const sim=N.fo&&N.pk>0?PV_OPC.map(x=>{ const kg=x/100*N.pAt, rs=kg*N.pk, d=rs+N.maoDia+N.outDia+N.pastoDia+N.fazDia, extra=rs-N.nutDia;
     return `<tr${Math.abs(x-N.pv)<1e-9?' style="font-weight:700"':''}><td>${nf(x,1)}%</td><td class="num">${nf(kg,1)} kg</td><td class="num">${brl(rs,2)}</td><td class="num">${brl(d,2)}</td><td class="num">${nf(kg*cab*DM)} kg</td><td class="num">${kgVivo>0&&N.pv?(extra>0?'+':'')+nf(extra/kgVivo,2):'—'}</td></tr>`; }).join(''):'';
   return `<details${I.saiu?'':' open'}><summary>Diária: ${brl(N.diaria,2)}/cab/dia${N.fo?' · '+esc(N.fo.nome):''}</summary><div>
     ${N.semPreco?`<p class="note neg">A formulação ${esc(N.fo.nome)} está sem preço. Digite o preço por kg dos ingredientes em Suplementação → Preço dos ingredientes.</p>`:''}
@@ -1662,6 +1664,7 @@ function nutLoteHTML(l,I){ const N=I.NL, cab=+l.cab||0, pr=+l.precoVenda||+BGI.s
     ${N.maoDia?linha('Mão de obra',N.maoDia,brl(+l.maoMes)+'/mês ÷ '+nf(cab)+' cab.'):''}
     ${N.outDia?linha('Outros operacionais',N.outDia,'sal, vacina, frete, impostos...'):''}
     ${N.pastoDia?linha('Pasto',N.pastoDia,brl(custoPasto(),2)+'/cab/mês'):''}
+    ${N.OF?(ok(N.OF.d)?linha('Operacional (diária da fazenda)',N.fazDia,'diária fixa da fazenda toda: gastos menos ração + pasto · '+N.OF.meses.filter(x=>ok(x.v)).map(x=>mLabel(x.m)+' '+brl(x.v,2)).join(' · ')+(N.OF.falta.length?' · sem dados: '+N.OF.falta.map(mLabel).join(', '):'')):'<p class="note neg">Operacional pela diária da fazenda: ainda sem dados (faltam custos ou o fechamento do rebanho nos meses do lote).</p>'):''}
     ${ind('<b>Diária total</b>',brl(N.diaria,2)+'/cab/dia',{ref:'lote: '+brl(N.diaria*cab*DM)+'/mês'})}
     ${sim?`<p class="small" style="margin:10px 0 4px"><b>Simular o consumo</b> (peso de ${nf(N.pAt)} kg)</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>% PV</th><th>kg/cab/dia</th><th>Ração/cab/dia</th><th>Diária total</th><th>Ração do lote/mês</th><th>GMD a mais para pagar</th></tr></thead><tbody>${sim}</tbody></table></div>
       <p class="note">"GMD a mais para pagar": quantos kg de peso vivo por dia a mais (ou a menos) o boi precisa ganhar para cobrir a diferença de ração em relação a ${nf(N.pv,2)}%, com a @ a ${brl(pr,2)} e 55% de rendimento.</p>`:''}
@@ -1969,6 +1972,16 @@ function diariaParte(p,mes){ const F=(RAW.fech||[]).filter(x=>!retiros().length|
   const mao=soma(x=>x.grupo==='mao'), alug=soma(x=>x.grupo==='arrendamento');
   T.comp={pasto:T.pasto+alug,mao,extras:T.fix-T.pasto-mao-alug,supl:T.supl};
   return {p,arr,T,fases,temCocho,semPreco,gmd:gmdPesParte(p.id,mes)}; }
+/* diária FIXA da fazenda toda no mês (todos os gastos menos ração + pasto, ÷ cabeças ÷ dias), igual à linha "Fazenda toda" de Indicadores → Diária */
+let DFZ={k:null,m:{}};
+function diariaFixaFaz(mes){ const k=[RAW.desemb,RAW.fech,RAW.movs,RAW.emovs,S.config]; if(!DFZ.k||DFZ.k.some((x,i)=>x!==k[i])) DFZ={k,m:{}};
+  if(mes in DFZ.m) return DFZ.m[mes];
+  const L=(partes().length?partes():[{id:SEDE,nome:'Fazenda'}]).map(p=>diariaParte(p,mes).T).filter(x=>x.cab>0||x.custo>0), cab=sum(L,x=>x.cab), dias=L[0]?.dias||diasMes(mes);
+  return DFZ.m[mes]=cab>0?sum(L,x=>x.fix)/cab/dias:NaN; }
+/* média da diária fixa da fazenda nos meses do lote, ponderada pelos dias do lote em cada mês */
+function opFazLote(l){ const a=l.dataEntrada, b=l.dataSaida||today(); if(!a||b<a) return {d:NaN,meses:[]};
+  const M=[]; for(let m=ym(a); m<=ym(b); m=addM(m,1)){ const i=m+'-01'>a?m+'-01':a, f=mEnd(m)<b?mEnd(m):b, dd=days(i,f)+1, v=diariaFixaFaz(m); M.push({m,dd,v}); }
+  const okM=M.filter(x=>ok(x.v)), dt=sum(okM,x=>x.dd); return {d:dt?sum(okM,x=>x.v*x.dd)/dt:NaN,meses:M,falta:M.filter(x=>!ok(x.v)).map(x=>x.m)}; }
 /* GMD pelas pesagens da parte: em cada lote, as duas últimas pesagens até o fim do mês (a última com até 1 ano); média ponderada pelas cabeças */
 function gmdPesParte(id,mes){ const fimM=mEnd(mes), G={};
   (S.config.pesagens||[]).filter(p=>+p.peso>0&&p.data&&p.data<=fimM&&(!retiros().length||daParte(id,p))).forEach(p=>{ const k=loteK(p.lote)||'?'; (G[k]=G[k]||[]).push(p); });
@@ -2426,7 +2439,7 @@ const FORMS={
       <div class="btns" style="margin:4px 0">${PV_OPC.map(x=>`<button class="btn" type="button" onclick="this.form.consumoPV.value='${x}'">${nf(x,1)}%</button>`).join('')}</div>
       ${fld('Nutrição digitada (R$/cab/dia), só se não usar formulação','nutricaoDia','number',num,l.nutricaoDia)}
       <p class="note">O app calcula o kg da ração pela formulação (preço por kg de cada ingrediente em Suplementação → Preço dos ingredientes) e o consumo pelo peso atual do lote (última pesagem com o mesmo nome do lote).</p></fieldset>
-    <fieldset><legend>Custos operacionais</legend><div class="grid2">${fld('Mão de obra do lote (R$/mês)','maoMes','number',num,l.maoMes)}${fld('Outros operacionais (R$/cab/dia)','operacionalDia','number',num,l.operacionalDia)}</div>
+    <fieldset><legend>Custos operacionais</legend><label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="opFaz" ${l.opFaz?'checked':''} style="width:auto"> Usar a diária fixa da fazenda toda (todos os gastos menos ração, mais o pasto). Com isso, mão de obra, outros e pasto abaixo não entram.</label><div class="grid2">${fld('Mão de obra do lote (R$/mês)','maoMes','number',num,l.maoMes)}${fld('Outros operacionais (R$/cab/dia)','operacionalDia','number',num,l.operacionalDia)}</div>
       <label class="fl" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="somaPasto" ${(l.id?l.somaPasto:true)?'checked':''} style="width:auto"> Somar o custo do pasto (${brl(custoPasto(),2)}/cab/mês, de Ajustes)</label>
       <p class="note">Outros: sal, vacina, frete, combustível, impostos... Lotes antigos sem formulação, mão de obra e pasto continuam com a diária digitada.</p></fieldset>
     <fieldset><legend>Saída</legend><div class="grid2">${fld('Data de saída','dataSaida','date','',l.dataSaida)}${fld('Peso vivo médio (kg)','pesoSaida','number',num,l.pesoSaida)}${fld('Carcaça por cabeça (kg, romaneio)','carcaca','number',num,l.carcaca)}${fld('Preço da @ (R$)','precoVenda','number',num,l.precoVenda)}${fld('Idade ao abate (meses)','idadeAbate','number',num,l.idadeAbate)}${fld('Idade ao desmame (meses)','idadeDesmame','number',num,l.idadeDesmame)}</div></fieldset>`;}},
@@ -2926,7 +2939,7 @@ async function submitForm(f){
   if(k==='adaptacao'){ const d={nome:v.nome,tipo:v.tipo,formulacaoId:v.formulacaoId||'',inicio:v.inicio,fase:v.fase,cab:N(v.cab),peso:N(v.peso)};
     if(ed) await db.doc(COL.adapt+'/'+ed).update({...d,...rv}); else await add(COL.adapt,d); }
   if(k==='saida') await add(COL.emovs,{tipo:'saida',insumoId:v.insumoId,data:v.data,qtd:N(v.qtd),obs:v.obs||''});
-  if(k==='lote'){ const d={}; ['nome','sistema','dataEntrada','dataSaida','formulacaoId'].forEach(x=>d[x]=v[x]||''); ['cab','pesoEntrada','aquisicao','nutricaoDia','operacionalDia','pesoSaida','carcaca','precoVenda','idadeAbate','idadeDesmame','consumoPV','maoMes'].forEach(x=>d[x]=N(v[x])); d.somaPasto=!!v.somaPasto;
+  if(k==='lote'){ const d={}; ['nome','sistema','dataEntrada','dataSaida','formulacaoId'].forEach(x=>d[x]=v[x]||''); ['cab','pesoEntrada','aquisicao','nutricaoDia','operacionalDia','pesoSaida','carcaca','precoVenda','idadeAbate','idadeDesmame','consumoPV','maoMes'].forEach(x=>d[x]=N(v[x])); d.somaPasto=!!v.somaPasto; d.opFaz=!!v.opFaz;
     if(ed) await db.doc(COL.engorda+'/'+ed).update({...d,...rv}); else await add(COL.engorda,d); }
   if(k==='estacao'){ const d={nome:v.nome,dataDG:v.dataDG||'',dataVendaVazias:v.dataVendaVazias||'',cats:{}}; RCATS.forEach(([c])=>d.cats[c]={expostas:N(v['exp_'+c])||0,prenhes:N(v['pre_'+c])||0});
     ['iatfExpostas','iatfPrenhes','doses','nascidosVivos','desmMachos','pesoDesmMachos','desmFemeas','pesoDesmFemeas','pesoVacas','desembBezerro'].forEach(x=>d[x]=N(v[x])||0);
