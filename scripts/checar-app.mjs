@@ -86,6 +86,7 @@ const relatorio = await roda(async () => {
   add("insumos", "mix", { nome: "Proteico recria", tipo: "proteico", unidade: "kg", kgUn: 1, grupo: "nutricao", formulacaoId: "proteico-ddg", metaTipo: "pv", metaMin: 0.3, metaMax: 0.5 });
   add("insumos", "vac", { nome: "Vacina aftosa", unidade: "dose", minimo: 10, grupo: "sanidade" });
   add("formulacoes", "proteico-ddg", { nome: "Proteico-energético recria (DDG + núcleo)", tipo: "proteico", ingredientes: [{ nome: "DDG", pct: 95, preco: 0 }, { nome: "Núcleo mineral", pct: 5, preco: 0 }] });
+  add("formulacoes", "tip-milho", { nome: "TIP milho DDG", tipo: "tip", ingredientes: [{ nome: "Milho", pct: 77, preco: 1.2 }, { nome: "DDG", pct: 20, preco: 0 }, { nome: "Núcleo mineral", pct: 3, preco: 0 }] });
   add("estoque_movs", "e1", { tipo: "entrada", insumoId: "ddg", data: ant + "-05", qtd: 30, valor: 45000 });
   add("estoque_movs", "e2", { tipo: "entrada", insumoId: "nuc", data: ant + "-05", qtd: 10, valor: 900 });
   add("estoque_movs", "f1", { tipo: "saida", fornecimento: true, insumoId: "mix", data: hoje, qtd: 500, dias: 7, fase: "recria", lote: "garrotes", cab: 50, peso: 280 });
@@ -118,6 +119,26 @@ const relatorio = await roda(async () => {
   if (!card || !/Diária: R/.test(card.textContent) || !/Simular o consumo/.test(card.textContent)) out.vazias.push("diária calculada do lote de engorda não apareceu");
   document.querySelector('#v-engorda [data-open="lote"][data-edit="l2"]')?.click(); await w(400);
   const fm = document.querySelector('form [name="consumoPV"]'); if (!fm || fm.value !== "0.7") out.vazias.push("formulário do lote sem o consumo em % do PV");
+  // Suplementação → Lançar fornecimento: lote logo abaixo da parte, formulações na lista, quantidade em kg com a batida
+  document.querySelector('[data-ret="sede"]')?.click(); await w(300);
+  document.querySelector('[data-tab="suplementacao"]')?.click(); await w(400);
+  document.querySelector('#v-suplementacao [data-entry="fornecimento"]')?.click(); await w(300);
+  const ff = document.querySelector('#v-suplementacao form[data-kind="fornecimento"]');
+  if (!ff) out.vazias.push("formulário de fornecimento não abriu");
+  else {
+    const nomes = [...ff.querySelectorAll("[name]")].map((x) => x.name).filter((x) => x !== "retiro");
+    if (nomes[0] !== "lote") out.vazias.push("fornecimento: o lote não é o 1º campo depois da parte (" + nomes.slice(0, 3) + ")");
+    if (![...ff.insumoId.options].some((o) => o.value === "form:tip-milho")) out.vazias.push("fornecimento: formulação sem produto não aparece na lista");
+    ff.lote.value = "garrotes"; ff.lote.dispatchEvent(new Event("change", { bubbles: true })); await w(100);
+    if (ff.insumoId.value !== "mix" || ff.cab.value !== "50") out.vazias.push("fornecimento: escolher o lote não repetiu o último trato");
+    ff.insumoId.value = "form:tip-milho"; ff.kg.value = "1000"; ff.dispatchEvent(new Event("input", { bubbles: true })); await w(100);
+    const cx = document.querySelector("#calc")?.textContent || "";
+    if (!/Batida de 1.000 kg/.test(cx) || !/770/.test(cx)) out.vazias.push("fornecimento: batida não apareceu (" + cx.slice(0, 120) + ")");
+    const n0 = T.insumos.length; ff.requestSubmit(); await w(800);
+    const novo = T.insumos.slice(n0).find((x) => x.dados.formulacaoId === "tip-milho");
+    const mv = novo && T.estoque_movs.find((x) => x.dados.insumoId === novo.id && x.dados.fornecimento);
+    if (!novo || !mv || mv.dados.qtd !== 1000 || mv.dados.lote !== "garrotes") out.vazias.push("fornecimento: não gravou a formulação como produto com 1.000 kg");
+  }
   return out;
 });
 
