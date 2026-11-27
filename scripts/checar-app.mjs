@@ -131,13 +131,29 @@ const relatorio = await roda(async () => {
     if (![...ff.insumoId.options].some((o) => o.value === "form:tip-milho")) out.vazias.push("fornecimento: formulação sem produto não aparece na lista");
     ff.lote.value = "garrotes"; ff.lote.dispatchEvent(new Event("change", { bubbles: true })); await w(100);
     if (ff.insumoId.value !== "mix" || ff.cab.value !== "50") out.vazias.push("fornecimento: escolher o lote não repetiu o último trato");
-    ff.insumoId.value = "form:tip-milho"; ff.kg.value = "1000"; ff.dispatchEvent(new Event("input", { bubbles: true })); await w(100);
+    if (ff.dias) out.vazias.push("fornecimento: ainda tem o campo de dias");
+    // dieta do lote: 140 kg/dia há 10 dias, depois muda para 180 kg/dia há 4 dias → a primeira fecha com 6 dias, a segunda segue até hoje
+    const dAtras = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+    ff.lote.value = "Engorda teste"; ff.lote.dispatchEvent(new Event("change", { bubbles: true }));
+    ff.insumoId.value = "form:tip-milho"; ff.kgDia.value = "1000"; ff.cab.value = "18"; ff.peso.value = "480"; ff.dispatchEvent(new Event("input", { bubbles: true })); await w(100);
     const cx = document.querySelector("#calc")?.textContent || "";
-    if (!/Batida de 1.000 kg/.test(cx) || !/770/.test(cx)) out.vazias.push("fornecimento: batida não apareceu (" + cx.slice(0, 120) + ")");
+    if (!/Batida de 1\.000 kg por dia/.test(cx) || !/770/.test(cx)) out.vazias.push("fornecimento: batida não apareceu (" + cx.slice(0, 120) + ")");
+    ff.kgDia.value = "140"; ff.data.value = dAtras(10);
     const n0 = T.insumos.length; ff.requestSubmit(); await w(800);
     const novo = T.insumos.slice(n0).find((x) => x.dados.formulacaoId === "tip-milho");
-    const mv = novo && T.estoque_movs.find((x) => x.dados.insumoId === novo.id && x.dados.fornecimento);
-    if (!novo || !mv || mv.dados.qtd !== 1000 || mv.dados.lote !== "garrotes") out.vazias.push("fornecimento: não gravou a formulação como produto com 1.000 kg");
+    if (!novo) out.vazias.push("fornecimento: não gravou a formulação como produto");
+    const f2 = document.querySelector('#v-suplementacao form[data-kind="fornecimento"]');
+    if (!f2) out.vazias.push("fornecimento: formulário sumiu depois de salvar");
+    else {
+      f2.lote.value = "Engorda teste"; f2.lote.dispatchEvent(new Event("change", { bubbles: true })); await w(100);
+      if (!/140 kg por dia/.test(document.querySelector("#dietaInfo")?.textContent || "")) out.vazias.push("fornecimento: não mostrou a dieta atual do lote");
+      f2.kgDia.value = "180"; f2.data.value = dAtras(4); f2.requestSubmit(); await w(800);
+      const D = T.estoque_movs.filter((x) => x.dados.continuo && x.dados.lote === "Engorda teste").map((x) => x.dados).sort((a, b) => (a.data < b.data ? -1 : 1));
+      if (D.length !== 2 || D[0].fim !== dAtras(4) || D[0].dias !== 6 || D[0].qtd !== 840 || D[1].fim || D[1].kgDia !== 180) out.vazias.push("fornecimento: mudar a dieta não fechou a anterior certo " + JSON.stringify(D.map((x) => [x.data, x.fim, x.dias, x.qtd, x.kgDia])));
+      const li = [...document.querySelectorAll("#v-suplementacao .item")].find((x) => /Dieta 180 kg\/dia/.test(x.textContent));
+      if (!li || !/hoje \(segue\)/.test(li.textContent) || !/× 5 dias/.test(li.textContent) || !/900 kg/.test(li.textContent)) out.vazias.push("fornecimento: dieta aberta não contou até hoje " + (li?.textContent || "").slice(0, 160));
+      if (!document.querySelector("#v-suplementacao [data-dieta]")) out.vazias.push("fornecimento: cartão do lote sem o botão Mudar a dieta");
+    }
   }
   return out;
 });

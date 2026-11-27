@@ -130,7 +130,7 @@ const SCHEMA = {
       },
     },
     cocho: {
-      type: "array", description: "suplemento, sal, ração ou mistura colocado no cocho (fornecimento); vazio se não houver",
+      type: "array", description: "suplemento, sal, ração ou mistura colocado no cocho (fornecimento); vale como a DIETA DO LOTE em kg por dia, que segue até mudar ('tratei 180 kg na engorda 3', 'aumentei a engorda 3 para 200 kg'); vazio se não houver",
       items: {
         type: "object", additionalProperties: false, required: ["data", "produto", "quantidade", "unidade", "dias", "cab", "peso_medio", "lote", "fase", "retiro"],
         properties: {
@@ -139,7 +139,7 @@ const SCHEMA = {
           produto: { type: "string", description: "nome do produto como está na lista 'Produtos do cocho' que vem junto; vazio se não der para saber" },
           quantidade: { type: "number", description: "quanto foi colocado, no número dito" },
           unidade: { type: "string", enum: ["kg", "t", "embalagem"], description: "kg; t = toneladas; embalagem = sacos ou embalagens do produto" },
-          dias: { type: "integer", description: "para quantos dias a quantidade dá; 0 se não disser" },
+          dias: { type: "integer", description: "só se a mensagem disser para quantos dias é a quantidade (ex.: 'para a semana' = 7); 0 se não disser = é o trato de um dia (kg por dia)" },
           cab: { type: "integer", description: "cabeças no cocho; 0 se não disser" },
           peso_medio: { type: "number", description: "kg vivo médio por cabeça; 0 se não disser" },
           lote: { type: "string", description: "lote ou pasto como o pecuarista chama, em minúsculas (ex.: pasto 4, garrotes da baixada); vazio se não disser" },
@@ -634,7 +634,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
   }
 
   // cocho: fornecimento de suplemento (sai do estoque; o custo já entrou na compra)
-  const cochos: any[] = [];
+  const cochos: any[] = [], fechar: any[] = [];
   if (L.cocho?.length) {
     const ins = (await todosId(d, "insumos", conta.fazenda_id)).filter((i: any) => i.grupo === "nutricao" && i.tipo !== "ingrediente");
     const ant = ins.length ? (await todosId(d, "estoque_movs", conta.fazenda_id)).filter((m: any) => m.fornecimento).sort((a: any, b: any) => (a.data < b.data ? -1 : 1)) : [];
@@ -653,16 +653,20 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       const lote = lote0 || String(u?.lote || "");
       const cab = Math.round(Number(c.cab) || 0) || Math.round(+u?.cab || 0), peso = Number(c.peso_medio) > 0 ? +c.peso_medio : +u?.peso || 0;
       const FS = ["cria", "recria", "engorda"], fase = FS.includes(c.fase) ? c.fase : u?.fase || (FS.includes(loteK(lote)) ? loteK(lote) : "");
-      let dd = Math.round(Number(c.dias) || 0);
+      const dd = Math.max(1, Math.round(Number(c.dias) || 0));
       if (!cab) { avisos.push(`Faltou o número de cabeças no cocho de ${p.nome}: mande de novo com as cabeças.`); continue; }
       if (!fase) { avisos.push(`Faltou a fase (cria, recria ou engorda) do cocho de ${p.nome}: mande de novo dizendo a fase.`); continue; }
-      if (!dd) { dd = Math.round(+u?.dias || 7); avisos.push(`Não disse para quantos dias era o cocho de ${p.nome}: considerei ${dd} dias.`); }
-      const data = okData(c.data) && c.data <= hoje ? c.data : hoje, qtd = Math.round(kg / kgUn * 1000) / 1000;
-      const dados = { tipo: "saida", fornecimento: true, insumoId: p.id, data, qtd, dias: dd, fase, lote, cab, peso, obs: "", ...RT(r), ...autor };
-      cochos.push({ id: `${base}-f${cochos.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, insumo_id: p.id, data, tipo: "saida", qtd, valor: null, fase, dados });
-      const g = kg * 1000 / (cab * dd), pv = peso ? kg / (cab * dd) / peso * 100 : NaN;
-      txt.push(`🥣 <b>Cocho</b> · ${esc(p.nome)} · ${kgOuT(kg)} · ${esc(lote || ONDE[fase])}${lote ? " · " + ONDE[fase] : ""} · ${nfBR(cab)} cab.${peso ? " de " + nfBR(peso) + " kg" : ""} × ${dd} dias` +
-        `\n   <b>${(g / 1000).toLocaleString("pt-BR", { minimumFractionDigits: g < 1000 ? 3 : 2, maximumFractionDigits: g < 1000 ? 3 : 2 })} kg/cab/dia</b>${Number.isFinite(pv) ? ` = ${pv.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% do peso vivo` : ""} · ${dBR(data)}${tagRet(rets, r)}`);
+      const data = okData(c.data) && c.data <= hoje ? c.data : hoje, kgDia = Math.round(kg / dd * 100) / 100, lt = lote || ONDE[fase];
+      // dieta aberta do mesmo lote: se o kg por dia é o mesmo, só confirma; se mudou, fecha a anterior na data da nova
+      const ab: any = [...ant, ...cochos.map((x) => ({ ...x.dados, id: x.id }))].filter((m: any) => m.continuo && !m.fim && !fechar.some((f) => f.id === m.id) && loteK(m.lote) === loteK(lt) && (m.retiro || "") === r).pop();
+      if (ab && data < ab.data) { avisos.push(`A dieta de ${lt} começou em ${dBR(ab.data)}: a mudança precisa ser nesse dia ou depois.`); continue; }
+      if (ab && ab.insumoId === p.id && Math.abs(kgDia - (+ab.kgDia || 0)) < 0.005 * (+ab.kgDia || 1)) { avisos.push(`A dieta de ${esc(lt)} já é ${kgOuT(kgDia)} por dia de ${esc(p.nome)} desde ${dBR(ab.data)}: segue igual, nada mudou.`); continue; }
+      if (ab) { const { aberto: _a, id: _i, ...raw } = ab; const fd = Math.max(0, dias(ab.data, data)); fechar.push({ id: ab.id, dados: { ...raw, fim: data, dias: fd, qtd: (+ab.kgDia || 0) * fd / (+ab.kgUnC || 1) } }); }
+      const dados = { tipo: "saida", fornecimento: true, continuo: true, kgDia, kgUnC: kgUn, insumoId: p.id, data, qtd: 0, dias: 0, fase, lote: lt, cab, peso, obs: "", ...(ab ? { de: ab.id } : {}), ...RT(r), ...autor };
+      cochos.push({ id: `${base}-f${cochos.length + 1}`, fazenda_id: conta.fazenda_id, owner: conta.user_id, insumo_id: p.id, data, tipo: "saida", qtd: 0, valor: null, fase, dados });
+      const g = kgDia * 1000 / cab, pv = peso ? kgDia / cab / peso * 100 : NaN;
+      txt.push(`🥣 <b>Dieta do lote</b> · ${esc(p.nome)} · <b>${kgOuT(kgDia)} por dia</b> a partir de ${dBR(data)}${ab ? ` (antes ${kgOuT(+ab.kgDia)} por dia)` : ""} · ${esc(lt)}${lote ? " · " + ONDE[fase] : ""} · ${nfBR(cab)} cab.${peso ? " de " + nfBR(peso) + " kg" : ""}` +
+        `\n   <b>${(g / 1000).toLocaleString("pt-BR", { minimumFractionDigits: g < 1000 ? 3 : 2, maximumFractionDigits: g < 1000 ? 3 : 2 })} kg/cab/dia</b>${Number.isFinite(pv) ? ` = ${pv.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% do peso vivo` : ""} · segue todo dia até mudar${tagRet(rets, r)}`);
     }
   }
 
@@ -731,6 +735,7 @@ async function lanca(d: Deps, chat: number, conta: any, quem: string, L: Leitura
       if (movs.length) await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", base + "-%");
       return responde(d, chat, "Não consegui salvar agora. Tente de novo em instantes.");
     }
+    for (const f of fechar) await d.db.from("estoque_movs").update({ qtd: f.dados.qtd, dados: f.dados }).eq("fazenda_id", conta.fazenda_id).eq("id", f.id);
   }
   if (lembs.length || alts.length || pes.length || novas.length || pagas.length || nAreas) {
     const ok = await mudaCfg(d, conta.fazenda_id, (D0) => { const D = nAreas ? aplicaAreas(D0, L.areas!, base, quem)!.novo : D0; return { ...D,
@@ -773,6 +778,7 @@ async function todos(d: Deps, tabela: string, fazenda: string, desde = "") {
     out.push(...(data || []).map((r: any) => r.dados || {}));
     if (!data || data.length < 1000) break;
   }
+  if (tabela === "estoque_movs") { const h = hojeMT(); return out.map((m) => contN(m, h)).filter((m) => !m.continuo || m.dias > 0); }
   return out;
 }
 // mesmo cálculo do app: último fechamento + movimentos depois dele
@@ -1445,17 +1451,35 @@ export function cochoAtrasados(ins: any[], em: any[], hoje: string, marcados: Re
   const G = new Map<string, any>();
   for (const m of em) {
     if (!m.fornecimento || !okData(m.data) || m.data > hoje) continue;
+    if (m.continuo) { G.set([loteK(m.lote), m.fase || "", m.insumoId, m.retiro || ""].join("|"), null); continue; }
     const k = [loteK(m.lote), m.fase || "", m.insumoId, m.retiro || ""].join("|"), a = G.get(k);
+    if (a === null) continue;
     if (!a || m.data >= a.data) G.set(k, m);
   }
   const out: any[] = [];
   for (const [k, m] of G) {
+    if (!m) continue;
     const fim = somaDias(m.data, Math.max(1, Math.round(+m.dias || 1))), atraso = dias(fim, hoje);
     if (atraso < COCHO_FOLGA || atraso > 30 || marcados?.[k] === fim) continue;
     const p = ins.find((i) => i.id === m.insumoId); if (!p) continue;
     out.push({ k, m, p, fim, atraso, kg: (+m.qtd || 0) * (+p.kgUn || 1) });
   }
   return out;
+}
+/* DIETA DO LOTE: fornecimento contínuo (continuo, kgDia, kgUnC) a partir de data, até fim (exclusivo) ou até hoje; igual ao contN do app */
+export function contN(m: any, hoje: string) {
+  if (!m || !m.continuo) return m;
+  const fim = m.fim || somaDias(hoje, 1), dd = m.fim ? Math.max(0, dias(m.data, fim)) : Math.max(1, dias(m.data, fim));
+  return { ...m, dias: dd, qtd: (+m.kgDia || 0) * dd / (+m.kgUnC || 1), aberto: !m.fim };
+}
+/* Desfazer uma mudança de dieta: a dieta anterior (dados.de) volta a ficar aberta */
+async function reabreDietas(d: Deps, fazenda: string, apagados: any[]) {
+  for (const de of apagados.map((x: any) => x?.dados?.de).filter(Boolean)) {
+    const { data: r } = await d.db.from("estoque_movs").select("id,dados").eq("fazenda_id", fazenda).eq("id", de).maybeSingle();
+    if (!r?.dados) continue;
+    const { fim: _f, ...raw } = r.dados;
+    await d.db.from("estoque_movs").update({ qtd: 0, dados: { ...raw, dias: 0, qtd: 0 } }).eq("fazenda_id", fazenda).eq("id", de);
+  }
 }
 async function todosId(d: Deps, tabela: string, fazenda: string) {
   const out: any[] = [];
@@ -1465,6 +1489,7 @@ async function todosId(d: Deps, tabela: string, fazenda: string) {
     out.push(...(data || []).map((r: any) => ({ ...(r.dados || {}), id: r.id })));
     if (!data || data.length < 1000) break;
   }
+  if (tabela === "estoque_movs") { const h = hojeMT(); return out.map((m) => contN(m, h)).filter((m) => !m.continuo || m.dias > 0); }
   return out;
 }
 const kgOuT = (kg: number) => (Math.abs(kg) >= 1000 ? (kg / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " t" : Math.round(kg).toLocaleString("pt-BR") + " kg");
@@ -1829,7 +1854,8 @@ async function botao(d: Deps, q: any, contaApp?: any) {
   // peão: só desfaz o trato que ele mesmo lançou
   if (conta.papel === "cocho") {
     if (acao !== "desf" || !/^[0-9a-f-]{36}$/.test(id)) return fim("Só um sócio pode mudar isso.");
-    const { data: es } = await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").eq("dados->>peaoChat", String(chat)).select("id");
+    const { data: es } = await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").eq("dados->>peaoChat", String(chat)).select("id,dados");
+    await reabreDietas(d, conta.fazenda_id, es || []);
     const k = (es || []).length;
     if (k) await d.tg("editMessageText", { chat_id: chat, message_id: q.message?.message_id, text: "↩ Desfeito: " + (k === 1 ? "1 trato do cocho apagado." : k + " tratos do cocho apagados."), parse_mode: "HTML" });
     return fim(k ? "Desfeito" : "Nada para desfazer");
@@ -1837,7 +1863,8 @@ async function botao(d: Deps, q: any, contaApp?: any) {
   if (acao === "desf" && /^[0-9a-f-]{36}$/.test(id)) {
     const { data: cs } = await d.db.from("desembolsos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
     const { data: ms } = await d.db.from("movimentos").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
-    const { data: es } = await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id");
+    const { data: es } = await d.db.from("estoque_movs").delete().eq("fazenda_id", conta.fazenda_id).like("id", id + "-%").select("id,dados");
+    await reabreDietas(d, conta.fazenda_id, es || []);
     const t = String(q.message?.text || ""), i = t.indexOf(MSG_ANOTA);
     const tirouNota = i >= 0 ? await desanota(d, conta, t.slice(i + MSG_ANOTA.length).split("\n")[0].trim()) : false;
     const tirou: Record<string, number> = {};

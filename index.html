@@ -1760,6 +1760,11 @@ const ST_TXT={ok:'Na meta',low:'Abaixo da meta',high:'Acima da meta'};
 const saldoKg=i=>saldo(i)*kgUn(i);
 /* ---------- ingredientes da mistura (DDG, milho, núcleo): entram pela compra e saem sozinhos quando a mistura vai para o cocho, na proporção da formulação ---------- */
 const ehIng=i=>i?.tipo==='ingrediente';
+/* DIETA DO LOTE (fornecimento contínuo): grava kgDia a partir de uma data e segue todo dia até mudar ou encerrar.
+   Ao mudar (ex.: 140 → 180 kg/dia), a anterior ganha fim = data da nova. Aqui vira um fornecimento comum: dias = até o fim (ou até hoje), qtd = kgDia × dias.
+   Fornecimentos antigos (kg para X dias) continuam valendo como estavam. */
+function contN(m){ if(!m||!m.continuo) return m; const fim=m.fim||addD(today(),1), dd=m.fim?Math.max(0,days(m.data,fim)):Math.max(1,days(m.data,fim)); return {...m,dias:dd,qtd:(+m.kgDia||0)*dd/(+m.kgUnC||1),aberto:!m.fim}; }
+const dietaAberta=(lote,ret)=>{ const k=loteK(lote); return k?(RAW.emovs||S.emovs).filter(m=>m.fornecimento&&m.continuo&&!m.fim&&loteK(m.lote)===k&&(m.retiro||'')===(ret||'')).sort((a,b)=>a.data<b.data?1:-1)[0]||null:null; };
 /* Lançar → Fornecimento: o select traz produtos e também as formulações ainda sem produto ('form:<id>'); na 1ª vez a formulação vira produto em kg */
 function fornIns(v){ v=String(v||''); if(!v.startsWith('form:')) return S.insumos.find(x=>x.id===v)||null; const id=v.slice(5), f=S.form.find(x=>x.id===id); if(!f) return null;
   const ja=S.insumos.find(i=>i.formulacaoId===id&&!ehIng(i)); if(ja) return ja; const r=SUP_REF[f.tipo];
@@ -1831,8 +1836,9 @@ function cochoHTML(L){ const h=today();
       ${r.G&&r.G.p1?`Ganho de peso: <b>${gmdTxt(r.G.gmd)}</b> <span class="muted">(pesagens de ${dBR(r.G.p0.data)} e ${dBR(r.G.p1.data)}: ${nf(r.G.p0.peso)} → ${nf(r.G.p1.peso)} kg)</span><br>
       ${ok(r.cArr)?`Retorno: <b>cada @ ganha custou ${brl(r.cArr,2)} de cocho</b>${ok(r.pB3)?` <span class="muted">· ${pct(r.pB3,0)} do valor da @ na B3 (${brl(BGI.spot,2)})</span>`:''}<br>`:'<span class="neg">Sem ganho de peso entre as pesagens: o cocho não se pagou nesse intervalo.</span><br>'}`
         :`<span class="muted">${r.lote?`Para ver o retorno, lance ${r.G&&r.G.n===1?'mais uma pesagem':'pesagens'} deste lote com o mesmo nome ("${esc(r.lote)}").`:'Para ver o retorno, dê nome ao lote no fornecimento e nas pesagens.'}</span><br>`}
+      ${(()=>{ const a=dietaAberta(r.lote,r.ret); return a&&a.insumoId===r.i?.id?`<div class="calc" style="margin:6px 0">Dieta atual: <b>${nf(+a.kgDia)} kg por dia</b> desde ${dBR(a.data)}${+a.cab?` · ${kgcd(+a.kgDia*1000/ +a.cab)} kg/cab/dia`:''}<div class="btns" style="margin-top:6px"><button class="btn" type="button" data-dieta="${esc(a.id)}">Mudar a dieta</button><button class="btn link" type="button" data-dietafim="${esc(a.id)}">Encerrar (lote saiu do cocho)</button></div></div>`:''; })()}
       <span class="muted">${r.n} lançamento${r.n>1?'s':''} de ${dBR(r.ini)} a ${dBR(r.ult)}</span>
-      ${atras?`<br><span class="neg">O último fornecimento cobria até ${dBR(r.fim)}. Lance o desta semana.</span>`:''}
+      ${atras?`<br><span class="neg">O último fornecimento cobria até ${dBR(r.fim)}. Lance a dieta do lote para ela seguir sozinha.</span>`:''}
     </div></article>`;}).join('')}</div>`; }
 function cochoTexto(){ const J=janela(), L=cochoLotes(S.emovs.filter(m=>m.fornecimento&&J.inR(m.data)).map(m=>({m,...fornCalc(m)})));
   if(!L.length) return 'Nenhum fornecimento no período.';
@@ -1866,7 +1872,7 @@ function renderSupl(){
   <h2>Fornecimentos</h2>
   <div class="panel"><div class="list">${fs.length?[...fs].sort((a,b)=>a.m.data<b.m.data?1:-1).slice(0,40).map(x=>{const ms=metaSt(x.i,x);
     return `<div class="item"><span class="t">${esc(x.i?.nome||'Produto removido')} · ${esc(FN[x.m.fase]||'')}${x.m.lote?' · '+esc(x.m.lote):''}</span><span class="amt">${nf(x.kg)} kg</span>
-    <span class="meta">${dBR(x.m.data)} · ${nf(+x.m.cab)} cab. × ${nf(+x.m.dias)} dias · ${kgcd(x.g)} kg/cab/dia${ok(x.pv)?' · '+pct(x.pv,2)+' PV':''} · ${brl(x.rcd,2)}/cab/dia${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
+    <span class="meta">${x.m.continuo?`<b>Dieta ${nf(+x.m.kgDia)} kg/dia</b> · ${dBR(x.m.data)} a ${x.m.aberto?'hoje (segue)':dBR(addD(x.m.fim,-1))} · ${nf(+x.m.cab)} cab. × ${nf(+x.m.dias)} dias`:`${dBR(x.m.data)} · ${nf(+x.m.cab)} cab. × ${nf(+x.m.dias)} dias`} · ${kgcd(x.g)} kg/cab/dia${ok(x.pv)?' · '+pct(x.pv,2)+' PV':''} · ${brl(x.rcd,2)}/cab/dia${ms?` <span class="chip meta-chip ${ms}">${ST_TXT[ms]}</span>`:''}</span>
     <span class="act"><button class="btn del" type="button" data-del="${COL.emovs}:${x.m.id}">Excluir</button></span></div>`;}).join(''):'<p class="empty">Nenhum fornecimento no período.</p>'}</div></div>
   ${segPer()}${janelaTxt(J)}
   <div class="hero">
@@ -2250,7 +2256,7 @@ function acCard(o){ const tile=o.ic?svgI(o.ic):`<span><b>${o.dia}</b><small>${o.
 /* cocho cujo último fornecimento já acabou há 2 dias ou mais (até 30 dias; depois o lote deve ter saído do cocho), como o aviso do robô */
 function cochoAtrasado(){ const G=new Map(), h=today();
   S.emovs.filter(m=>m.fornecimento&&m.data&&m.data<=h).forEach(m=>{ const k=[loteK(m.lote),m.fase||'',m.insumoId,m.retiro||''].join('|'), a=G.get(k); if(!a||m.data>=a.data) G.set(k,m); });
-  return [...G.values()].map(m=>{ const fim=addD(m.data,Math.max(1,Math.round(+m.dias||1))); return {m,fim,atraso:days(fim,h)}; }).filter(x=>x.atraso>=2&&x.atraso<=30); }
+  return [...G.values()].filter(m=>!m.continuo).map(m=>{ const fim=addD(m.data,Math.max(1,Math.round(+m.dias||1))); return {m,fim,atraso:days(fim,h)}; }).filter(x=>x.atraso>=2&&x.atraso<=30); }
 /* lote no cocho sem pesagem há mais de 60 dias: sem pesagem não sai o retorno do suplemento */
 function lotesPesar(){ const h=today(), P=S.config.pesagens||[], vistos=new Set(), out=[];
   S.emovs.filter(m=>m.fornecimento&&m.lote&&m.data&&days(m.data,h)<=14).sort((a,b)=>a.data<b.data?1:-1).forEach(m=>{ const k=loteK(m.lote)+'|'+(m.retiro||''); if(vistos.has(k)) return; vistos.add(k);
@@ -2433,9 +2439,9 @@ const FORMS={
   fornecimento:{t:'Fornecimento no cocho',d:'Suplemento por fase ou lote',need:()=>fornOpts().length>0||'Cadastre uma formulação ou um suplemento antes (aba Suplementação).',html:()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)==='recria');
     const ult=S.emovs.filter(m=>m.fornecimento).sort((a,b)=>a.data<b.data?1:-1)[0], op=fornOpts();
     const LT=[...new Set([...S.emovs.filter(m=>m.fornecimento&&m.lote).sort((a,b)=>a.data<b.data?1:-1).map(m=>m.lote.trim()),...S.engorda.filter(l=>!l.dataSaida).map(l=>(l.nome||'').trim())].filter(Boolean))];
-    return `${fld('Lote ou pasto','lote','text','list="fornLotes" autocomplete="off" placeholder="Ex.: Engorda 3, Pasto 4"')}<datalist id="fornLotes">${LT.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
-    ${sel('Formulação ou suplemento','insumoId',op,ult&&op.some(o=>o[0]===ult.insumoId)?ult.insumoId:'')}<div class="grid2">${fld('Data','data','date','required',today())}${fld('Dias que a quantidade cobre','dias','number','min="1" step="1" required','7')}</div>
-    <div class="grid2">${fld('Quantidade (kg)','kg','number','step="any" min="0.01" required inputmode="decimal" placeholder="Ex.: 1000"')}${sel('Fase','fase',FASES,ult?.fase||'recria')}</div>
+    return `${fld('Lote ou pasto','lote','text','required list="fornLotes" autocomplete="off" placeholder="Ex.: Engorda 3, Pasto 4"')}<div class="calc" id="dietaInfo" hidden></div><datalist id="fornLotes">${LT.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
+    ${sel('Formulação ou suplemento','insumoId',op,ult&&op.some(o=>o[0]===ult.insumoId)?ult.insumoId:'')}<div class="grid2">${fld('kg por dia (lote todo)','kgDia','number','step="any" min="0.01" required inputmode="decimal" placeholder="Ex.: 180"')}${fld('A partir de','data','date','required',today())}</div>
+    ${sel('Fase','fase',FASES,ult?.fase||'recria')}<p class="note" style="margin:-4px 0 6px">A dieta segue todo dia, sozinha, até você mudar. Aumentou ou diminuiu o trato? Lance de novo o mesmo lote com o novo kg por dia.</p>
     <div class="grid2">${fld('Cabeças no cocho','cab','number','min="1" step="1" required',last?fCab(last,cs)||'':'')}${fld('Peso médio (kg)','peso','number','step="any" min="0"',last&&fCab(last,cs)?Math.round(fKg(last,cs)/fCab(last,cs)):'')}</div>
     <div class="calc" id="calc">Preencha para ver o consumo.</div>`;}},
   suplemento:{t:'Produto ou ingrediente',d:'Suplemento do cocho ou ingrediente da mistura',html:o=>{const i=S.insumos.find(x=>x.id===o.edit)||{metaTipo:'pv'};
@@ -2851,15 +2857,19 @@ function openForm(k,o={}){
 }
 function wireForm(k,o,inline){
   const f=$('#frm');
-  if(k==='fornecimento'){ const upd=()=>{const i=fornIns(f.insumoId.value), kg=Number(f.kg.value)||0, fo=i&&i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId), ig=(fo?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct);
-      const bat=kg>0&&t?`<div class="small" style="margin-top:6px"><b>Batida de ${nf(kg)} kg:</b> ${ig.map(x=>esc(x.nome)+' <b>'+nf(kg*x.pct/t,1)+' kg</b>').join(' + ')}</div>`:'';
-      const c=i?fornCalc({ins:i,qtd:kg/kgUn(i),cab:f.cab.value,dias:f.dias.value,peso:f.peso.value}):{}; if(!ok(c.g)){ $('#calc').innerHTML=(bat||'Preencha para ver o consumo.')+(i&&kgUn(i)>1&&kg>0?`<div class="small muted">= ${nf(kg/kgUn(i),1)} ${esc(i.unidade)}</div>`:''); return; } const ms=metaSt(i,c);
-      $('#calc').innerHTML=`${nf(c.kg)} kg${kgUn(i)>1?' ('+nf(kg/kgUn(i),1)+' '+esc(i.unidade)+')':''}${ok(c.custo)&&c.custo>0?' · '+brl(c.custo,2):''} · <b>${kgcd(c.g)} kg/cab/dia</b>${ok(c.pv)?' · '+pct(c.pv,2)+' do peso vivo':''}${ok(c.rcd)?' · '+brl(c.rcd,2)+'/cab/dia':''}${ms?' · '+ST_TXT[ms]+' ('+metaTxt(i)+')':''}${bat}`;};
-    f.addEventListener('input',upd); f.fase.addEventListener('change',()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===f.fase.value); if(last&&fCab(last,cs)){f.cab.value=fCab(last,cs); f.peso.value=Math.round(fKg(last,cs)/fCab(last,cs));} upd();});
-    f.lote.addEventListener('change',()=>{ const k=loteK(f.lote.value); if(!k) return; const u=S.emovs.filter(m=>m.fornecimento&&loteK(m.lote)===k).sort((a,b)=>a.data<b.data?1:-1)[0]; if(!u) return;
-      if([...f.insumoId.options].some(o=>o.value===u.insumoId)) f.insumoId.value=u.insumoId; if(u.fase) f.fase.value=u.fase; if(+u.cab) f.cab.value=u.cab; if(+u.peso) f.peso.value=u.peso; if(+u.dias) f.dias.value=u.dias;
-      const ui=S.insumos.find(x=>x.id===u.insumoId); if(ui&&+u.qtd&&!f.kg.value) f.kg.value=Math.round(u.qtd*kgUn(ui)*100)/100; upd(); });
-    upd(); }
+  if(k==='fornecimento'){
+    const info=()=>{ const el=$('#dietaInfo'); if(!el) return; const a=dietaAberta(f.lote.value,f.retiro?.value); el.hidden=!a; if(a) el.innerHTML=`Dieta atual de <b>${esc(a.lote)}</b>: <b>${nf(+a.kgDia)} kg por dia</b> desde ${dBR(a.data)}. Ao salvar, a nova vale a partir da data escolhida e a atual fecha no dia anterior.`; };
+    const upd=()=>{const i=fornIns(f.insumoId.value), kg=Number(f.kgDia.value)||0, fo=i&&i.formulacaoId&&S.form.find(x=>x.id===i.formulacaoId), ig=(fo?.ingredientes||[]).filter(x=>+x.pct>0), t=sum(ig,x=>x.pct);
+      const bat=kg>0&&t?`<div class="small" style="margin-top:6px"><b>Batida de ${nf(kg)} kg por dia:</b> ${ig.map(x=>esc(x.nome)+' <b>'+nf(kg*x.pct/t,1)+' kg</b>').join(' + ')}</div>`:'';
+      const c=i?fornCalc({ins:i,qtd:kg/kgUn(i),cab:f.cab.value,dias:1,peso:f.peso.value}):{}; if(!ok(c.g)){ $('#calc').innerHTML=(bat||'Preencha para ver o consumo.')+(i&&kgUn(i)>1&&kg>0?`<div class="small muted">= ${nf(kg/kgUn(i),2)} ${esc(i.unidade)} por dia</div>`:''); return; } const ms=metaSt(i,c);
+      $('#calc').innerHTML=`${nf(c.kg)} kg por dia${kgUn(i)>1?' ('+nf(kg/kgUn(i),2)+' '+esc(i.unidade)+')':''}${ok(c.custo)&&c.custo>0?' · '+brl(c.custo,2)+' por dia':''} · <b>${kgcd(c.g)} kg/cab/dia</b>${ok(c.pv)?' · '+pct(c.pv,2)+' do peso vivo':''}${ok(c.rcd)?' · '+brl(c.rcd,2)+'/cab/dia':''}${ms?' · '+ST_TXT[ms]+' ('+metaTxt(i)+')':''}${bat}`;};
+    f.addEventListener('input',upd); f.retiro?.addEventListener('change',info);
+    f.fase.addEventListener('change',()=>{const last=[...S.fech].sort((a,b)=>a.mes<b.mes?-1:1).pop(), cs=CK.filter(c=>faseOf(c)===f.fase.value); if(last&&fCab(last,cs)){f.cab.value=fCab(last,cs); f.peso.value=Math.round(fKg(last,cs)/fCab(last,cs));} upd();});
+    f.lote.addEventListener('change',()=>{ const k=loteK(f.lote.value); if(!k){ info(); return; } const a=dietaAberta(f.lote.value,f.retiro?.value), u=a||S.emovs.filter(m=>m.fornecimento&&loteK(m.lote)===k).sort((a,b)=>a.data<b.data?1:-1)[0]; if(!u){ info(); return; }
+      if([...f.insumoId.options].some(o=>o.value===u.insumoId)) f.insumoId.value=u.insumoId; if(u.fase) f.fase.value=u.fase; if(+u.cab) f.cab.value=u.cab; if(+u.peso) f.peso.value=u.peso;
+      if(!f.kgDia.value){ const ui=S.insumos.find(x=>x.id===u.insumoId); f.kgDia.placeholder='hoje: '+nf(u.continuo?+u.kgDia:(+u.qtd||0)*kgUn(ui)/Math.max(1,+u.dias||1),1); }
+      info(); upd(); });
+    info(); upd(); }
   if(k==='desembolso'){ const upd=()=>{$('#grpNote').textContent='Grupo do benchmark: '+(GN[ITG[f.item.value]]||'Outros');}; f.item.addEventListener('change',()=>{ if(!o.edit) f.onde.value=ondePadrao(f.item.value); upd();}); upd();
     const arq=f.querySelector('#notaArq'); if(arq) arq.addEventListener('change',()=>leFotoNota(f,arq)); }
   if(k==='custosMes') f.addEventListener('input',()=>{let t=0; ITENS.forEach(([k2])=>t+=Number(f['v_'+k2].value)||0); $('#calc').innerHTML='Total do mês: <b>'+brl(t,2)+'</b>';});
@@ -2957,9 +2967,15 @@ async function submitForm(f){
         const {id}=await db.collection(COL.insumos).add({...i,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})}); i={...i,id}; } }
     if(!i) throw {code:'form',msg:'Escolha o produto.'};
     await add(COL.emovs,{tipo:'entrada',insumoId:i.id,data:v.data,qtd:N(v.qtd),valor:N(v.valor)||0,obs:v.obs||''}); if(v.lancar&&N(v.valor)>0) await add(COL.desemb,{data:v.data,valor:N(v.valor),grupo:i?.grupo||'nutricao',item:GRUPO_ITEM[i?.grupo||'nutricao']||'outros',tipo:'custeio',...parseOnde(v.onde),descricao:`${nf(N(v.qtd),1)} ${i?.unidade||''} de ${i?.nome||'insumo'}`}); }
-  if(k==='fornecimento'){ let i=fornIns(v.insumoId); if(!i) throw {code:'form',msg:'Escolha a formulação ou o suplemento.'}; if(!(N(v.kg)>0)) throw {code:'form',msg:'Digite a quantidade em kg.'};
+  if(k==='fornecimento'){ let i=fornIns(v.insumoId); if(!i) throw {code:'form',msg:'Escolha a formulação ou o suplemento.'};
+    if(!(N(v.kgDia)>0)) throw {code:'form',msg:'Digite quantos kg o lote come por dia.'};
+    const lote=String(v.lote||'').trim(); if(!lote) throw {code:'form',msg:'Digite o nome do lote ou pasto.'};
+    const ab=dietaAberta(lote,v.retiro); if(ab&&v.data<ab.data) throw {code:'form',msg:'A dieta atual começou em '+dBR(ab.data)+'. A nova precisa começar nesse dia ou depois.'};
     if(!i.id){ const {id}=await db.collection(COL.insumos).add({...i,criadoEm:new Date().toISOString(),...(FID?{porId:UID,por:meuNome()}:{})}); i={...i,id}; }
-    await add(COL.emovs,{tipo:'saida',fornecimento:true,insumoId:i.id,data:v.data,qtd:N(v.kg)/kgUn(i),dias:N(v.dias),fase:v.fase,lote:v.lote||'',cab:N(v.cab),peso:N(v.peso)||0,obs:''}); }
+    const nova={tipo:'saida',fornecimento:true,continuo:true,insumoId:i.id,data:v.data,kgDia:N(v.kgDia),kgUnC:kgUn(i),qtd:0,dias:0,fase:v.fase,lote,cab:N(v.cab),peso:N(v.peso)||0,obs:''};
+    if(ab&&ab.data===v.data) await db.doc(COL.emovs+'/'+ab.id).update({...nova,...rv});
+    else { if(ab){ const dd=Math.max(1,days(ab.data,v.data)); await db.doc(COL.emovs+'/'+ab.id).update({fim:v.data,dias:dd,qtd:(+ab.kgDia||0)*dd/(+ab.kgUnC||1)}); }
+      await add(COL.emovs,{...nova,...(ab?{de:ab.id}:{})}); } }
   if(k==='suplemento'){ const d={nome:v.nome,tipo:v.tipo,unidade:v.unidade,kgUn:N(v.kgUn)||1,minimo:N(v.minimo)||0,precoKg:N(v.precoKg)||0,grupo:'nutricao',formulacaoId:v.formulacaoId||'',metaTipo:v.metaTipo,metaMin:(N(v.metaMin)||0)*(v.metaTipo==='g'?1000:1),metaMax:(N(v.metaMax)||0)*(v.metaTipo==='g'?1000:1)};
     if(ed) await db.doc(COL.insumos+'/'+ed).update({...d,...rv}); else await add(COL.insumos,d); }
   if(k==='formulacao'){ const ingredientes=[]; for(let n=0;n<6;n++){ if(v['in_'+n]||N(v['ip_'+n])) ingredientes.push({nome:v['in_'+n]||'',pct:N(v['ip_'+n])||0,preco:N(v['iv_'+n])||0}); }
@@ -3132,6 +3148,11 @@ document.addEventListener('click',async e=>{
     try{ await acessoApi(b.dataset.acAcao,{user_id:b.dataset.acBloq}); await carregaAcessos(); render(); toast(b.dataset.acAcao==='bloquear'?'Acesso bloqueado':'Acesso liberado'); }
     catch(x){ b.disabled=false; toast(x.message); } return; }
   if(b.dataset.rmMembro){ if(arma(b)) return; const {error}=await sb.from('membros').delete().eq('fazenda_id',FID).eq('user_id',b.dataset.rmMembro); if(error) return toast('Não foi possível remover.'); toast('Sócio removido'); return carregaSocios(); }
+  if(b.dataset.dieta){ const a=(RAW.emovs||[]).find(m=>m.id===b.dataset.dieta); if(!a) return; UI.entry.suplementacao='fornecimento'; UI.eo={edit:'',mes:''}; DIRTY=false; $('#sheetRoot').innerHTML=''; render();
+    const ff=$('#frm'); if(ff&&ff.dataset.kind==='fornecimento'){ if(ff.retiro){ ff.retiro.value=a.retiro||''; ff.retiro.dispatchEvent(new Event('change')); } ff.lote.value=a.lote||''; ff.kgDia.value=''; ff.lote.dispatchEvent(new Event('change')); ff.data.value=today(); ff.scrollIntoView({block:'start'}); ff.kgDia.focus(); } return; }
+  if(b.dataset.dietafim){ const a=(RAW.emovs||[]).find(m=>m.id===b.dataset.dietafim); if(!a) return; const ult=prompt('Último dia da dieta de '+(a.lote||'lote')+' (dd/mm/aaaa):',today().split('-').reverse().join('/')); if(ult==null) return;
+    const mt=String(ult).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/); if(!mt) return toast('Data inválida. Use dd/mm/aaaa.'); const d=(mt[3].length===2?'20'+mt[3]:mt[3])+'-'+mt[2].padStart(2,'0')+'-'+mt[1].padStart(2,'0'); if(d<a.data) return toast('A data é antes do início da dieta ('+dBR(a.data)+').');
+    const fim=addD(d,1), dd=Math.max(1,days(a.data,fim)); await db.doc(COL.emovs+'/'+a.id).update({fim,dias:dd,qtd:(+a.kgDia||0)*dd/(+a.kgUnC||1)}); toast('Dieta encerrada em '+dBR(d)+'.'); return; }
   if('copiacocho' in b.dataset){ const t=cochoTexto(); (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Relatório copiado. Cole no WhatsApp.'),()=>{ prompt('Copie o relatório:',t); }); return; }
   if('semarr' in b.dataset){ UI.semArr=!UI.semArr; try{localStorage.setItem('semArr',UI.semArr?'1':'0');}catch(x){} aplicaRetiro(); toast(UI.semArr?'Fazenda toda sem os arrendamentos':'Fazenda toda com os arrendamentos'); return render(); }
   if('arrtoggle' in b.dataset){ if(!ehArr(UI.ret)) UI.arrAberto=!UI.arrAberto; return render(); }
@@ -3364,7 +3385,7 @@ async function iniciar(session){
     if(!data||!data.length){ await db.doc('config/geral').set({...CFG0,nome:FAZ}); for(const f of FORM_PADRAO) await novaForm(f); }
     else { /* contas antigas: acrescenta as formulações reais da fazenda (DDG) uma única vez */
       for(const f of FORM_PADRAO.filter(f=>f[0].endsWith('-ddg'))){ const {data:fd}=await daFaz(sb.from('formulacoes').select('id').eq('id',f[0])); if(fd&&!fd.length) await novaForm(f); } } }catch(e){}
-  const sub=(key,col)=>db.collection(col).onSnapshot(s=>{RAW[key]=s.docs.map(d=>({id:d.id,...d.data()})); S[key]=filtraCol(key); render();},()=>{});
+  const sub=(key,col)=>db.collection(col).onSnapshot(s=>{RAW[key]=s.docs.map(d=>({id:d.id,...d.data()})); if(key==='emovs') RAW[key]=RAW[key].map(contN).filter(m=>!m.continuo||m.dias>0); S[key]=filtraCol(key); render();},()=>{});
   Object.entries(COL).forEach(([k,c])=>sub(k,c));
   db.doc('config/geral').onSnapshot(s=>{S.config={...CFG0,...(s.exists?s.data():{})};S.config.precos={...PRECO_PADRAO,...(S.config.precos||{})};S.config.fases={...FASE_PADRAO,...(S.config.fases||{})};S.config.areaFase={...CFG0.areaFase,...(S.config.areaFase||{})};aplicaRetiro();render();},()=>{});
   clearInterval(tick); tick=setInterval(()=>{ if(db&&!document.hidden){ db.refreshAll(); carregaSocios(); } },30000);
